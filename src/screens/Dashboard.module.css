@@ -1,0 +1,133 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+/* Stats */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--sp-4);
+}
+
+/* Panels row */
+.panels {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--sp-4);
+}
+
+@media (max-width: 900px) {
+  .panels { grid-template-columns: 1fr; }
+}
+
+/* Card internals */
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+
+.cardTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* Activity */
+.activityCard { display: flex; flex-direction: column; }
+
+.activityList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.activityItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.activityDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.activityDot[data-status="success"] { background: var(--color-success); }
+.activityDot[data-status="danger"]  { background: var(--color-danger); }
+.activityDot[data-status="warning"] { background: var(--color-warning); }
+.activityDot[data-status="info"]    { background: var(--color-primary); }
+
+.activityBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.activityAgent {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.activityAction {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.activityTime {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Zones */
+.zonesCard { display: flex; flex-direction: column; }
+
+.zoneList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.zoneRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.zoneName {
+  width: 52px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.zoneBar {
+  flex: 1;
+  height: 6px;
+  background: var(--color-surface-2);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.zoneBarFill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.6s ease;
+}
+
+.zonePct {
+  width: 34px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: right;
+  flex-shrink: 0;
+}

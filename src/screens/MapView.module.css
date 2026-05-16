@@ -1,0 +1,78 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toolbarLeft {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.refreshBtn {
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background var(--ease), border-color var(--ease);
+}
+
+.refreshBtn:hover {
+  background: var(--color-surface-2);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.mapCard {
+  padding: 0;
+  overflow: hidden;
+}
+
+.mapContainer {
+  width: 100%;
+  height: calc(100vh - 240px);
+  min-height: 400px;
+}
+
+/* Make Leaflet controls match dark theme */
+:global(.leaflet-control-zoom a) {
+  background: var(--color-surface) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+:global(.leaflet-control-attribution) {
+  background: rgba(26,29,39,0.8) !important;
+  color: var(--color-text-muted) !important;
+  font-size: 10px !important;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.legendLabel {
+  font-weight: 500;
+}
+
+.legendBar {
+  width: 120px;
+  height: 8px;
+  border-radius: 99px;
+  background: linear-gradient(to right, #4f6ef7, #f59e0b, #ef4444);
+}
+
+.legendMin { color: var(--color-primary); }
+.legendMax { color: var(--color-danger); }

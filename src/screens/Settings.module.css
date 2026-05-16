@@ -1,0 +1,97 @@
+.page {
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--sp-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-6);
+}
+
+.rowLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.rowTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.rowHint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  max-width: 240px;
+}
+
+.rowControl {
+  flex-shrink: 0;
+  width: 240px;
+}
+
+.input {
+  width: 100%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: var(--sp-2) var(--sp-3);
+  outline: none;
+  transition: border-color var(--ease);
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+}
+
+.saveRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-4);
+  margin-top: var(--sp-2);
+}
+
+.savedMsg {
+  font-size: 12px;
+  color: var(--color-success);
+}
+
+.saveBtn {
+  background: var(--color-primary);
+  color: #fff;
+  padding: var(--sp-2) var(--sp-6);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background var(--ease);
+}
+
+.saveBtn:hover { background: var(--color-primary-hover); }

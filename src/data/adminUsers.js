@@ -1,0 +1,48 @@
+import { ROLES } from '../config/rbac'
+
+export const adminUsers = [
+  {
+    id: 'ADM-001',
+    name: 'Sai Teja',
+    email: 'saiteja@ecohomely.in',
+    role: ROLES.SUPER_ADMIN,
+    city: 'Visakhapatnam',
+    area: 'All Areas',
+    status: 'Active',
+    assignedModules: ['All Modules'],
+    lastActiveAt: '2026-04-10 11:15',
+  },
+  {
+    id: 'ADM-002',
+    name: 'Rohitha',
+    email: 'rohitha@ecohomely.in',
+    role: ROLES.ADMIN,
+    city: 'Visakhapatnam',
+    area: 'All Areas',
+    status: 'Active',
+    assignedModules: ['Workers', 'Bookings', 'Complaints', 'Payments'],
+    lastActiveAt: '2026-04-10 10:42',
+  },
+  {
+    id: 'ADM-003',
+    name: 'Rajesh Kumar',
+    email: 'rajesh@ecohomely.in',
+    role: ROLES.SUB_ADMIN,
+    city: 'Visakhapatnam',
+    area: 'MVP Colony',
+    status: 'Active',
+    assignedModules: ['Bookings', 'Complaints'],
+    lastActiveAt: '2026-04-10 09:18',
+  },
+  {
+    id: 'ADM-004',
+    name: 'Priya Singh',
+    email: 'priya@ecohomely.in',
+    role: ROLES.SUB_ADMIN,
+    city: 'Guntur',
+    area: 'All Areas',
+    status: 'Invited',
+    assignedModules: ['Bookings', 'Complaints'],
+    lastActiveAt: 'Invitation pending',
+  },
+]

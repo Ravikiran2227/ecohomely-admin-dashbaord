@@ -1,0 +1,155 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+.composeCard { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+.cardTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--sp-2);
+}
+
+/* Form */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.input, .textarea {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: var(--sp-2) var(--sp-3);
+  outline: none;
+  transition: border-color var(--ease);
+  resize: vertical;
+}
+
+.input:focus, .textarea:focus {
+  border-color: var(--color-primary);
+}
+
+.charCount {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-align: right;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.charWarn { color: var(--color-warning); }
+
+.errorBox {
+  background: rgba(239,68,68,0.12);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.successBox {
+  background: rgba(34,197,94,0.12);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 12px;
+  color: var(--color-success);
+}
+
+.sendBtn {
+  align-self: flex-start;
+  background: var(--color-primary);
+  color: #fff;
+  padding: var(--sp-2) var(--sp-6);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background var(--ease), opacity var(--ease);
+}
+
+.sendBtn:hover:not(:disabled) { background: var(--color-primary-hover); }
+.sendBtn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Log */
+.logHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+
+.logCount {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.logList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.logRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3);
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.logLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.logTo {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.logMsg {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-1);
+  flex-shrink: 0;
+}
+
+.logTime {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}

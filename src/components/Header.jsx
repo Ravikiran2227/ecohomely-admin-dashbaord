@@ -1,14 +1,23 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import Icon from './Icon'
+import Btn from './Btn'
+import Modal from './Modal'
 import { BREADCRUMBS, HEADER_ALERTS, ROUTE_ITEMS, ROUTE_LABELS } from '../config/navigation'
 import { useAuth } from '../context/authContextValue'
+import { ROLES } from '../config/rbac'
+import adminApi from '../services/adminApi'
 
 export default function Header() {
   const location = useLocation()
   const navigate = useNavigate()
   const { currentUser, logout } = useAuth()
   const [search, setSearch] = useState('')
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' })
+  const [passwordError, setPasswordError] = useState('')
+  const [passwordSuccess, setPasswordSuccess] = useState('')
+  const [savingPassword, setSavingPassword] = useState(false)
 
   const label = Object.entries(ROUTE_LABELS).find(([path]) =>
     location.pathname === path || location.pathname.startsWith(path + '/')
@@ -22,8 +31,51 @@ export default function Header() {
       item.summary.toLowerCase().includes(query)
     )).slice(0, 6)
     : []
+  const isSuperAdmin = currentUser?.role === ROLES.SUPER_ADMIN
+
+  const closePasswordModal = () => {
+    setPasswordModalOpen(false)
+    setPasswordForm({ current: '', next: '', confirm: '' })
+    setPasswordError('')
+    setPasswordSuccess('')
+  }
+
+  const changePassword = async () => {
+    setPasswordError('')
+    setPasswordSuccess('')
+    if (!passwordForm.current || !passwordForm.next || !passwordForm.confirm) {
+      setPasswordError('All password fields are required.')
+      return
+    }
+    if (currentUser?.password && passwordForm.current !== currentUser.password) {
+      setPasswordError('Current password is incorrect.')
+      return
+    }
+    if (passwordForm.next !== passwordForm.confirm) {
+      setPasswordError('New password and confirmation do not match.')
+      return
+    }
+    if (passwordForm.next.length < 6) {
+      setPasswordError('New password must be at least 6 characters.')
+      return
+    }
+
+    setSavingPassword(true)
+    try {
+      await adminApi.updateCurrentUser({ password: passwordForm.next })
+      const nextUser = { ...currentUser, password: passwordForm.next }
+      window.localStorage.setItem('adminUser', JSON.stringify(nextUser))
+      setPasswordSuccess('Password changed successfully.')
+      setPasswordForm({ current: '', next: '', confirm: '' })
+    } catch (error) {
+      setPasswordError(error.message || 'Unable to change password.')
+    } finally {
+      setSavingPassword(false)
+    }
+  }
 
   return (
+    <>
     <header className="sticky top-0 z-40 flex items-center h-16 md:h-[68px] px-4 md:px-6 border-b border-[var(--border-main)] bg-[var(--card-bg)]/80 backdrop-blur-xl shadow-sm gap-3 md:gap-5">
       <div className="flex-1 min-w-0">
         {crumbs && (
@@ -94,6 +146,15 @@ export default function Header() {
            
             <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">{currentUser?.role || 'Super Admin'}</p>
           </div>
+          {isSuperAdmin ? (
+            <button
+              type="button"
+              onClick={() => setPasswordModalOpen(true)}
+              className="h-10 rounded-2xl border border-[var(--border-main)] px-3 text-xs font-bold text-[var(--text-main)] transition hover:bg-dark-50 dark:hover:bg-dark-900"
+            >
+              Change Password
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => {
@@ -109,5 +170,38 @@ export default function Header() {
         </div>
       </div>
     </header>
+    <Modal
+      isOpen={passwordModalOpen}
+      title="Change Password"
+      onClose={closePasswordModal}
+      size="md"
+      footer={(
+        <>
+          <Btn v="outline" onClick={closePasswordModal}>Cancel</Btn>
+          <Btn v="primary" onClick={changePassword} disabled={savingPassword}>{savingPassword ? 'Saving...' : 'Update Password'}</Btn>
+        </>
+      )}
+    >
+      <div className="grid gap-4">
+        {passwordError ? <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-600">{passwordError}</div> : null}
+        {passwordSuccess ? <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-700 dark:text-emerald-400">{passwordSuccess}</div> : null}
+        {[
+          ['current', 'Current Password'],
+          ['next', 'New Password'],
+          ['confirm', 'Confirm New Password'],
+        ].map(([key, label]) => (
+          <label key={key} className="grid gap-2">
+            <span className="text-sm font-bold text-[var(--text-main)]">{label}</span>
+            <input
+              type="password"
+              value={passwordForm[key]}
+              onChange={(event) => setPasswordForm((current) => ({ ...current, [key]: event.target.value }))}
+              className="rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none"
+            />
+          </label>
+        ))}
+      </div>
+    </Modal>
+    </>
   )
 }

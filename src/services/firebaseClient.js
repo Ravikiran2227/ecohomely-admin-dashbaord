@@ -665,7 +665,7 @@ async function handleAdmin(path, method, body) {
 
   if (section === 'me') {
     const current = await resolveCurrentAdmin()
-    if (method === 'PATCH') return updateRecord('adminUsers', current.id, body)
+    if (method === 'PATCH') return updateAdminUser(current.id, body)
     return current
   }
 

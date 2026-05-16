@@ -10,6 +10,7 @@ export default function Login() {
   const { currentUser, loading: authLoading, login } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const redirectTo = location.state?.from || '/dashboard'
@@ -77,15 +78,23 @@ export default function Login() {
             <div className="relative">
               <Icon n="shield" sz={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 disabled={submitting}
                 required
                 autoComplete="current-password"
-                className="h-12 w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] pl-11 pr-4 text-sm font-semibold text-[var(--text-main)] outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15"
+                className="h-12 w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] pl-11 pr-12 text-sm font-semibold text-[var(--text-main)] outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15"
                 placeholder="Enter password"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((current) => !current)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)] transition hover:text-[var(--text-main)]"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                <Icon n="eye" sz={18} />
+              </button>
             </div>
           </label>
 

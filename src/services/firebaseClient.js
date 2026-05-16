@@ -10,8 +10,6 @@ import {
   getDoc,
   getDocs,
   getFirestore,
-  limit,
-  orderBy,
   query,
   setDoc,
   where,
@@ -101,6 +99,110 @@ const HEATMAP_AREA_COORDS = {
 
 function docToJson(snapshot) {
   return { id: snapshot.id, ...snapshot.data() }
+}
+
+function adminCollectionForRole(role = '') {
+  const value = String(role || '').trim().toLowerCase()
+  if (value === 'manager' || value === 'admin' || value === String(ROLES.ADMIN).toLowerCase()) return 'managers'
+  if (value === 'sub_manager' || value.includes('sub')) return 'sub_managers'
+  if (value === 'super_admin' || value === String(ROLES.SUPER_ADMIN).toLowerCase()) return 'admins'
+  return 'sub_managers'
+}
+
+function storedAdminRole(role = '') {
+  const collectionName = adminCollectionForRole(role)
+  if (collectionName === 'managers') return 'manager'
+  if (collectionName === 'admins') return 'super_admin'
+  return 'sub_manager'
+}
+
+async function findAdminRecord(id) {
+  for (const alias of aliasesFor('adminUsers')) {
+    const snapshot = await getDoc(doc(db, alias, id))
+    if (snapshot.exists()) return { alias, data: docToJson(snapshot) }
+  }
+  const error = new Error('Admin user not found')
+  error.status = 404
+  throw error
+}
+
+function normalizeAdminPayload(payload = {}, { create = false } = {}) {
+  const now = new Date()
+  const body = {
+    username: payload.username || payload.email || '',
+    name: payload.name || '',
+    email: payload.email || '',
+    role: storedAdminRole(payload.role),
+    isActive: payload.isActive ?? true,
+    status: payload.status || 'Active',
+    updatedDate: now,
+    updatedAt: now.toISOString(),
+  }
+
+  if (payload.password) body.password = payload.password
+  if (payload.city) body.city = payload.city
+  if (payload.area) body.area = payload.area
+  if (create) {
+    body.createdDate = now
+    body.createdAt = now.toISOString()
+    body.lastLogin = null
+  }
+
+  return body
+}
+
+async function listAdminUsers() {
+  const snapshots = await Promise.all(aliasesFor('adminUsers').map((alias) =>
+    getDocs(collection(db, alias)).then((snapshot) => ({ alias, docs: snapshot.docs })).catch(() => ({ alias, docs: [] })),
+  ))
+
+  return snapshots.flatMap(({ alias, docs }) => docs.map((snapshot) => {
+    const data = snapshot.data()
+    const fallbackRole = alias === 'managers' ? 'manager' : alias === 'sub_managers' ? 'sub_manager' : 'super_admin'
+    return {
+      id: snapshot.id,
+      ...data,
+      role: data.role || fallbackRole,
+      collectionName: alias,
+    }
+  })).sort((left, right) => getDateMs(right.createdDate || right.createdAt) - getDateMs(left.createdDate || left.createdAt))
+}
+
+async function createAdminUser(payload = {}) {
+  const collectionName = adminCollectionForRole(payload.role)
+  const body = normalizeAdminPayload(payload, { create: true })
+  const recordRef = await addDoc(collection(db, collectionName), body)
+  return { id: recordRef.id, ...body, collectionName }
+}
+
+async function updateAdminUser(id, payload = {}) {
+  const current = await findAdminRecord(id)
+  const nextCollectionName = adminCollectionForRole(payload.role || current.data.role)
+  const updates = normalizeAdminPayload(payload)
+  if (!updates.password) delete updates.password
+
+  if (nextCollectionName !== current.alias) {
+    const nextBody = {
+      ...current.data,
+      ...updates,
+      createdDate: current.data.createdDate || new Date(),
+      lastLogin: current.data.lastLogin || null,
+    }
+    delete nextBody.id
+    delete nextBody.collectionName
+    const nextRef = await addDoc(collection(db, nextCollectionName), nextBody)
+    await deleteDoc(doc(db, current.alias, id))
+    return { id: nextRef.id, ...nextBody, collectionName: nextCollectionName }
+  }
+
+  await setDoc(doc(db, current.alias, id), updates, { merge: true })
+  return { ...current.data, ...updates, id, collectionName: current.alias }
+}
+
+async function deleteAdminUser(id) {
+  const current = await findAdminRecord(id)
+  await deleteDoc(doc(db, current.alias, id))
+  return null
 }
 
 function firstAssetValue(record = {}, fields = []) {
@@ -402,6 +504,7 @@ function buildHeatmapZones(workers = [], bookings = []) {
 
 async function listCollection(name, filters = {}) {
   if (name === 'bookings') return listBookings(filters)
+  if (name === 'adminUsers') return sortByDate(applyQueryFilters(await listAdminUsers(), filters), 'createdDate')
 
   const topLevelRows = await Promise.all(aliasesFor(name).map((alias) => getDocs(collection(db, alias))))
     .then((snapshots) => snapshots.flatMap((snapshot) => snapshot.docs.map(docToJson)))
@@ -583,10 +686,10 @@ async function handleAdmin(path, method, body) {
   }
 
   if (section === 'users') {
-    if (method === 'POST') return createRecord('adminUsers', body)
-    if (!id) return listCollection('adminUsers')
-    if (method === 'PATCH') return updateRecord('adminUsers', id, body)
-    if (method === 'DELETE') return deleteRecord('adminUsers', id)
+    if (method === 'POST') return createAdminUser(body)
+    if (!id) return listAdminUsers()
+    if (method === 'PATCH') return updateAdminUser(id, body)
+    if (method === 'DELETE') return deleteAdminUser(id)
     return getRecord('adminUsers', id, 'Admin user')
   }
 
@@ -681,7 +784,7 @@ async function handleToLet(parts, method, body, queryOptions) {
   return getRecord(collectionName, id, route)
 }
 
-async function handleLocations(parts) {
+async function handleLocations(parts, method, body) {
   const section = parts[1]
 
   if (section === 'heatmap') {

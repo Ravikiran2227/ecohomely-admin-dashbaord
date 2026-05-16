@@ -89,6 +89,7 @@ function normalizeUser(user = {}) {
     name: user.name || user.displayName || user.email || 'Admin',
     email: user.email || '',
     role,
+    rawRole: user.role,
     city: user.city || 'Visakhapatnam',
     area: user.area || 'All Areas',
     status: normalizeStatus(user),
@@ -240,7 +241,7 @@ export function AuthProvider({ children }) {
 
     return {
       newUser,
-      generatedPassword: result?.credentials?.temporaryPassword || result?.temporaryPassword || '',
+      generatedPassword: result?.credentials?.temporaryPassword || result?.temporaryPassword || result?.password || payload?.password || '',
     }
   }, [refreshActivityLogs])
 

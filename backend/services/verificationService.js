@@ -32,16 +32,42 @@ export function buildReviewUpdate(worker, review) {
     : review.action === 'correction'
       ? 'Correction Required'
       : 'Rejected'
+  const isCorrection = nextStatus === 'Correction Required'
+  const correctionFields = review.correctionFields || review.items || []
+  const correctionFieldValues = review.correctionFieldValues || {}
+  const correctionNote = review.note || review.reason || (isCorrection ? `Correction requested for: ${correctionFields.join(', ')}` : '')
+  const correctionRequestedAt = isCorrection ? new Date().toISOString() : null
+  const correctionRequest = isCorrection
+    ? {
+        type: 'profile_correction',
+        title: 'Profile update required',
+        message: correctionNote,
+        fields: correctionFields,
+        fieldValues: correctionFieldValues,
+        requestedAt: correctionRequestedAt,
+        read: false,
+      }
+    : null
 
   return {
     ...worker,
     approvalStatus: nextStatus,
     approvedBy: review.reviewer_name || worker.approvedBy || null,
     rejectionReason: review.reason || null,
-    correctionItems: review.items || [],
+    correctionItems: correctionFields,
+    correctionFields,
+    correctionFieldValues,
+    correctionRequired: isCorrection,
+    requiresCorrection: isCorrection,
+    needsCorrection: isCorrection,
+    correctionRequested: isCorrection,
+    correctionRequestedAt: correctionRequestedAt || worker.correctionRequestedAt || null,
+    correctionStatus: isCorrection ? 'Pending' : null,
+    partnerAppPopup: correctionRequest,
+    profileCorrectionRequest: correctionRequest,
     verificationVersions: appendVerificationVersion(worker, {
       status: nextStatus,
-      note: review.note || review.reason || '',
+      note: correctionNote,
       reviewer_id: review.reviewer_id,
     }),
   }

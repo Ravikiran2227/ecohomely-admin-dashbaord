@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import Badge from '../components/Badge'
@@ -6,11 +6,9 @@ import Btn from '../components/Btn'
 import EmptyState from '../components/EmptyState'
 import { areas, cities, districts, mandals, states } from '../data/locationExpansion'
 import {
-  defaultRankingSettings,
   getLocationLabel,
   getPrimaryProfession,
   isMultiSkilled,
-  rankWorkers,
 } from '../data/workerSystem'
 import Icon from '../components/Icon'
 import ListToolbar from '../components/ListToolbar'
@@ -78,9 +76,9 @@ function FilterField({ value, onChange, options, placeholder, icon }) {
 }
 
 const emptyFilters = {
-  state_id: 'st-ap',
-  district_id: 'dist-vsp',
-  city_id: 'city-vizag',
+  state_id: '',
+  district_id: '',
+  city_id: '',
   area_id: '',
   profession: '',
   planType: '',
@@ -181,37 +179,99 @@ function getPaymentInfo(worker) {
   return { paid: paid ? 'Yes' : 'No', amount }
 }
 
-function ActionButton({ title, icon, tone, onClick }) {
-  const tones = {
-    review: 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-300',
-    reject: 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300',
-    flag: 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300',
-    muted: 'border-slate-300 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-500/40 dark:bg-slate-500/10 dark:text-slate-300',
+function toDate(value) {
+  if (!value) return null
+  if (value instanceof Date) return value
+  if (typeof value.toDate === 'function') return value.toDate()
+  if (typeof value.toMillis === 'function') return new Date(value.toMillis())
+  if (typeof value === 'number') return new Date(value)
+  if (typeof value._seconds === 'number') return new Date(value._seconds * 1000)
+  if (typeof value.seconds === 'number') return new Date(value.seconds * 1000)
+  if (typeof value === 'string') {
+    const parsed = new Date(value.replace(/\s+at\s+/i, ' '))
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  return null
+}
+
+function formatDateOnly(value) {
+  const date = toDate(value)
+  if (!date) return 'N/A'
+  return [
+    String(date.getDate()).padStart(2, '0'),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    date.getFullYear(),
+  ].join('-')
+}
+
+function getDateMs(value) {
+  const date = toDate(value)
+  return date ? date.getTime() : 0
+}
+
+function isApproved(worker) {
+  return worker.approvalStatus === 'Approved' || worker.Approved === true || worker.approved === true
+}
+
+function getDeviceType(worker) {
+  return firstText(worker.deviceType, worker.device, worker.platform, worker.os, worker.phoneType) || 'N/A'
+}
+
+function getMainArea(worker) {
+  return firstText(worker.areaName, worker.primaryArea, worker.serviceArea, worker.area) || 'N/A'
+}
+
+function getRating(worker) {
+  const rating = firstText(worker.avgRating, worker.rating, worker.averageRating, worker.performance?.rating)
+  return rating ? `${rating}/5` : 'N/A'
+}
+
+function csvCell(value) {
+  const text = String(value ?? '')
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function downloadCsv(filename, rows) {
+  const csv = rows.map((row) => row.map(csvCell).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onDelete }) {
+  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
+
+  function toggleMenu(event) {
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const menuWidth = 160
+    const menuHeight = 176
+    const gap = 8
+    const left = Math.min(Math.max(rect.right - menuWidth, gap), window.innerWidth - menuWidth - gap)
+    const fitsBelow = rect.bottom + menuHeight + gap <= window.innerHeight
+    const top = fitsBelow ? rect.bottom + gap : Math.max(rect.top - menuHeight - gap, gap)
+
+    setMenuPos({ top, left })
+    setOpen((current) => !current)
   }
 
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className={`grid h-7 w-7 place-items-center rounded-md border transition-colors ${tones[tone] || tones.muted}`}
-    >
-      <Icon n={icon} sz={15} cl="currentColor" />
-    </button>
-  )
-}
-
-function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag }) {
-  const [open, setOpen] = useState(false)
-
-  return (
-    <div className="relative inline-flex" onClick={(event) => event.stopPropagation()}>
+    <div className="inline-flex" onClick={(event) => event.stopPropagation()}>
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleMenu}
         className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] text-lg font-black leading-none text-[var(--text-muted)] hover:border-brand-500 hover:text-brand-500"
         aria-label={`Actions for ${worker.name || 'worker'}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
         title="Actions"
       >
         ...
@@ -219,7 +279,11 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag }) {
       {open && (
         <>
           <div className="fixed inset-0 z-[80]" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-11 z-[90] w-40 overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-xl">
+          <div
+            className="fixed z-[90] w-40 overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-xl"
+            style={{ left: menuPos.left, top: menuPos.top }}
+            role="menu"
+          >
             <button
               type="button"
               onClick={(event) => {
@@ -227,6 +291,7 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag }) {
                 onReviews(event, worker)
               }}
               className="w-full border-b border-[var(--border-main)] px-3 py-2.5 text-left text-xs font-bold text-[var(--text-main)] hover:bg-[var(--bg-main)]"
+              role="menuitem"
             >
               Reviews
             </button>
@@ -237,6 +302,7 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag }) {
                 onFlag(event, worker)
               }}
               className="w-full border-b border-[var(--border-main)] px-3 py-2.5 text-left text-xs font-bold text-amber-600 hover:bg-amber-500/10"
+              role="menuitem"
             >
               {flagged ? 'Unflag' : 'Flag'}
             </button>
@@ -247,8 +313,20 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag }) {
                 onReject(event, worker)
               }}
               className="w-full px-3 py-2.5 text-left text-xs font-bold text-red-500 hover:bg-red-500/10"
+              role="menuitem"
             >
               Reject
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                setOpen(false)
+                onDelete(event, worker)
+              }}
+              className="w-full border-t border-[var(--border-main)] px-3 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-500/10"
+              role="menuitem"
+            >
+              Delete
             </button>
           </div>
         </>
@@ -282,35 +360,56 @@ export default function WorkerList() {
     return [...staticAreas, ...workerAreas].sort((left, right) => left.name.localeCompare(right.name))
   }, [workers])
 
-  const loadWorkers = async () => {
-    setLoading(true)
+  const loadWorkers = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true)
     setError('')
     try {
       setWorkers(await workersApi.listWorkers())
     } catch (err) {
       setError(err.message || 'Unable to load workers.')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     loadWorkers()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters])
+
+    const intervalId = window.setInterval(() => {
+      loadWorkers({ silent: true })
+    }, 10000)
+    const refreshOnFocus = () => {
+      if (!document.hidden) loadWorkers({ silent: true })
+    }
+
+    window.addEventListener('focus', refreshOnFocus)
+    document.addEventListener('visibilitychange', refreshOnFocus)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refreshOnFocus)
+      document.removeEventListener('visibilitychange', refreshOnFocus)
+    }
+  }, [loadWorkers])
 
   useEffect(() => {
     setPage(1)
   }, [filters, search])
 
-  const rankedWorkers = useMemo(() => rankWorkers(workers, defaultRankingSettings), [workers])
-  const filtered = useMemo(() => rankedWorkers.filter((worker) => {
+  const sortedWorkers = useMemo(() => workers.slice().sort((left, right) => {
+    const rightDate = getDateMs(right.createdAt || right.createdDate || right.dateAdded || right.updatedAt)
+    const leftDate = getDateMs(left.createdAt || left.createdDate || left.dateAdded || left.updatedAt)
+    if (rightDate !== leftDate) return rightDate - leftDate
+    return String(left.name || '').localeCompare(String(right.name || ''))
+  }), [workers])
+
+  const filtered = useMemo(() => sortedWorkers.filter((worker) => {
     const selectedState = states.find((item) => item.id === filters.state_id)?.name || ''
     const selectedDistrict = districts.find((item) => item.id === filters.district_id)?.name || ''
     const selectedCity = cities.find((item) => item.id === filters.city_id)?.name || ''
     const selectedArea = areaOptions.find((item) => item.id === filters.area_id)?.name || ''
     const locationLabel = getLocationLabel(worker)
-    const text = `${worker.name} ${getProfessionLabel(worker)} ${locationLabel}`.toLowerCase()
+    const text = `${worker.name} ${worker.phone} ${getProfessionLabel(worker)} ${locationLabel} ${getMainArea(worker)}`.toLowerCase()
     const profession = getProfessionLabel(worker).toLowerCase()
     const matchesState = !filters.state_id || worker.state_id === filters.state_id || String(worker.stateName || worker.state || '').toLowerCase() === selectedState.toLowerCase() || selectedState === 'Andhra Pradesh'
     const matchesDistrict = !filters.district_id || worker.district_id === filters.district_id || String(worker.districtName || worker.district || '').toLowerCase() === selectedDistrict.toLowerCase() || locationLabel.toLowerCase().includes(selectedDistrict.toLowerCase())
@@ -322,20 +421,25 @@ export default function WorkerList() {
     const matchesSearch = !search || text.includes(search.toLowerCase())
 
     return matchesState && matchesDistrict && matchesCity && matchesArea && matchesProfession && matchesPlan && matchesAvailability && matchesSearch
-  }), [areaOptions, filters, rankedWorkers, search])
+  }), [areaOptions, filters, search, sortedWorkers])
   const pageCount = Math.max(Math.ceil(filtered.length / PAGE_SIZE), 1)
   const safePage = Math.min(page, pageCount)
   const pagedWorkers = useMemo(() => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filtered, safePage])
   const pending = workers.filter((worker) => worker.approvalStatus !== 'Approved').length
   const professionOptions = useMemo(() => [...new Set(workers.flatMap((w) => (w.professions || []).map((p) => p.profession)).filter(Boolean))], [workers])
   const COLS = [
-    { label: 'Worker', w: '26%' },
-    { label: 'Profession', w: '13%' },
-    { label: 'Payment', w: '12%' },
-    { label: 'Actions', w: '8%' },
-    { label: 'Plan', w: '7%' },
-    { label: 'Location', w: '14%' },
-    { label: 'Status', w: '20%' },
+    { label: 'S.No', w: '70px' },
+    { label: 'Serviceman', w: '220px' },
+    { label: 'Profession', w: '160px' },
+    { label: 'Phone', w: '130px' },
+    { label: 'Location', w: '220px' },
+    { label: 'Main Area', w: '150px' },
+    { label: 'Rating', w: '110px' },
+    { label: 'Device Type', w: '130px' },
+    { label: 'Date Added', w: '130px' },
+    { label: 'Payment', w: '150px' },
+    { label: 'Approved By', w: '150px' },
+    { label: 'Actions', w: '100px' },
   ]
 
   const pageNumbers = useMemo(() => {
@@ -355,6 +459,13 @@ export default function WorkerList() {
     loadWorkers()
   }
 
+  const deleteWorker = async (event, worker) => {
+    event.stopPropagation()
+    if (!window.confirm(`Delete ${worker.name || 'this worker'} and all uploaded files?`)) return
+    await workersApi.deleteWorker(worker.id)
+    loadWorkers()
+  }
+
   const flagWorker = async (event, worker) => {
     event.stopPropagation()
     const nextFlag = !(worker.flagged || worker.isFlagged || worker.isFlaged)
@@ -367,6 +478,31 @@ export default function WorkerList() {
     navigate(`/reviews?workerId=${encodeURIComponent(worker.id)}&worker=${encodeURIComponent(worker.name || '')}`)
   }
 
+  const exportWorkers = () => {
+    const rows = [
+      ['S.No', 'Serviceman', 'Profession', 'Phone', 'Location', 'Main Area', 'Rating', 'Device Type', 'Date Added', 'Paid', 'Amount Paid', 'Approved By'],
+      ...filtered.map((worker, index) => {
+        const payment = getPaymentInfo(worker)
+        return [
+          index + 1,
+          worker.name || 'N/A',
+          getProfessionLabel(worker),
+          worker.phone || 'N/A',
+          getLocationLabel(worker) || 'N/A',
+          getMainArea(worker),
+          getRating(worker),
+          getDeviceType(worker),
+          formatDateOnly(worker.createdAt || worker.createdDate || worker.dateAdded),
+          payment.paid,
+          payment.amount,
+          isApproved(worker) ? firstText(worker.approvedBy, worker.approvedByName, worker.approverName) || 'N/A' : 'N/A',
+        ]
+      }),
+    ]
+
+    downloadCsv(`Servicemen_Export_${new Date().toISOString().slice(0, 10)}.csv`, rows)
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <PageHeader
@@ -374,6 +510,7 @@ export default function WorkerList() {
         sub={`${workers.length} total professionals · ${pending} awaiting action`}
         action={(
           <div className="flex gap-2">
+            <Btn v="outline" onClick={exportWorkers}>Export</Btn>
             <Btn v="outline" onClick={() => navigate('/workers/dashboard')}>Stats</Btn>
             <Btn v="primary" onClick={() => navigate('/workers/approval')}>Approval Queue</Btn>
           </div>
@@ -406,16 +543,21 @@ export default function WorkerList() {
         <EmptyState title="Unable to load workers" description={error} action={<Btn v="outline" onClick={loadWorkers}>Retry</Btn>} />
       ) : filtered.length > 0 ? (
         <>
-        <DataTable cols={COLS}>
-          {pagedWorkers.map((worker) => {
+        <DataTable cols={COLS} className="[&_table]:min-w-[1720px]">
+          {pagedWorkers.map((worker, index) => {
             const payment = getPaymentInfo(worker)
             const flagged = worker.flagged || worker.isFlagged || worker.isFlaged
+            const dateAdded = formatDateOnly(worker.createdAt || worker.createdDate || worker.dateAdded)
+            const approvedBy = isApproved(worker) ? firstText(worker.approvedBy, worker.approvedByName, worker.approverName) || 'N/A' : 'N/A'
             return (
             <TableRow
               key={worker.id}
               highlight={worker.approvalStatus !== 'Approved'}
-              onClick={() => navigate(worker.approvalStatus === 'Approved' ? `/workers/${worker.id}` : `/workers/approval/${worker.id}`)}
+              onClick={() => navigate(`/workers/${worker.id}`)}
             >
+              <TD className="whitespace-nowrap text-xs font-bold text-[var(--text-muted)]">
+                {(safePage - 1) * PAGE_SIZE + index + 1}
+              </TD>
               <TD>
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-main)] bg-gradient-to-br from-dark-100 to-dark-200 text-sm font-bold text-dark-700 dark:from-dark-900 dark:to-dark-800 dark:text-dark-300">
@@ -423,7 +565,6 @@ export default function WorkerList() {
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-bold text-[var(--text-main)]">{worker.name}</p>
-                    <p className="text-[11px] font-medium text-dark-500">{worker.phone}</p>
                   </div>
                 </div>
               </TD>
@@ -433,12 +574,19 @@ export default function WorkerList() {
                   {isMultiSkilled(worker) && <Badge label="Multi-skilled" color="#8B5CF6" size="xs" />}
                 </div>
               </TD>
+              <TD className="whitespace-nowrap text-xs font-semibold text-[var(--text-muted)]">{worker.phone || 'N/A'}</TD>
+              <TD className="max-w-[220px] truncate text-xs font-medium text-[var(--text-muted)]">{getLocationLabel(worker) || 'N/A'}</TD>
+              <TD className="max-w-[150px] truncate text-xs font-semibold text-[var(--text-main)]">{getMainArea(worker)}</TD>
+              <TD className="whitespace-nowrap text-xs font-bold text-amber-500">{getRating(worker)}</TD>
+              <TD className="max-w-[130px] truncate text-xs font-semibold text-[var(--text-muted)]">{getDeviceType(worker)}</TD>
+              <TD className="whitespace-nowrap text-xs font-semibold text-[var(--text-muted)]">{dateAdded}</TD>
               <TD>
                 <div className="space-y-1 whitespace-nowrap text-xs font-bold text-[var(--text-main)]">
                   <p>Paid: <span className="font-extrabold">{payment.paid}</span></p>
                   <p>Amount: <span className="font-extrabold">{payment.amount}</span></p>
                 </div>
               </TD>
+              <TD className="max-w-[150px] truncate text-xs font-semibold text-[var(--text-muted)]">{approvedBy}</TD>
               <TD>
                 <WorkerActionMenu
                   worker={worker}
@@ -446,18 +594,8 @@ export default function WorkerList() {
                   onReviews={openReviews}
                   onReject={rejectWorker}
                   onFlag={flagWorker}
+                  onDelete={deleteWorker}
                 />
-              </TD>
-              <TD><Badge label={worker.planType} color={worker.planType === 'Pro' ? '#10B981' : '#64748B'} size="xs" /></TD>
-              <TD className="max-w-[180px] text-xs font-medium text-dark-500 truncate">{getLocationLabel(worker)}</TD>
-              <TD className="min-w-[220px]">
-                <div className="flex min-w-[200px] flex-col items-start gap-2">
-                  <div className="flex flex-nowrap items-center gap-2">
-                    <Badge label={worker.availability} color={worker.availability === 'Available' ? '#10B981' : worker.availability === 'Busy' ? '#3B82F6' : '#64748B'} size="xs" />
-                    <Badge label={`${worker.recentLoad.jobsToday} jobs today`} color="#3B82F6" size="xs" />
-                  </div>
-                  <Badge className="min-w-[120px] justify-center" label={worker.approvalStatus} color={worker.approvalStatus === 'Approved' ? '#10B981' : worker.approvalStatus === 'Pending' ? '#F59E0B' : '#EF4444'} size="xs" dot={worker.approvalStatus === 'Pending'} />
-                </div>
               </TD>
             </TableRow>
             )

@@ -7,12 +7,14 @@ import {
   Phone,
   ShieldCheck,
   TrendingUp,
+  Trash2,
   Users,
   Wallet,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import Btn from '../components/Btn'
 import Badge from '../components/Badge'
+import Modal from '../components/Modal'
 import EmptyState from '../components/EmptyState'
 import ActionToast from '../components/worker-profile/ActionToast'
 import { AvailabilityBlock, AvailabilityEditor, BookingCard, DocumentCard, EarningsBreakdown, MetricCard, ReviewCard, SettingsPanel, SidebarActionButton, SidebarMetaRow, StatusChip, WorkerDetailSection } from '../components/worker-profile/WorkerDetailPanels'
@@ -32,8 +34,9 @@ import {
 import workersApi from '../services/workersApi'
 import bookingsApi from '../services/bookingsApi'
 import customersApi from '../services/customersApi'
-import { resolveWorkerAssetUrl } from '../services/firebaseClient'
-import { buildBookings, buildDocumentCards, buildLeadRows, buildReviewRows, formatCurrency, formatDate, getLeadBadge, percentage } from '../utils/workerProfileDetail'
+import reviewsApi from '../services/reviewsApi'
+import { resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerStorageFiles } from '../services/firebaseClient'
+import { buildBookings, buildLeadRows, buildReviewRows, formatCurrency, formatDate, getLeadBadge, percentage } from '../utils/workerProfileDetail'
 
 const TAB_ITEMS = [
   { id: 'overview', label: 'Profile Overview' },
@@ -50,14 +53,326 @@ const TAB_ITEMS = [
 const DEFAULT_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DEFAULT_TIME_BLOCKS = ['07:00 - 11:00', '11:30 - 15:30', '16:30 - 20:00']
 const TODAY_MS = new Date().getTime()
+const CORRECTION_OPTIONS = [
+  { label: 'Full Name', key: 'name' },
+  { label: 'Phone Number', key: 'phone' },
+  { label: 'Primary Profession', key: 'profession' },
+  { label: 'Experience', key: 'experience' },
+  { label: 'Languages', key: 'languages' },
+  { label: 'Profile Photo', key: 'image' },
+  { label: 'Aadhaar', key: 'aadhaar' },
+  { label: 'Pricing', key: 'pricing' },
+  { label: 'Services', key: 'services' },
+  { label: 'Location', key: 'location' },
+  { label: 'Documents', key: 'documents' },
+  { label: 'Profession Media', key: 'professionMedia' },
+]
+
+function documentSignature(document = {}) {
+  const rawName = String(document.fileName || document.name || document.path || document.url || '').toLowerCase()
+  return rawName
+    .replace(/\.[^.]+$/, '')
+    .replace(/^(secondary_)?document[_-]?/, '')
+    .replace(/[_-]?\d{8,}.*$/, '')
+    .replace(/[^a-z0-9]+/g, '') || String(document.url || document.path || document.key || '')
+}
+
+function uniqueDocuments(documents = []) {
+  const bySignature = new Map()
+  documents.forEach((document) => {
+    const signature = documentSignature(document)
+    if (!bySignature.has(signature)) bySignature.set(signature, document)
+  })
+  return [...bySignature.values()]
+}
+
+function firstText(...values) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
+}
+
+function numberFromValue(value) {
+  if (value === undefined || value === null || value === '') return 0
+  if (Array.isArray(value)) return numberFromValue(value.find((item) => item !== undefined && item !== null && String(item).trim() !== ''))
+  if (typeof value === 'object') {
+    return numberFromValue(firstText(
+      value.experienceYears,
+      value.yearsOfExperience,
+      value.totalExperience,
+      value.workExperience,
+      value.experience,
+      value.years,
+      value.year,
+      value.value,
+      value.count,
+      value.total,
+      value.text,
+      value.label,
+    ))
+  }
+  const parsed = Number(String(value).replace(/[^\d.-]/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function experienceTextFromValue(value) {
+  if (value === undefined || value === null || value === '') return ''
+  if (Array.isArray(value)) return value.map(experienceTextFromValue).find(Boolean) || ''
+  if (typeof value === 'object') {
+    return experienceTextFromValue(firstText(
+      value.experienceRange,
+      value.secondaryExperienceRange,
+      value.experienceYears,
+      value.yearsOfExperience,
+      value.totalExperience,
+      value.workExperience,
+      value.experience,
+      value.years,
+      value.value,
+      value.label,
+      value.text,
+    ))
+  }
+  const text = String(value).trim()
+  if (!text || text === '0') return ''
+  if (/\d+\s*[-–]\s*\d+/.test(text)) return text.replace(/\s*[-–]\s*/g, '-')
+  const parsed = numberFromValue(text)
+  return parsed > 0 && parsed <= 80 ? String(parsed) : ''
+}
+
+function getExperienceYears(worker, profession) {
+  const values = [
+    profession?.experienceYears,
+    profession?.experienceYear,
+    profession?.yearsOfExperience,
+    profession?.yearOfExperience,
+    profession?.totalExperience,
+    profession?.workExperience,
+    profession?.experience,
+    profession?.experice,
+    profession?.experince,
+    profession?.exprience,
+    worker?.experienceYears,
+    worker?.experienceYear,
+    worker?.yearsOfExperience,
+    worker?.yearOfExperience,
+    worker?.totalExperience,
+    worker?.workExperience,
+    worker?.experience,
+    worker?.exp,
+    worker?.experice,
+    worker?.experince,
+    worker?.exprience,
+    worker?.experienceInYears,
+    worker?.experience_years,
+    worker?.work_experience,
+    worker?.professionalExperience,
+    worker?.total_exp,
+  ].map(numberFromValue)
+
+  return values.find((value) => value > 0) || 0
+}
+
+function extractExperienceYears(...sources) {
+  const direct = sources.flatMap((source) => [
+    source?.experienceRange,
+    source?.secondaryExperienceRange,
+    source?.experienceYears,
+    source?.experienceYear,
+    source?.yearsOfExperience,
+    source?.yearOfExperience,
+    source?.totalExperience,
+    source?.workExperience,
+    source?.experienceInYears,
+    source?.experience_years,
+    source?.work_experience,
+    source?.professionalExperience,
+    source?.total_exp,
+    source?.experience,
+    source?.exp,
+    source?.experice,
+    source?.experince,
+    source?.exprience,
+  ]).map(numberFromValue).find((value) => value > 0 && value <= 80)
+
+  if (direct) return direct
+
+  const seen = new Set()
+  const scan = (value, keyName = '') => {
+    if (value === undefined || value === null) return 0
+    const key = String(keyName).toLowerCase()
+    if (/letter|certificate|document|doc|file|url|path|image|photo|aadhaar|aadhar/.test(key)) return 0
+    if (typeof value === 'string' || typeof value === 'number') {
+      if (!/(^|[^a-z])(exp|experience|experice|experince|exprience|years?)([^a-z]|$)/i.test(key)) return 0
+      const parsed = numberFromValue(value)
+      return parsed > 0 && parsed <= 80 ? parsed : 0
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => scan(item, keyName)).find(Boolean) || 0
+    }
+    if (typeof value === 'object') {
+      if (seen.has(value)) return 0
+      seen.add(value)
+      for (const [childKey, childValue] of Object.entries(value)) {
+        const found = scan(childValue, childKey)
+        if (found) return found
+      }
+    }
+    return 0
+  }
+
+  return sources.map((source) => scan(source)).find(Boolean) || 0
+}
+
+function extractExperienceLabel(...sources) {
+  const direct = sources.flatMap((source) => [
+    source?.experienceRange,
+    source?.secondaryExperienceRange,
+    source?.experienceYears,
+    source?.experienceYear,
+    source?.yearsOfExperience,
+    source?.yearOfExperience,
+    source?.totalExperience,
+    source?.workExperience,
+    source?.experienceInYears,
+    source?.experience_years,
+    source?.work_experience,
+    source?.professionalExperience,
+    source?.total_exp,
+    source?.experience,
+    source?.exp,
+    source?.experice,
+    source?.experince,
+    source?.exprience,
+  ]).map(experienceTextFromValue).find(Boolean)
+
+  if (direct) return direct
+
+  const seen = new Set()
+  const scan = (value, keyName = '') => {
+    if (value === undefined || value === null) return ''
+    const key = String(keyName).toLowerCase()
+    if (/letter|certificate|document|doc|file|url|path|image|photo|aadhaar|aadhar/.test(key)) return ''
+    if (typeof value === 'string' || typeof value === 'number') {
+      if (!/(^|[^a-z])(exp|experience|experice|experince|exprience|years?|range)([^a-z]|$)/i.test(key)) return ''
+      return experienceTextFromValue(value)
+    }
+    if (Array.isArray(value)) return value.map((item) => scan(item, keyName)).find(Boolean) || ''
+    if (typeof value === 'object') {
+      if (seen.has(value)) return ''
+      seen.add(value)
+      for (const [childKey, childValue] of Object.entries(value)) {
+        const found = scan(childValue, childKey)
+        if (found) return found
+      }
+    }
+    return ''
+  }
+
+  return sources.map((source) => scan(source)).find(Boolean) || ''
+}
+
+function normalizeProfileLanguages(worker = {}) {
+  const direct = [
+    worker.languages,
+    worker.language,
+    worker.knownLanguages,
+    worker.knownLanguage,
+    worker.spokenLanguages,
+    worker.spokenLanguage,
+    worker.preferredLanguages,
+    worker.selectedLanguages,
+    worker.languagesKnown,
+    worker.languageKnown,
+    worker.langauge,
+    worker.langauges,
+    worker.langugae,
+    worker.langugaes,
+    worker.languageKnown,
+    worker.languagesKnown,
+    worker.known_language,
+    worker.known_languages,
+    worker.languagesSpoken,
+    worker.spoken_language,
+    worker.spoken_languages,
+    worker.motherTongue,
+    worker.profile?.languages,
+    worker.profile?.language,
+    worker.personalDetails?.languages,
+    worker.personalDetails?.language,
+    worker.professionalDetails?.languages,
+    worker.professionalDetails?.language,
+    worker.businessDetails?.languages,
+    worker.businessDetails?.language,
+    worker.workDetails?.languages,
+    worker.workDetails?.language,
+  ].find((value) => value !== undefined && value !== null && String(value).trim() !== '')
+
+  const toList = (value) => {
+    if (Array.isArray(value)) return value.flatMap(toList)
+    if (value && typeof value === 'object') return toList(value.value || value.name || value.label || value.language || value.languages || value.text || '')
+    return String(value || '').split(/[,/|]+/).map((item) => item.trim()).filter(Boolean)
+  }
+
+  if (direct) return [...new Set(toList(direct))]
+
+  const seen = new Set()
+  const scan = (value, keyName = '') => {
+    if (!value || typeof value !== 'object' || seen.has(value)) return []
+    seen.add(value)
+    for (const [key, child] of Object.entries(value)) {
+      if (/letter|certificate|document|doc|file|url|path|image|photo|aadhaar|aadhar/i.test(key)) continue
+      if (/lang/i.test(key)) {
+        const list = toList(child)
+        if (list.length) return list
+      }
+      const nested = scan(child, key)
+      if (nested.length) return nested
+    }
+    return []
+  }
+
+  return [...new Set(scan(worker))]
+}
+
+function correctionValue(value) {
+  if (value === undefined || value === null) return ''
+  if (Array.isArray(value)) return value.map((item) => (typeof item === 'object' ? item : String(item || '').trim())).filter(Boolean)
+  if (typeof value === 'object') return JSON.parse(JSON.stringify(value))
+  return value
+}
+
+function correctionLabel(key) {
+  return CORRECTION_OPTIONS.find((item) => item.key === key)?.label || key
+}
+
+function buildCorrectionFieldValues(worker, fields) {
+  const primary = getPrimaryProfession(worker) || {}
+  const values = {
+    name: worker.name || '',
+    phone: worker.phone || '',
+    profession: primary.profession || worker.profession || '',
+    experience: primary.experienceYears ?? primary.experience ?? worker.experienceYears ?? worker.experience ?? worker.experice ?? worker.experince ?? '',
+    languages: worker.languages || [],
+    image: worker.image || worker.profilePhotoUrl || worker.profilePhoto || '',
+    aadhaar: worker.aadhaarUrl || worker.aadhaar || worker.documents?.find((doc) => doc.key === 'aadhaar') || '',
+    pricing: primary.price || worker.price || '',
+    services: primary.services || worker.services || [],
+    location: getLocationLabel(worker),
+    documents: worker.documents || [],
+    professionMedia: worker.professionMedia || worker.workPhotos || [],
+  }
+
+  return Object.fromEntries(fields.map((key) => [key, correctionValue(values[key])]))
+}
 
 function WorkerProfileDetailViewContent({ workerId }) {
   const navigate = useNavigate()
   const [worker, setWorker] = useState(null)
   const [workerBookings, setWorkerBookings] = useState([])
+  const [workerReviews, setWorkerReviews] = useState([])
   const [workerPhotoUrl, setWorkerPhotoUrl] = useState('')
   const [aadhaarUrl, setAadhaarUrl] = useState('')
   const [loading, setLoading] = useState(true)
+  const [assetsLoading, setAssetsLoading] = useState(false)
   const [error, setError] = useState('')
   const persistedState = getWorkerUiState(workerId)
   const initialActiveTab = TAB_ITEMS.some((tab) => tab.id === persistedState.activeTab) ? persistedState.activeTab : 'overview'
@@ -69,16 +384,27 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const [workingDays, setWorkingDays] = useState(DEFAULT_DAYS)
   const [workingSlots, setWorkingSlots] = useState(DEFAULT_TIME_BLOCKS)
   const [notice, setNotice] = useState(null)
+  const [correctionModal, setCorrectionModal] = useState({ isOpen: false, items: [], message: '' })
 
   const loadWorker = async () => {
     setLoading(true)
+    setAssetsLoading(false)
     setError('')
     try {
-      const [data, allBookings, customers] = await Promise.all([
+      const [data, allBookings, customers, reviews] = await Promise.all([
         workersApi.getWorker(workerId),
         bookingsApi.listBookings().catch(() => []),
         customersApi.listCustomers().catch(() => []),
+        reviewsApi.listReviews().catch(() => []),
       ])
+      setWorker(data)
+      setWorkerBookings([])
+      setWorkerReviews(Array.isArray(reviews) ? reviews : Array.isArray(reviews?.reviews) ? reviews.reviews : [])
+      setIsSuspended(data.status === 'Suspended')
+      setWorkingDays(Array.isArray(data.workingDays) && data.workingDays.length > 0 ? data.workingDays : DEFAULT_DAYS)
+      setWorkingSlots(Array.isArray(data.workingSlots) && data.workingSlots.length > 0 ? data.workingSlots : DEFAULT_TIME_BLOCKS)
+      setLoading(false)
+
       const customerMap = new Map((Array.isArray(customers) ? customers : []).flatMap((customer) => (
         [customer.id, customer.uid, customer.userId, customer.phone, customer.mobile, customer.phoneNumber]
           .filter(Boolean)
@@ -92,20 +418,47 @@ function WorkerProfileDetailViewContent({ workerId }) {
           customerPhotoUrl: booking.customerPhotoUrl || booking.customerImageUrl || customer.profilePhotoUrl || customer.photoUrl || customer.profileImage || customer.imageUrl || '',
         }
       })
-      const [profileUrl, aadhaarDocumentUrl] = await Promise.all([
+      setWorkerBookings(bookings)
+
+      setAssetsLoading(true)
+      Promise.all([
         resolveWorkerAssetUrl(data, 'profile'),
         resolveWorkerAssetUrl(data, 'aadhaar'),
-      ])
-      setWorker(data)
-      setWorkerPhotoUrl(profileUrl)
-      setAadhaarUrl(aadhaarDocumentUrl)
-      setWorkerBookings(bookings)
-      setIsSuspended(data.status === 'Suspended')
-      setWorkingDays(Array.isArray(data.workingDays) && data.workingDays.length > 0 ? data.workingDays : DEFAULT_DAYS)
-      setWorkingSlots(Array.isArray(data.workingSlots) && data.workingSlots.length > 0 ? data.workingSlots : DEFAULT_TIME_BLOCKS)
+        resolveWorkerStorageFiles(data),
+        Promise.all((data.documents || []).map(async (document) => {
+          const url = document.url || document.downloadUrl || document.downloadURL || document.fileUrl || document.path || document.filePath || ''
+          const resolvedUrl = url ? await resolveStorageAssetUrl(url) : ''
+          return {
+            ...document,
+            url: resolvedUrl || url,
+            isImage: /\.(png|jpe?g|webp|gif|heic)(\?|#|$)/i.test(resolvedUrl || url),
+            status: document.status || (resolvedUrl || url ? 'Uploaded' : 'Missing'),
+          }
+        })),
+      ]).then(([profileUrl, aadhaarDocumentUrl, storageFiles, documents]) => {
+        const documentKeys = new Set(documents.map((document) => `${document.key || ''}:${document.url || document.path || ''}`))
+        const mergedDocuments = uniqueDocuments([
+          ...documents,
+          ...(storageFiles.documents || []).filter((document) => !documentKeys.has(`${document.key || ''}:${document.url || document.path || ''}`)),
+        ])
+        const existingMedia = [
+          ...(Array.isArray(data.professionMedia) ? data.professionMedia : []),
+          ...(Array.isArray(data.workPhotos) ? data.workPhotos : []),
+          ...(Array.isArray(data.portfolioPhotos) ? data.portfolioPhotos : []),
+          ...(Array.isArray(data.portfolio) ? data.portfolio : []),
+        ]
+        const professionMedia = [...existingMedia, ...(storageFiles.media || [])]
+        const cleanDocuments = mergedDocuments.map((document) => (
+          document.key === 'aadhaar' && /licen[cs]e|driving|driver/i.test(`${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`)
+            ? { ...document, key: 'license', name: 'Driving License' }
+            : document
+        ))
+        setWorker((current) => current?.id === data.id ? { ...current, documents: cleanDocuments, professionMedia, workPhotos: professionMedia } : current)
+        setWorkerPhotoUrl(profileUrl)
+        setAadhaarUrl(aadhaarDocumentUrl)
+      }).finally(() => setAssetsLoading(false))
     } catch (err) {
       setError(err.message || 'Unable to load worker profile.')
-    } finally {
       setLoading(false)
     }
   }
@@ -153,15 +506,11 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const secondaryProfession = worker ? getSecondaryProfession(worker) : null
   const workerLocation = worker ? getLocationLabel(worker) : ''
   const joinedDate = formatDate(worker.verificationVersions?.[0]?.updatedAt || worker.lastActive)
-  const documentCards = buildDocumentCards(worker).map((document) => (
-    document.key === 'aadhaar' && aadhaarUrl
-      ? { ...document, url: aadhaarUrl, isImage: /\.(png|jpe?g|webp)(\?|$)/i.test(aadhaarUrl), status: document.status === 'Missing' ? 'Uploaded' : document.status }
-      : document
-  ))
+  const documentCards = uniqueDocuments(worker.documents || []).filter((document) => document.url || document.path || document.filePath || document.downloadUrl || document.downloadURL)
   const bookingCards = buildBookings(worker, primaryProfession, workerBookings)
   const leadRows = buildLeadRows(worker, primaryProfession, workerBookings)
-  const reviewCards = buildReviewRows(worker, primaryProfession)
-  const totalReviews = Math.max(worker.performance?.completedJobs || 0, reviewCards.length)
+  const reviewCards = buildReviewRows(worker, primaryProfession, workerReviews)
+  const totalReviews = reviewCards.length
   const isVerified = documentCards.some((doc) => doc.key === 'aadhaar' && doc.status === 'Verified')
   const workerStatus = isSuspended ? 'Suspended' : (worker.availability === 'Available' ? 'Active' : worker.availability)
   const activePlan = worker.planType || 'Free'
@@ -187,18 +536,24 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const weeklyEarnings = Math.round(totalEarnings / 4)
   const monthlyEarnings = Math.round(totalEarnings / 1.3)
   const completedJobs = bookingCards.filter((booking) => String(booking.status || '').toLowerCase() === 'completed').length || worker.performance?.completedJobs || 0
-  const ratingValue = worker.performance?.rating || 4.7
+  const ratingValue = reviewCards.length > 0
+    ? reviewCards.reduce((sum, review) => sum + Number(review.rating || 0), 0) / reviewCards.length
+    : Number(worker.performance?.rating || worker.rating || 0)
   const profileOverviewDescription = worker.about || primaryProfession?.description || 'This worker profile is configured for responsive service delivery, quality verification, and structured lead handling.'
-  const profileLanguages = Array.isArray(worker.languages) ? worker.languages : []
+  const profileLanguages = normalizeProfileLanguages(worker)
+  const experienceYears = extractExperienceYears(primaryProfession, worker) || getExperienceYears(worker, primaryProfession)
+  const experienceLabel = extractExperienceLabel(primaryProfession, worker) || String(experienceYears || 0)
+  const experienceDisplay = /year|yr/i.test(experienceLabel) ? experienceLabel : `${experienceLabel} ${experienceLabel === '1' ? 'year' : 'years'}`
   const profileSkills = Array.isArray(worker.skills) ? worker.skills : []
   const profileBadges = Array.isArray(worker.profileBadges) && worker.profileBadges.length > 0 ? worker.profileBadges : getSmartBadges(worker)
   const profileHighlights = Array.isArray(worker.profileHighlights) && worker.profileHighlights.length > 0
     ? worker.profileHighlights
     : [
-        `${Number(primaryProfession?.experienceYears || 0)}+ years experience`,
+        `${experienceDisplay} experience`,
+        profileLanguages.length > 0 ? `${profileLanguages.join(', ')} languages` : null,
         worker.availability === 'Available' ? 'Open for quick booking' : `${worker.availability} schedule`,
         isVerified ? 'Verification documents ready' : 'Verification in progress',
-      ]
+      ].filter(Boolean)
   const metrics = [
     { label: 'Team Size', value: teamSize, hint: 'Lead plus support coverage', icon: Users },
     { label: 'Readiness', value: readiness, hint: 'Profile and verification health', icon: ShieldCheck },
@@ -228,7 +583,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   }
 
   const handleDocumentStatusChange = async (documentKey, nextStatus) => {
-    const nextDocuments = buildDocumentCards(worker).map((document) => (
+    const nextDocuments = (worker.documents || []).map((document) => (
       document.key === documentKey
         ? { ...document, status: nextStatus }
         : document
@@ -243,7 +598,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   }
 
   const handleDocumentReset = (documentKey) => {
-    const nextDocuments = buildDocumentCards(worker).map((document) => (
+    const nextDocuments = (worker.documents || []).map((document) => (
       document.key === documentKey
         ? { ...document, status: 'Missing' }
         : document
@@ -295,6 +650,33 @@ function WorkerProfileDetailViewContent({ workerId }) {
       tone: nextValue ? 'warning' : 'success',
       title: nextValue ? 'Worker suspended' : 'Worker reactivated',
       message: nextValue ? 'This worker is now suspended.' : 'This worker is active again.',
+    })
+  }
+
+  const handleDeleteWorker = async () => {
+    if (!window.confirm(`Delete ${worker.name || 'this worker'} and all uploaded files?`)) return
+    await workersApi.deleteWorker(worker.id)
+    navigate('/workers', { replace: true })
+  }
+
+  const handleMarkForCorrection = async () => {
+    if (!worker || correctionModal.items.length === 0) return
+    const correctionFields = correctionModal.items
+    const correctionFieldValues = buildCorrectionFieldValues(worker, correctionFields)
+    const labels = correctionFields.map(correctionLabel)
+    const note = correctionModal.message || `Correction requested for: ${labels.join(', ')}`
+    const updated = await workersApi.requestCorrection(worker.id, {
+      items: correctionFields,
+      correctionFields,
+      correctionFieldValues,
+      note,
+    })
+    setWorker(updated)
+    setCorrectionModal({ isOpen: false, items: [], message: '' })
+    setNotice({
+      tone: 'warning',
+      title: 'Marked for correction',
+      message: `${worker.name} will see the update request in the partner app.`,
     })
   }
 
@@ -545,7 +927,9 @@ function WorkerProfileDetailViewContent({ workerId }) {
                   <SidebarActionButton tone="primary" icon={Phone} onClick={() => window.open(`tel:${worker.phone}`, '_self')}>Call Worker</SidebarActionButton>
                   <SidebarActionButton tone="brandOutline" icon={MessageCircle} onClick={() => window.open(`https://wa.me/91${worker.phone}`, '_blank', 'noopener,noreferrer')}>WhatsApp</SidebarActionButton>
                   <SidebarActionButton tone="secondary" icon={PencilLine} onClick={() => setIsProfileEditing(true)}>Edit Worker</SidebarActionButton>
+                  <SidebarActionButton tone="brandOutline" icon={AlertTriangle} onClick={() => setCorrectionModal({ isOpen: true, items: [], message: '' })}>Mark For Correction</SidebarActionButton>
                   <SidebarActionButton tone="destructive" icon={AlertTriangle} onClick={handleSuspendToggle}>{isSuspended ? 'Reactivate Worker' : 'Suspend Worker'}</SidebarActionButton>
+                  <SidebarActionButton tone="destructive" icon={Trash2} onClick={handleDeleteWorker}>Delete Worker</SidebarActionButton>
                 </div>
               </section>
 
@@ -554,7 +938,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
                 <div className="space-y-2.5">
                   <SidebarMetaRow label="ID" value={`#EH${worker.id.replace(/\D/g, '').padStart(4, '0')}`} />
                   <SidebarMetaRow label="Joined" value={joinedDate} />
-                  <SidebarMetaRow label="Experience" value={`${Number(primaryProfession?.experienceYears || 0)} Yrs`} />
+                  <SidebarMetaRow label="Experience" value={/year|yr/i.test(experienceLabel) ? experienceLabel : `${experienceLabel} Yrs`} />
                   <SidebarMetaRow label="Location" value={workerLocation} />
                 </div>
               </section>
@@ -584,11 +968,16 @@ function WorkerProfileDetailViewContent({ workerId }) {
 
           {activeTab === 'documents' && (
             <WorkerDetailSection title="Documents" subtitle="Verification-ready document cards with status visibility">
+              {assetsLoading && (
+                <div className="mb-4 rounded-xl border border-brand-500/20 bg-brand-500/10 px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">
+                  Loading Firebase files...
+                </div>
+              )}
               {documentCards.length > 0 ? (
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {documentCards.map((document) => (
                     <DocumentCard
-                      key={document.key}
+                      key={document.url || document.path || document.key}
                       document={document}
                       onStatusChange={(nextStatus) => handleDocumentStatusChange(document.key, nextStatus)}
                       onReset={() => handleDocumentReset(document.key)}
@@ -666,6 +1055,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
                 onEditProfession={() => setEditTarget('primary')}
                 onEditSecondaryProfession={() => setEditTarget('secondary')}
                 onOpenDocuments={() => setActiveTab('documents')}
+                onDeleteWorker={handleDeleteWorker}
               />
             </WorkerDetailSection>
           )}
@@ -688,6 +1078,63 @@ function WorkerProfileDetailViewContent({ workerId }) {
         onClose={() => setEditTarget(null)}
         onSave={handleSaveProfession}
       />
+
+      <Modal
+        isOpen={correctionModal.isOpen}
+        title="Mark For Correction"
+        onClose={() => setCorrectionModal({ isOpen: false, items: [], message: '' })}
+        size="md"
+        footer={(
+          <>
+            <Btn v="outline" onClick={() => setCorrectionModal({ isOpen: false, items: [], message: '' })}>Cancel</Btn>
+            <Btn v="warning" onClick={handleMarkForCorrection} disabled={correctionModal.items.length === 0}>Mark For Correction</Btn>
+          </>
+        )}
+      >
+        <div className="grid gap-4">
+          <p className="text-sm font-medium text-[var(--text-main)]">Select the details {worker.name} must update in the partner app.</p>
+          <select
+            value=""
+            onChange={(event) => {
+              const key = event.target.value
+              if (!key) return
+              setCorrectionModal(prev => ({
+                ...prev,
+                items: prev.items.includes(key) ? prev.items : [...prev.items, key],
+              }))
+            }}
+            className="w-full rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] p-3.5 text-sm font-bold text-[var(--text-main)] outline-none transition-all focus:ring-2 focus:ring-brand-500/20"
+          >
+            <option value="">Select correction field</option>
+            {CORRECTION_OPTIONS.filter(option => !correctionModal.items.includes(option.key)).map(option => (
+              <option key={option.key} value={option.key}>{option.label}</option>
+            ))}
+          </select>
+          {correctionModal.items.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {correctionModal.items.map(item => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setCorrectionModal(prev => ({ ...prev, items: prev.items.filter(key => key !== item) }))}
+                  className="rounded-full border border-brand-500/50 bg-brand-500/10 px-3 py-1.5 text-xs font-bold text-brand-600 dark:text-brand-300"
+                >
+                  {correctionLabel(item)} x
+                </button>
+              ))}
+            </div>
+          )}
+          <div>
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Message for worker</p>
+            <textarea
+              value={correctionModal.message}
+              onChange={(event) => setCorrectionModal(prev => ({ ...prev, message: event.target.value }))}
+              className="min-h-[100px] w-full rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] p-4 text-sm text-[var(--text-main)] outline-none transition-all focus:ring-2 focus:ring-brand-500/20"
+              placeholder="Type the update request..."
+            />
+          </div>
+        </div>
+      </Modal>
 
       <ActionToast notice={notice} />
     </div>

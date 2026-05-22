@@ -41,24 +41,58 @@ function normalizeArea(area = {}) {
 
 function ActionMenu({ area, onEdit, onDelete }) {
   const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    function closeMenu() {
+      setOpen(false)
+    }
+
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+
+    return () => {
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
+    }
+  }, [open])
+
+  function toggleMenu(event) {
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const menuWidth = 144
+    const menuHeight = 88
+    const gap = 8
+    const left = Math.min(Math.max(rect.right - menuWidth, gap), window.innerWidth - menuWidth - gap)
+    const fitsBelow = rect.bottom + menuHeight + gap <= window.innerHeight
+    const top = fitsBelow ? rect.bottom + gap : Math.max(rect.top - menuHeight - gap, gap)
+
+    setMenuPos({ top, left })
+    setOpen((current) => !current)
+  }
 
   return (
-    <div className="relative inline-flex">
+    <div className="inline-flex">
       <button
         type="button"
-        onClick={(event) => {
-          event.stopPropagation()
-          setOpen((current) => !current)
-        }}
+        onClick={toggleMenu}
         className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] text-lg font-black leading-none text-[var(--text-muted)] hover:border-brand-500 hover:text-brand-400"
         aria-label={`Actions for ${area.name}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
         ...
       </button>
       {open ? (
         <>
           <div className="fixed inset-0 z-[80]" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-11 z-[90] w-36 overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-xl">
+          <div
+            className="fixed z-[90] w-36 overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-xl"
+            style={{ left: menuPos.left, top: menuPos.top }}
+            role="menu"
+          >
             <button
               type="button"
               onClick={(event) => {
@@ -67,6 +101,7 @@ function ActionMenu({ area, onEdit, onDelete }) {
                 onEdit(area)
               }}
               className="w-full border-b border-[var(--border-main)] px-3 py-2.5 text-left text-xs font-bold text-[var(--text-main)] hover:bg-[var(--bg-main)]"
+              role="menuitem"
             >
               Edit
             </button>
@@ -78,6 +113,7 @@ function ActionMenu({ area, onEdit, onDelete }) {
                 onDelete(area)
               }}
               className="w-full px-3 py-2.5 text-left text-xs font-bold text-red-500 hover:bg-red-500/10"
+              role="menuitem"
             >
               Delete
             </button>

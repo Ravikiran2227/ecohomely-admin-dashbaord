@@ -15,6 +15,21 @@ function withTimestamps(payload = {}, { create = false } = {}) {
   }
 }
 
+function normalizeAreaNamePayload(payload = {}, { create = false } = {}) {
+  const name = String(payload.name || payload.areaName || payload.title || '').trim()
+  const nextPayload = {
+    ...payload,
+    active: payload.active ?? true,
+  }
+
+  if (create || name) {
+    nextPayload.name = name
+    nextPayload.areaName = payload.areaName || name
+  }
+
+  return withTimestamps(nextPayload, { create })
+}
+
 export function createLocationController(db) {
   async function getHierarchy() {
     const [states, districts, cities, mandals, areas] = await Promise.all([
@@ -84,6 +99,13 @@ export function createLocationController(db) {
       response.json(mapWorkerCoverage(workers, areas))
     },
 
+    async listAreaNames(request, response) {
+      const snapshot = await db.collection('areaNames').get()
+      response.json(snapshot.docs
+        .map(docToJson)
+        .sort((left, right) => String(left.name || left.areaName || '').localeCompare(String(right.name || right.areaName || ''))))
+    },
+
     async heatmap(request, response) {
       const [workerSnapshot, areaSnapshot, bookingSnapshot] = await Promise.all([
         db.collection('workers').get(),
@@ -135,31 +157,46 @@ export function createLocationController(db) {
     },
 
     async createArea(request, response) {
-      if (!request.body?.name || !request.body?.mandal_id) {
-        sendError(response, 400, 'name and mandal_id are required')
+      const payload = normalizeAreaNamePayload(request.body, { create: true })
+
+      if (!payload.name) {
+        sendError(response, 400, 'Area name is required')
         return
       }
 
-      const payload = withTimestamps({
-        ...request.body,
-        type: request.body.type || 'area',
-        active: request.body.active ?? true,
-      }, { create: true })
-      const ref = await db.collection('areas').add(payload)
+      const existing = await db.collection('areaNames').where('name', '==', payload.name).get()
+      if (!existing.empty) {
+        sendError(response, 409, 'Duplicate area name detected')
+        return
+      }
+
+      const ref = await db.collection('areaNames').add(payload)
       response.status(201).json({ id: ref.id, ...payload })
     },
 
     async updateArea(request, response) {
-      const ref = db.collection('areas').doc(request.params.areaId)
+      const ref = db.collection('areaNames').doc(request.params.areaId)
       const doc = await ref.get()
       if (!doc.exists) {
         sendError(response, 404, 'Area not found')
         return
       }
 
-      const updates = withTimestamps(request.body || {})
+      const updates = normalizeAreaNamePayload(request.body || {})
       await ref.set(updates, { merge: true })
       response.json({ id: doc.id, ...doc.data(), ...updates })
+    },
+
+    async deleteArea(request, response) {
+      const ref = db.collection('areaNames').doc(request.params.areaId)
+      const doc = await ref.get()
+      if (!doc.exists) {
+        sendError(response, 404, 'Area not found')
+        return
+      }
+
+      await ref.delete()
+      response.status(204).send()
     },
 
     async createCity(request, response) {

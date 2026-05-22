@@ -10,5 +10,9 @@
   },
   "auth": {
     "providers": {}
+  },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20"
   }
 }

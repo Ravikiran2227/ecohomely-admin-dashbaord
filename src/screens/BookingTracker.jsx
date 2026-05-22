@@ -130,7 +130,6 @@ export default function BookingTracker() {
         action={(
           <div className="flex gap-2">
             <Btn v="outline" onClick={refreshBookings} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</Btn>
-            <Btn v="primary">New Booking</Btn>
           </div>
         )}
       />

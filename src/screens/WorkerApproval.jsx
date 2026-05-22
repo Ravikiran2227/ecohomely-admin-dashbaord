@@ -17,11 +17,19 @@ const REJECT_REASONS = [
   'Incomplete details',
 ]
 
-const CORRECTION_ITEMS = [
-  'Upload Aadhaar',
-  'Add profile photo',
-  'Add pricing',
-  'Add services',
+const CORRECTION_OPTIONS = [
+  { label: 'Full Name', key: 'name' },
+  { label: 'Phone Number', key: 'phone' },
+  { label: 'Primary Profession', key: 'profession' },
+  { label: 'Experience', key: 'experience' },
+  { label: 'Languages', key: 'languages' },
+  { label: 'Profile Photo', key: 'image' },
+  { label: 'Aadhaar', key: 'aadhaar' },
+  { label: 'Pricing', key: 'pricing' },
+  { label: 'Services', key: 'services' },
+  { label: 'Location', key: 'location' },
+  { label: 'Documents', key: 'documents' },
+  { label: 'Profession Media', key: 'professionMedia' },
 ]
 
 const STATUS_COLOR = {
@@ -70,7 +78,38 @@ function Indicator({ ok, label }) {
   )
 }
 
-function WorkerCard({ worker, onView, onReject, onRequestFix }) {
+function correctionValue(value) {
+  if (value === undefined || value === null) return ''
+  if (Array.isArray(value)) return value.map((item) => (typeof item === 'object' ? item : String(item || '').trim())).filter(Boolean)
+  if (typeof value === 'object') return JSON.parse(JSON.stringify(value))
+  return value
+}
+
+function correctionLabel(key) {
+  return CORRECTION_OPTIONS.find((item) => item.key === key)?.label || key
+}
+
+function buildCorrectionFieldValues(worker, fields) {
+  const primary = getPrimaryProfession(worker) || {}
+  const values = {
+    name: worker.name || '',
+    phone: worker.phone || '',
+    profession: primary.profession || worker.profession || '',
+    experience: primary.experienceYears ?? primary.experience ?? worker.experienceYears ?? worker.experience ?? '',
+    languages: worker.languages || [],
+    image: worker.image || worker.profilePhotoUrl || worker.profilePhoto || '',
+    aadhaar: worker.aadhaarUrl || worker.aadhaar || worker.documents?.find((doc) => doc.key === 'aadhaar') || '',
+    pricing: primary.price || worker.price || '',
+    services: primary.services || worker.services || [],
+    location: getLocationLabel(worker),
+    documents: worker.documents || [],
+    professionMedia: worker.professionMedia || worker.workPhotos || [],
+  }
+
+  return Object.fromEntries(fields.map((key) => [key, correctionValue(values[key])]))
+}
+
+function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onRequestFix }) {
   const [expanded, setExpanded] = useState(false)
   const aadhaarOk = worker.aadhaar === 'verified'
   const photoOk = !!worker.photo
@@ -103,17 +142,20 @@ function WorkerCard({ worker, onView, onReject, onRequestFix }) {
         </div>
 
         <div className="grid grid-cols-2 sm:flex sm:flex-col gap-2 shrink-0 w-full sm:w-auto min-w-[210px]">
-          <Btn v="outline" size="sm" onClick={onView} className="w-full justify-center">
+          <Btn v="outline" size="sm" onClick={onReview} className="w-full justify-center">
             <Icon n="eye" sz={13} className="mr-1.5" /> View Profile
           </Btn>
-          <Btn v="success" size="sm" onClick={onView} className="w-full justify-center">
+          <Btn v="outline" size="sm" onClick={onProfile} className="w-full justify-center">
+            <Icon n="user" sz={13} className="mr-1.5" /> Service Profile
+          </Btn>
+          <Btn v="success" size="sm" onClick={onApprove} className="w-full justify-center">
             Approve
           </Btn>
           <Btn v="danger" size="sm" onClick={onReject} className="w-full justify-center">
             Reject
           </Btn>
           <Btn v="warning" size="sm" onClick={onRequestFix} className="w-full justify-center">
-            Request Fix
+            Mark For Correction
           </Btn>
           <Btn v="ghost" size="xs" onClick={() => setExpanded(p => !p)} className="w-full justify-center col-span-2">
             {expanded ? 'Hide details' : 'Show details'}
@@ -202,11 +244,34 @@ export default function WorkerApproval() {
     closeModal()
   }
 
+  const handleApprove = async (worker) => {
+    await workersApi.approveWorker(worker.id, { note: 'Approved from approval queue' })
+    setQueue(prev => prev.filter(w => w.id !== worker.id))
+    setApprovedCount(prev => prev + 1)
+    setHistory(prev => [...prev, { id: worker.id, type: 'approve', name: worker.name }])
+  }
+
   const handleRequestFix = async () => {
     if (!modal.worker) return
-    await workersApi.requestCorrection(modal.worker.id, { items: modal.items, note: modal.message })
-    setQueue(prev => prev.map(w => w.id === modal.worker.id ? { ...w, status: 'Correction Required', statusColor: '#f59e0b', correctionItems: modal.items } : w))
-    setHistory(prev => [...prev, { id: modal.worker.id, type: 'correction', name: modal.worker.name, items: modal.items }])
+    const correctionFields = modal.items
+    const correctionFieldValues = buildCorrectionFieldValues(modal.worker, correctionFields)
+    const labels = correctionFields.map(correctionLabel)
+    const note = modal.message || `Correction requested for: ${labels.join(', ')}`
+    await workersApi.requestCorrection(modal.worker.id, {
+      items: correctionFields,
+      correctionFields,
+      correctionFieldValues,
+      note,
+    })
+    setQueue(prev => prev.map(w => w.id === modal.worker.id ? {
+      ...w,
+      status: 'Correction Required',
+      statusColor: '#f59e0b',
+      correctionItems: correctionFields,
+      correctionFields,
+      correctionFieldValues,
+    } : w))
+    setHistory(prev => [...prev, { id: modal.worker.id, type: 'correction', name: modal.worker.name, items: correctionFields }])
     closeModal()
   }
 
@@ -252,7 +317,9 @@ export default function WorkerApproval() {
           <div key={worker.id} className="grid gap-3">
             <WorkerCard
               worker={worker}
-              onView={() => navigate(`/workers/approval/${worker.id}`)}
+              onReview={() => navigate(`/workers/approval/${worker.id}`)}
+              onProfile={() => navigate(`/workers/${worker.id}`)}
+              onApprove={() => handleApprove(worker)}
               onReject={() => openModal('reject', worker)}
               onRequestFix={() => openModal('correction', worker)}
             />
@@ -277,7 +344,7 @@ export default function WorkerApproval() {
                 <div>
                   <p className="text-sm font-bold text-[var(--text-main)]">{entry.name}</p>
                   <p className="text-xs text-[var(--text-muted)] mt-1">
-                    {entry.type === 'reject' ? `Rejected · ${entry.note}` : entry.type === 'correction' ? `Correction requested · ${entry.items.join(', ')}` : 'Processed'}
+                    {entry.type === 'reject' ? `Rejected - ${entry.note}` : entry.type === 'correction' ? `Correction requested - ${entry.items.map(correctionLabel).join(', ')}` : 'Approved'}
                   </p>
                 </div>
                 <Badge label={entry.type === 'reject' ? 'Rejected' : entry.type === 'correction' ? 'Correction Required' : 'Approved'} color={entry.type === 'reject' ? C.danger : entry.type === 'correction' ? C.warning : C.success} size="xs" />
@@ -289,7 +356,7 @@ export default function WorkerApproval() {
 
       <Modal
         isOpen={modal.isOpen}
-        title={modal.type === 'reject' ? 'Reject Worker' : 'Request Correction'}
+        title={modal.type === 'reject' ? 'Reject Worker' : 'Mark For Correction'}
         onClose={closeModal}
         size="md"
         footer={(
@@ -298,7 +365,7 @@ export default function WorkerApproval() {
             {modal.type === 'reject' ? (
               <Btn v="danger" onClick={handleReject}>Reject</Btn>
             ) : (
-              <Btn v="warning" onClick={handleRequestFix} disabled={modal.items.length === 0}>Send Request</Btn>
+              <Btn v="warning" onClick={handleRequestFix} disabled={modal.items.length === 0}>Mark For Correction</Btn>
             )}
           </>
         )}
@@ -328,27 +395,38 @@ export default function WorkerApproval() {
 
         {modal.worker && modal.type === 'correction' && (
           <div className="grid gap-4">
-            <p className="text-sm font-medium text-[var(--text-main)]">Select required items to request from {modal.worker.name}.</p>
-            {CORRECTION_ITEMS.map(item => (
-              <label key={item} className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
-                modal.items.includes(item) ? 'bg-[var(--bg-main)] border-brand-500' : 'bg-transparent border-[var(--border-main)] hover:bg-[var(--bg-main)]'
-              }`}>
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 accent-brand-500"
-                  checked={modal.items.includes(item)}
-                  onChange={() => {
-                    setModal(prev => ({
-                      ...prev,
-                      items: prev.items.includes(item)
-                        ? prev.items.filter(key => key !== item)
-                        : [...prev.items, item],
-                    }))
-                  }}
-                />
-                <span className="text-sm font-bold text-[var(--text-main)]">{item}</span>
-              </label>
-            ))}
+            <p className="text-sm font-medium text-[var(--text-main)]">Select the details {modal.worker.name} must update in the partner app.</p>
+            <select
+              value=""
+              onChange={(event) => {
+                const key = event.target.value
+                if (!key) return
+                setModal(prev => ({
+                  ...prev,
+                  items: prev.items.includes(key) ? prev.items : [...prev.items, key],
+                }))
+              }}
+              className="w-full rounded-xl border border-[var(--border-main)] p-3.5 text-sm font-bold text-[var(--text-main)] bg-[var(--card-bg)] focus:ring-2 focus:ring-brand-500/20 outline-none transition-all"
+            >
+              <option value="">Select correction field</option>
+              {CORRECTION_OPTIONS.filter(option => !modal.items.includes(option.key)).map(option => (
+                <option key={option.key} value={option.key}>{option.label}</option>
+              ))}
+            </select>
+            {modal.items.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {modal.items.map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setModal(prev => ({ ...prev, items: prev.items.filter(key => key !== item) }))}
+                    className="rounded-full border border-brand-500/50 bg-brand-500/10 px-3 py-1.5 text-xs font-bold text-brand-600 dark:text-brand-300"
+                  >
+                    {correctionLabel(item)} x
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="mt-1">
               <p className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Add a message for the worker (optional)</p>
               <textarea

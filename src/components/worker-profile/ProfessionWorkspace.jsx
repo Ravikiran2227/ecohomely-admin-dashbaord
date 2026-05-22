@@ -77,6 +77,36 @@ function formatPlanExpiry(value) {
   })
 }
 
+function firstText(...values) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
+}
+
+function numberFromValue(value) {
+  if (value === undefined || value === null || value === '') return 0
+  const parsed = Number(String(value).replace(/[^\d.-]/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function getExperienceYears(worker, profession) {
+  return numberFromValue(firstText(
+    profession?.experienceYears,
+    profession?.experienceYear,
+    profession?.yearsOfExperience,
+    profession?.yearOfExperience,
+    profession?.totalExperience,
+    profession?.workExperience,
+    profession?.experience,
+    worker?.experienceYears,
+    worker?.experienceYear,
+    worker?.yearsOfExperience,
+    worker?.yearOfExperience,
+    worker?.totalExperience,
+    worker?.workExperience,
+    worker?.experience,
+    worker?.exp,
+  ))
+}
+
 function getProfessionVisual(professionName) {
   const profession = (professionName || '').toLowerCase()
 
@@ -119,7 +149,30 @@ function getProfessionVisual(professionName) {
   }
 }
 
-function buildGalleryItems(profession) {
+function mediaItemFromValue(value, index, prefix = 'media') {
+  if (!value) return null
+  if (typeof value === 'string') {
+    return {
+      id: `${prefix}-${index + 1}`,
+      title: `Profession media ${index + 1}`,
+      caption: 'Profession media from Firebase',
+      src: value,
+    }
+  }
+  if (typeof value === 'object') {
+    const src = value.src || value.url || value.downloadUrl || value.downloadURL || value.fileUrl || value.imageUrl || value.image || value.photo || ''
+    if (!src) return null
+    return {
+      id: value.id || `${prefix}-${index + 1}`,
+      title: value.title || value.name || value.fileName || `Profession media ${index + 1}`,
+      caption: value.caption || value.description || 'Profession media from Firebase',
+      src,
+    }
+  }
+  return null
+}
+
+function buildGalleryItems(profession, worker, type) {
   const gradients = [
     'from-brand-500/18 via-brand-500/8 to-transparent',
     'from-amber-500/18 via-amber-500/8 to-transparent',
@@ -127,13 +180,25 @@ function buildGalleryItems(profession) {
     'from-sky-500/18 via-sky-500/8 to-transparent',
   ]
 
-  return (profession?.services || []).slice(0, 4).map((service, index) => ({
+  const storageMedia = [
+    ...(Array.isArray(profession?.media) ? profession.media : []),
+    ...(Array.isArray(profession?.professionMedia) ? profession.professionMedia : []),
+    ...(Array.isArray(profession?.workPhotos) ? profession.workPhotos : []),
+    ...(Array.isArray(profession?.portfolioPhotos) ? profession.portfolioPhotos : []),
+    ...(Array.isArray(worker?.professionMedia) ? worker.professionMedia : []),
+    ...(Array.isArray(worker?.workPhotos) ? worker.workPhotos : []),
+    ...(Array.isArray(worker?.portfolioPhotos) ? worker.portfolioPhotos : []),
+  ].map((item, index) => mediaItemFromValue(item, index, `${type || 'profession'}-firebase`)).filter(Boolean)
+
+  const placeholders = (profession?.services || []).slice(0, 4).map((service, index) => ({
     id: `${profession.profession}-${index}`,
     title: service,
     caption: index % 2 === 0 ? 'Field reference image' : 'Finished customer-facing result',
     gradientClass: gradients[index % gradients.length],
     src: null,
   }))
+
+  return [...storageMedia, ...placeholders]
 }
 
 function buildPackages(profession) {
@@ -295,6 +360,7 @@ export function ProfessionSummaryCard({ type, worker, profession, onOpen, onEdit
   const visual = getProfessionVisual(profession.profession)
   const Icon = visual.icon
   const tags = (profession.services || []).slice(0, 4)
+  const experienceYears = getExperienceYears(worker, profession)
 
   return (
     <article className={cn('rounded-3xl border bg-[var(--card-bg)] p-5 shadow-[0_14px_32px_rgba(15,23,42,0.05)]', visual.accentClass)}>
@@ -311,7 +377,7 @@ export function ProfessionSummaryCard({ type, worker, profession, onOpen, onEdit
             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-[var(--text-muted)]">
               <Stars rating={worker?.performance?.rating || 4.7} />
               <span className="rounded-full border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-1 font-semibold text-[var(--text-main)]">
-                {Number(profession.experienceYears || 0)}+ years
+                {experienceYears}+ years
               </span>
             </div>
           </div>
@@ -370,7 +436,7 @@ export function ProfessionWorkspace({
   const uploadInputRef = useRef(null)
 
   const visual = useMemo(() => getProfessionVisual(profession?.profession), [profession])
-  const galleryItems = useMemo(() => [...buildGalleryItems(profession), ...uploadedGallery], [profession, uploadedGallery])
+  const galleryItems = useMemo(() => [...buildGalleryItems(profession, worker, type), ...uploadedGallery], [profession, uploadedGallery, worker, type])
   const packageCards = useMemo(() => buildPackages(profession), [profession])
   const reviewCards = useMemo(() => buildReviews(worker, profession), [worker, profession])
 
@@ -392,8 +458,9 @@ export function ProfessionWorkspace({
   const coverageLabel = worker?.serviceRadiusKm ? `${worker.serviceRadiusKm} km service radius` : 'Flexible service radius'
   const planLabel = worker?.planType ? `${worker.planType} Plan` : 'Free Plan'
   const planExpiryLabel = worker?.planExpiry ? formatPlanExpiry(worker.planExpiry) : 'No expiry set'
+  const experienceYears = getExperienceYears(worker, profession)
   const quickFacts = [
-    { label: 'Experience', value: `${Number(profession.experienceYears || 0)}+ years` },
+    { label: 'Experience', value: `${experienceYears}+ years` },
     { label: 'Plan', value: planLabel },
     { label: 'Pricing Model', value: profession.pricingModel || 'Standard' },
     { label: 'Plan Expiry', value: planExpiryLabel },
@@ -500,7 +567,7 @@ export function ProfessionWorkspace({
             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-[var(--text-muted)]">
               <Stars rating={worker?.performance?.rating || 4.7} />
               <span className="rounded-full border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-3 py-1 font-semibold text-[var(--text-main)]">
-                {Number(profession.experienceYears || 0)}+ years experience
+                {experienceYears}+ years experience
               </span>
               <span className="rounded-full border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-3 py-1 font-semibold text-[var(--text-main)]">
                 {formatCurrency(profession.price || 0)} starting price

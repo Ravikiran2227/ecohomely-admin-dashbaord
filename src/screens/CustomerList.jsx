@@ -11,6 +11,7 @@ import ListToolbar from '../components/ListToolbar'
 import { DataTable, TableRow, TD } from '../components/Table'
 import { C } from '../theme'
 import { loadCustomers } from '../utils/customerStorage'
+import customersApi from '../services/customersApi'
 
 function Avatar({ name, size = 40 }) {
   const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
@@ -27,7 +28,7 @@ function Avatar({ name, size = 40 }) {
   )
 }
 
-function ActionMenu({ customer, navigate }) {
+function ActionMenu({ customer, navigate, onDelete }) {
   const [open, setOpen] = useState(false)
   const actions = [
     { label: 'View Profile',   icon: 'eye',      fn: () => navigate(`/customers/${customer.id}`) },
@@ -39,7 +40,7 @@ function ActionMenu({ customer, navigate }) {
       icon: customer.status === 'Active' ? 'close' : 'check',
       fn: () => {}, danger: customer.status === 'Active',
     },
-    { label: 'Delete Account', icon: 'trash', fn: () => {}, danger: true },
+    { label: 'Delete Account', icon: 'trash', fn: () => onDelete(customer), danger: true },
   ]
 
   return (
@@ -77,6 +78,24 @@ function ActionMenu({ customer, navigate }) {
 
 const STATUS_COLOR = { Active: C.success, Blocked: C.danger, Inactive: C.danger }
 const PAGE_SIZE = 15
+
+function csvCell(value) {
+  const text = String(value ?? '')
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function downloadCsv(filename, rows) {
+  const csv = rows.map((row) => row.map(csvCell).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
 
 const COLS = [
   { label: '#' }, { label: 'Customer' }, { label: 'Phone' },
@@ -131,13 +150,39 @@ export default function CustomerList() {
     return Array.from({ length: Math.min(pageCount, 5) }, (_, index) => start + index)
   })()
 
+  const exportCustomers = () => {
+    const rows = [
+      ['S.No', 'Customer', 'Email', 'Phone', 'Area', 'Bookings', 'Complaints', 'Device', 'Joined', 'Status'],
+      ...filtered.map((customer, index) => [
+        index + 1,
+        customer.name,
+        customer.email || '',
+        customer.phone || '',
+        customer.area || '',
+        customer.bookings ?? 0,
+        customer.complaints ?? 0,
+        customer.device || '',
+        customer.dateJoined || '',
+        customer.status || '',
+      ]),
+    ]
+
+    downloadCsv(`Customers_Export_${new Date().toISOString().slice(0, 10)}.csv`, rows)
+  }
+
+  const deleteCustomer = async (customer) => {
+    if (!window.confirm(`Delete ${customer.name || 'this customer'} and all uploaded files?`)) return
+    await customersApi.deleteCustomer(customer.id)
+    loadCustomerRecords()
+  }
+
   return (
     <div className="w-full space-y-5">
       <PageHeader
         title="Customers"
         sub={`${customerRecords.length} total customers registered`}
         action={
-          <Btn v="primary" icon={<Icon n="edit" sz={14} cl="#fff" />}>Export CSV</Btn>
+          <Btn v="primary" icon={<Icon n="edit" sz={14} cl="#fff" />} onClick={exportCustomers} disabled={filtered.length === 0}>Export CSV</Btn>
         }
       />
 
@@ -222,7 +267,7 @@ export default function CustomerList() {
                 <Badge label={c.status} color={STATUS_COLOR[c.status] || C.muted} size="xs" />
               </TD>
               <TD onClick={e => e.stopPropagation()}>
-                <ActionMenu customer={c} navigate={navigate} />
+                <ActionMenu customer={c} navigate={navigate} onDelete={deleteCustomer} />
               </TD>
             </TableRow>
           ))}

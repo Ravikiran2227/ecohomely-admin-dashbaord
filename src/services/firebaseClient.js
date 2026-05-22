@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getDownloadURL, getStorage, listAll, ref as storageRef } from 'firebase/storage'
+import { deleteObject, getDownloadURL, getStorage, listAll, ref as storageRef } from 'firebase/storage'
 import {
   addDoc,
   collection,
@@ -219,10 +219,18 @@ function assetKeys(record = {}) {
     record.userId,
     record.workerId,
     record.servicemanId,
+    record.serviceManId,
+    record.partnerId,
+    record.profileId,
+    record.documentId,
     record.phone,
     record.mobile,
     record.phoneNumber,
-  ].filter(Boolean).map((value) => String(value).trim()).filter(Boolean)
+  ].filter(Boolean).flatMap((value) => {
+    const text = String(value).trim()
+    const digits = text.replace(/\D/g, '')
+    return digits.length >= 8 && digits !== text ? [text, digits] : [text]
+  }).filter((value) => value && String(value).length >= 4)
 }
 
 async function downloadAsset(path) {
@@ -237,6 +245,10 @@ async function downloadAsset(path) {
   }
 }
 
+export async function resolveStorageAssetUrl(path) {
+  return downloadAsset(path)
+}
+
 async function firstFileInFolder(folder) {
   try {
     const listing = await listAll(storageRef(storage, folder))
@@ -244,6 +256,33 @@ async function firstFileInFolder(folder) {
     return item ? getDownloadURL(item) : ''
   } catch {
     return ''
+  }
+}
+
+async function firstFileMatching(folder, predicate) {
+  try {
+    const listing = await listAll(storageRef(storage, folder))
+    const item = listing.items.find((candidate) => predicate(candidate.fullPath, candidate.name))
+    if (item) return getDownloadURL(item)
+
+    for (const prefix of listing.prefixes) {
+      const nested = await firstFileMatching(prefix.fullPath, predicate)
+      if (nested) return nested
+    }
+  } catch {
+    return ''
+  }
+
+  return ''
+}
+
+async function filesInFolder(folder, limit = 80) {
+  try {
+    const listing = await listAll(storageRef(storage, folder))
+    const nested = await Promise.all(listing.prefixes.map((prefix) => filesInFolder(prefix.fullPath, limit)))
+    return [...listing.items, ...nested.flat()].slice(0, limit)
+  } catch {
+    return []
   }
 }
 
@@ -271,32 +310,235 @@ async function firstMatchingFileInFolder(folder, keys = []) {
   return ''
 }
 
+function isImagePath(path = '') {
+  return /\.(png|jpe?g|webp|gif|bmp|svg|heic)(\?|#|$)/i.test(path)
+}
+
+function documentLabelFromPath(path = '') {
+  const text = path.toLowerCase()
+  if (/licen[cs]e|driving|driver|dl(?:[_-]|\b)/.test(text)) return ['license', 'Driving License']
+  if (/aadhaar|aadhar|adhaar|adhar/.test(text)) return ['aadhaar', 'Aadhaar']
+  if (/\bpan\b|pan-card|pancard/.test(text)) return ['pan', 'PAN Card']
+  if (/experience/.test(text)) return ['experienceLetter', 'Experience Letter']
+  if (/govt|government|skill/.test(text)) return ['govtSkillCertificate', 'Govt Skill Certificate']
+  if (/certificate|certification|training/.test(text)) return ['certificates', 'Certificates']
+  if (/photo|profile|avatar|image/.test(text)) return ['photo', 'Profile Photo']
+  return ['document', 'Document']
+}
+
+function fileDisplayName(path = '', fallback = 'Document') {
+  const name = decodeURIComponent(String(path || '').split('/').pop() || fallback)
+  return name || fallback
+}
+
+function looksLikeProfessionMedia(path = '') {
+  return /(profession|portfolio|work[-_ ]?photo|work[-_ ]?image|gallery|media|before|after|service[-_ ]?photo)/i.test(path)
+}
+
+function isProfileAssetPath(path = '') {
+  const text = String(path || '').toLowerCase()
+  return /profile[-_ ]?pictures|profilepictures|profile[-_ ]?photos|profilephotos|avatar/.test(text)
+}
+
+function isHiddenOrMediaDocumentPath(path = '') {
+  const text = String(path || '').toLowerCase()
+  return /profile_docs|profile[-_ ]?docs|hidden[-_ ]?documents|hidden_documents|media|documents|aadhaar|aadhar|adhaar|adhar/.test(text) && !isProfileAssetPath(text)
+}
+
+function uniqueFiles(files = []) {
+  const byPath = new Map()
+  files.forEach((file) => {
+    if (file?.fullPath && !byPath.has(file.fullPath)) byPath.set(file.fullPath, file)
+  })
+  return [...byPath.values()]
+}
+
+function dedupeDocuments(documents = []) {
+  const bySignature = new Map()
+  documents.forEach((document) => {
+    const rawName = String(document.fileName || document.name || document.path || '').toLowerCase()
+    const normalizedName = rawName
+      .replace(/\.[^.]+$/, '')
+      .replace(/^(secondary_)?document[_-]?/, '')
+      .replace(/[_-]?\d{8,}.*$/, '')
+      .replace(/[^a-z0-9]+/g, '')
+    const signature = normalizedName || String(document.url || document.path || document.key)
+    const current = bySignature.get(signature)
+    if (!current || String(document.path || '').length < String(current.path || '').length) {
+      bySignature.set(signature, document)
+    }
+  })
+  return [...bySignature.values()]
+}
+
+export async function resolveWorkerStorageFiles(worker = {}) {
+  const keys = [...new Set(assetKeys(worker))]
+  const roots = [
+    'profile_docs',
+    'media',
+    'servicemen',
+    'serviceman',
+    'documents',
+    'hiddenDocuments',
+    'hidden_documents',
+    'professionMedia',
+    'profession_media',
+    'aadhaar',
+    'aadhar',
+    'Aadhaar',
+  ]
+  const suffixes = ['', 'documents', 'hiddenDocuments', 'hidden_documents', 'profile_docs', 'media', 'professionMedia', 'profession_media', 'aadhaar', 'aadhar']
+  const directFolders = keys.flatMap((key) => roots.flatMap((root) => suffixes.map((suffix) => suffix ? `${root}/${key}/${suffix}` : `${root}/${key}`)))
+  const directMatches = await Promise.all(directFolders.map((folder) => filesInFolder(folder)))
+  const files = uniqueFiles(directMatches.flat())
+  const resolved = await Promise.all(files.map(async (file) => ({
+    name: file.name,
+    fullPath: file.fullPath,
+    url: await getDownloadURL(file).catch(() => ''),
+    isImage: isImagePath(file.name),
+  })))
+  const withUrl = resolved.filter((file) => file.url)
+  const documents = withUrl
+    .filter((file) => isHiddenOrMediaDocumentPath(file.fullPath))
+    .map((file, index) => {
+      const [key, name] = documentLabelFromPath(file.fullPath)
+      return {
+        key: key === 'document' ? `document-${index + 1}` : key,
+        name: key === 'document' ? fileDisplayName(file.fullPath, file.name) : name,
+        status: 'Uploaded',
+        url: file.url,
+        fileName: file.name,
+        path: file.fullPath,
+        isImage: file.isImage,
+      }
+    })
+  const media = withUrl
+    .filter((file) => file.isImage && (looksLikeProfessionMedia(file.fullPath) || /\/media\//i.test(file.fullPath)))
+    .map((file, index) => ({
+      id: `storage-media-${index + 1}`,
+      title: file.name.replace(/\.[^.]+$/, ''),
+      caption: 'Profession media from Firebase Storage',
+      src: file.url,
+      path: file.fullPath,
+    }))
+
+  const aadhaarKeys = keys.map((key) => String(key).toLowerCase())
+  const aadhaarFallbacks = withUrl
+    .filter((file) => {
+      const path = file.fullPath.toLowerCase()
+      return /aadhaar|aadhar|adhaar|adhar/.test(path)
+        && !/licen[cs]e|driving|driver|profile|avatar/.test(path)
+        && aadhaarKeys.some((key) => path.includes(key))
+    })
+    .map((file) => ({
+      key: 'aadhaar',
+      name: 'Aadhaar',
+      status: 'Uploaded',
+      url: file.url,
+      fileName: file.name,
+      path: file.fullPath,
+      isImage: file.isImage,
+    }))
+
+  return { documents: dedupeDocuments([...aadhaarFallbacks, ...documents]), media }
+}
+
 export async function resolveWorkerAssetUrl(worker = {}, kind = 'profile') {
   const directFields = kind === 'aadhaar'
     ? ['aadhaarUrl', 'aadhaarURL', 'aadhaarImage', 'aadhaarPhoto', 'aadhaarFile', 'aadhaarUploaded', 'aadharUrl', 'aadharImage', 'adhaarUrl', 'adhaarImage']
     : ['profilePhotoUrl', 'profilePhotoURL', 'photoUrl', 'photoURL', 'profileImageUrl', 'profileImage', 'imageUrl', 'image', 'avatarUrl', 'avatar', 'photo', 'profilePhoto']
   const direct = firstAssetValue(worker, directFields)
   if (direct && typeof direct === 'string') {
-    const resolved = await downloadAsset(direct)
+    const resolved = kind === 'aadhaar' && !/aadhaar|aadhar|adhaar|adhar/i.test(direct) ? '' : await downloadAsset(direct)
     if (resolved) return resolved
   }
 
   const keys = assetKeys(worker)
-  const folders = kind === 'aadhaar' ? ['aadhaar', 'aadhar', 'adhaar', 'Aadhaar'] : ['servicemen', 'serviceman', 'workers', 'profilePhotos']
+  const folders = kind === 'aadhaar'
+    ? ['aadhaar', 'aadhar', 'adhaar', 'Aadhaar', 'servicemen', 'serviceman', 'serviceMen', 'workers', 'workerDocuments', 'documents', 'hiddenDocuments']
+    : ['profile-pictures', 'profile_pictures', 'profilePictures', 'photos', 'media', 'servicemen', 'serviceman', 'serviceMen', 'workers', 'profilePhotos', 'profile_photos', 'partners']
 
   for (const key of keys) {
     for (const folder of folders) {
-      const resolved = await firstFileInFolder(`${folder}/${key}`)
+      const resolved = kind === 'aadhaar'
+        ? await firstFileMatching(`${folder}/${key}`, (path) => /aadhaar|aadhar|adhaar|adhar/i.test(path) && !/licen[cs]e|driving|driver|profile|avatar/i.test(path))
+        : await firstFileInFolder(`${folder}/${key}`)
       if (resolved) return resolved
     }
   }
 
-  for (const folder of folders) {
-    const resolved = await firstMatchingFileInFolder(folder, keys)
-    if (resolved) return resolved
-  }
-
   return ''
+}
+
+function storagePathFromUrl(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (text.startsWith('gs://')) {
+    return text.replace(/^gs:\/\/[^/]+\//, '')
+  }
+  const match = text.match(/\/o\/([^?]+)/)
+  return match ? decodeURIComponent(match[1]) : text
+}
+
+function looksLikeStorageFile(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return false
+  if (/^(blob:|data:)/i.test(text)) return false
+  if (/^https?:\/\/firebasestorage\.googleapis\.com\//i.test(text)) return true
+  if (/^gs:\/\//i.test(text)) return true
+  return /\.(png|jpe?g|webp|gif|bmp|svg|pdf|docx?|xlsx?|pptx?|txt|csv|zip|rar|heic)(\?|#|$)/i.test(text)
+}
+
+function collectStorageValues(value, output = new Set()) {
+  if (!value) return output
+  if (typeof value === 'string') {
+    if (looksLikeStorageFile(value)) output.add(value)
+    return output
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectStorageValues(item, output))
+    return output
+  }
+  if (typeof value === 'object') {
+    Object.values(value).forEach((item) => collectStorageValues(item, output))
+  }
+  return output
+}
+
+async function deleteStorageValue(value) {
+  const path = storagePathFromUrl(value)
+  if (!path || /^https?:\/\//i.test(path)) return
+  try {
+    await deleteObject(storageRef(storage, path))
+  } catch {
+    // Missing files and permission-denied records should not block profile deletion.
+  }
+}
+
+async function deleteStorageFolder(folder) {
+  try {
+    const listing = await listAll(storageRef(storage, folder))
+    await Promise.all([
+      ...listing.items.map((item) => deleteObject(item).catch(() => null)),
+      ...listing.prefixes.map((prefix) => deleteStorageFolder(prefix.fullPath)),
+    ])
+  } catch {
+    // Ignore folders that do not exist or are not listable by the current admin session.
+  }
+}
+
+export async function purgeRecordStorageAssets(record = {}, type = 'workers') {
+  const directAssets = [...collectStorageValues(record)]
+  const identityValues = assetKeys(record)
+  const baseFolders = type === 'customers'
+    ? ['users', 'user', 'customers', 'customer', 'profilePhotos', 'documents', 'userDocuments']
+    : ['servicemen', 'serviceman', 'workers', 'worker', 'partners', 'partner', 'profilePhotos', 'documents', 'workerDocuments', 'aadhaar', 'aadhar']
+  const folderDeletes = identityValues.flatMap((key) => baseFolders.map((folder) => `${folder}/${key}`))
+
+  await Promise.all([
+    ...directAssets.map(deleteStorageValue),
+    ...folderDeletes.map(deleteStorageFolder),
+  ])
 }
 
 function withTimestamps(payload = {}, { create = false } = {}) {
@@ -552,9 +794,14 @@ async function listBookings(filters = {}) {
 }
 
 async function getRecord(name, id, label = 'Record') {
+  return (await findRecord(name, id, label)).data
+}
+
+async function findRecord(name, id, label = 'Record') {
   for (const alias of aliasesFor(name)) {
-    const snapshot = await getDoc(doc(db, alias, id))
-    if (snapshot.exists()) return docToJson(snapshot)
+    const recordRef = doc(db, alias, id)
+    const snapshot = await getDoc(recordRef)
+    if (snapshot.exists()) return { alias, ref: recordRef, data: docToJson(snapshot) }
   }
 
   const error = new Error(`${label} not found`)
@@ -569,15 +816,18 @@ async function createRecord(name, payload = {}) {
 }
 
 async function updateRecord(name, id, payload = {}) {
-  const current = await getRecord(name, id)
+  const current = await findRecord(name, id)
   const updates = withTimestamps(payload)
-  await setDoc(doc(db, aliasesFor(name)[0], id), updates, { merge: true })
-  return { ...current, ...updates, id }
+  await setDoc(current.ref, updates, { merge: true })
+  return { ...current.data, ...updates, id }
 }
 
 async function deleteRecord(name, id) {
-  await getRecord(name, id)
-  await deleteDoc(doc(db, aliasesFor(name)[0], id))
+  const current = await findRecord(name, id)
+  if (name === 'workers' || name === 'customers') {
+    await purgeRecordStorageAssets(current.data, name)
+  }
+  await deleteDoc(current.ref)
   return null
 }
 
@@ -705,13 +955,47 @@ async function handleWorkers(parts, method, body, queryOptions) {
   if (id === 'onboarding' && method === 'POST') return createRecord('workers', body)
   if (!id) return method === 'POST' ? createRecord('workers', body) : listCollection('workers', queryOptions)
   if (action === 'review' && method === 'POST') {
-    const status = body?.action === 'approve' ? 'Approved' : body?.action === 'reject' ? 'Rejected' : 'Pending'
+    const status = body?.action === 'approve'
+      ? 'Approved'
+      : body?.action === 'reject'
+        ? 'Rejected'
+        : body?.action === 'correction'
+          ? 'Correction Required'
+          : 'Pending'
+    const isCorrection = status === 'Correction Required'
+    const correctionFields = body?.correctionFields || body?.items || []
+    const correctionFieldValues = body?.correctionFieldValues || {}
+    const correctionNote = body?.note || body?.reviewNote || (isCorrection ? `Correction requested for: ${correctionFields.join(', ')}` : '')
+    const correctionRequestedAt = isCorrection ? new Date().toISOString() : null
+    const correctionRequest = isCorrection
+      ? {
+          type: 'profile_correction',
+          title: 'Profile update required',
+          message: correctionNote,
+          fields: correctionFields,
+          fieldValues: correctionFieldValues,
+          requestedAt: correctionRequestedAt,
+          read: false,
+        }
+      : null
     return updateRecord('workers', id, {
       Approved: status === 'Approved',
       approvalStatus: status,
       approved: status === 'Approved',
       adminApproved: status === 'Approved',
-      reviewNote: body?.note || body?.reviewNote || '',
+      reviewNote: correctionNote,
+      rejectionReason: body?.reason || null,
+      correctionItems: correctionFields,
+      correctionFields,
+      correctionFieldValues,
+      correctionRequired: isCorrection,
+      requiresCorrection: isCorrection,
+      needsCorrection: isCorrection,
+      correctionRequested: isCorrection,
+      correctionRequestedAt,
+      correctionStatus: isCorrection ? 'Pending' : null,
+      partnerAppPopup: correctionRequest,
+      profileCorrectionRequest: correctionRequest,
     })
   }
   if (method === 'PATCH') return updateRecord('workers', id, body)
@@ -802,8 +1086,8 @@ async function handleLocations(parts, method, body) {
 
   if (section === 'areas') {
     const id = parts[2]
-    if (!id) return listCollection('areaNames')
-    if (id === 'names') return listCollection('areaNames')
+    if (!id) return method === 'POST' ? createRecord('areaNames', body) : listCollection('areaNames')
+    if (id === 'names') return method === 'POST' ? createRecord('areaNames', body) : listCollection('areaNames')
     if (method === 'POST') return createRecord('areaNames', body)
     if (method === 'PATCH' || method === 'PUT') return updateRecord('areaNames', id, body)
     if (method === 'DELETE') return deleteRecord('areaNames', id)

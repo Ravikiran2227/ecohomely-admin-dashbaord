@@ -17,6 +17,7 @@ import PricingCard from '../components/PricingCard'
 import { C } from '../theme'
 import { getPrimaryProfession, getLocationLabel } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
+import { resolveStorageAssetUrl, resolveWorkerStorageFiles } from '../services/firebaseClient'
 
 const REJECT_REASONS = [
   'Invalid Aadhaar',
@@ -26,11 +27,16 @@ const REJECT_REASONS = [
 ]
 
 const CORRECTION_OPTIONS = [
-  'Upload Aadhaar',
-  'Add profile photo',
-  'Add pricing',
-  'Add services',
-  'Update location',
+  { label: 'Full Name', key: 'name' },
+  { label: 'Phone Number', key: 'phone' },
+  { label: 'Primary Profession', key: 'profession' },
+  { label: 'Experience', key: 'experience' },
+  { label: 'Languages', key: 'languages' },
+  { label: 'Profile Photo', key: 'image' },
+  { label: 'Aadhaar', key: 'aadhaar' },
+  { label: 'Pricing', key: 'pricing' },
+  { label: 'Services', key: 'services' },
+  { label: 'Location', key: 'location' },
 ]
 
 const STATUS_COLOR = {
@@ -39,6 +45,47 @@ const STATUS_COLOR = {
   Approved: C.success,
   Rejected: C.danger,
   Active: C.success,
+}
+
+function firstText(...values) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
+}
+
+function numberFromValue(value) {
+  if (value === undefined || value === null || value === '') return 0
+  const parsed = Number(String(value).replace(/[^\d.-]/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function normalizeLanguages(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean)
+  if (!value) return []
+  return String(value).split(/[,/|]+/).map((item) => item.trim()).filter(Boolean)
+}
+
+function correctionValue(value) {
+  if (value === undefined || value === null) return ''
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean)
+  if (typeof value === 'object') return JSON.parse(JSON.stringify(value))
+  return value
+}
+
+function buildCorrectionFieldValues(profile, worker, fields) {
+  const primary = getPrimaryProfession(worker) || {}
+  const values = {
+    name: worker.name || '',
+    phone: worker.phone || '',
+    profession: primary.profession || worker.profession || '',
+    experience: profile.experience || worker.experience || '',
+    languages: profile.languages || worker.languages || [],
+    image: worker.image || worker.profilePhotoUrl || worker.profilePhoto || '',
+    aadhaar: worker.aadhaarUrl || worker.aadhaar || worker.documents?.find((doc) => doc.key === 'aadhaar') || '',
+    pricing: primary.price || worker.price || '',
+    services: primary.services || worker.services || [],
+    location: getLocationLabel(worker),
+  }
+
+  return Object.fromEntries(fields.map((key) => [key, correctionValue(values[key])]))
 }
 
 export default function WorkerVerificationProfile() {
@@ -57,7 +104,34 @@ export default function WorkerVerificationProfile() {
     setLoading(true)
     setError('')
     try {
-      setWorker(await workersApi.getWorker(id))
+      const data = await workersApi.getWorker(id)
+      const storageFiles = await resolveWorkerStorageFiles(data)
+      const documents = await Promise.all((data.documents || []).map(async (document) => {
+        const url = document.url || document.downloadUrl || document.downloadURL || document.fileUrl || document.path || document.filePath || ''
+        const resolvedUrl = url ? await resolveStorageAssetUrl(url) : ''
+        return {
+          ...document,
+          url: resolvedUrl || url,
+          isImage: /\.(png|jpe?g|webp|gif|heic)(\?|#|$)/i.test(resolvedUrl || url),
+          status: document.status || (resolvedUrl || url ? 'Uploaded' : 'Missing'),
+        }
+      }))
+      const documentKeys = new Set(documents.map((document) => `${document.key || ''}:${document.url || document.path || ''}`))
+      const mergedDocuments = [
+        ...documents,
+        ...(storageFiles.documents || []).filter((document) => !documentKeys.has(`${document.key || ''}:${document.url || document.path || ''}`)),
+      ]
+      const cleanDocuments = mergedDocuments.map((document) => (
+        document.key === 'aadhaar' && /licen[cs]e|driving|driver/i.test(`${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`)
+          ? { ...document, key: 'license', name: 'Driving License' }
+          : document
+      ))
+      setWorker({
+        ...data,
+        documents: cleanDocuments,
+        professionMedia: [...(data.professionMedia || []), ...(storageFiles.media || [])],
+        workPhotos: [...(data.workPhotos || []), ...(storageFiles.media || [])],
+      })
     } catch (err) {
       setError(err.message || 'Unable to load worker.')
     } finally {
@@ -74,13 +148,35 @@ export default function WorkerVerificationProfile() {
     if (!worker) return null
 
     const primary = getPrimaryProfession(worker)
+    const experienceYears = numberFromValue(firstText(
+      primary?.experienceYears,
+      primary?.experience,
+      worker.experienceYears,
+      worker.experienceYear,
+      worker.yearsOfExperience,
+      worker.yearOfExperience,
+      worker.totalExperience,
+      worker.workExperience,
+      worker.experience,
+    ))
+    const languages = normalizeLanguages(firstText(
+      worker.languages,
+      worker.language,
+      worker.knownLanguages,
+      worker.knownLanguage,
+      worker.spokenLanguages,
+      worker.spokenLanguage,
+      worker.preferredLanguages,
+    ))
+
     return {
       ...worker,
       name: worker.name,
       phone: worker.phone,
       profession: primary?.profession,
       area: getLocationLabel(worker),
-      experience: `${primary?.experienceYears || 0} years`,
+      experience: `${experienceYears} ${experienceYears === 1 ? 'year' : 'years'}`,
+      languages,
       location: worker.gps,
       about: worker.professions?.[0]?.description || worker.about || 'Experienced service professional with a strong track record of customer satisfaction, fast response times and verified documentation.',
       specializations: (worker.professions || []).flatMap((item) => item.services || []),
@@ -167,12 +263,19 @@ export default function WorkerVerificationProfile() {
   }
 
   const confirmCorrection = async () => {
-    const updated = await workersApi.requestCorrection(profile.id, { items: actionModal.items, note: actionModal.message })
+    const correctionFields = actionModal.items
+    const correctionFieldValues = buildCorrectionFieldValues(profile, worker, correctionFields)
+    const updated = await workersApi.requestCorrection(profile.id, {
+      items: correctionFields,
+      correctionFields,
+      correctionFieldValues,
+      note: actionModal.message || `Correction requested for: ${correctionFields.join(', ')}`,
+    })
     setWorker(updated)
     if (statusKey) {
       setStatusOverrides((prev) => ({ ...prev, [statusKey]: 'Correction Required' }))
     }
-    setAlert({ type: 'warning', text: `Correction requested for: ${actionModal.items.join(', ')}.` })
+    setAlert({ type: 'warning', text: `Correction requested for: ${correctionFields.join(', ')}.` })
     closeAction()
   }
 
@@ -220,6 +323,9 @@ export default function WorkerVerificationProfile() {
         action={(
           <div className="flex gap-2.5 flex-wrap">
             <Btn v="outline" onClick={() => navigate('/workers/approval')}>← Back to queue</Btn>
+            <Btn v="outline" onClick={() => navigate(`/workers/${profile.id}`)}>
+              View Service Profile
+            </Btn>
             <Btn v="success" disabled={!canApprove} onClick={() => openAction('approve')}>
               Approve
             </Btn>
@@ -227,7 +333,7 @@ export default function WorkerVerificationProfile() {
               Reject
             </Btn>
             <Btn v="warning" onClick={() => openAction('correction')}>
-              Request Fix
+              Mark For Correction
             </Btn>
           </div>
         )}
@@ -398,17 +504,26 @@ export default function WorkerVerificationProfile() {
         {docModal.doc && (
           <div className="grid gap-3.5">
             <p className="text-sm text-[var(--text-muted)] font-medium">Status: {docModal.doc.status}</p>
-            <div className="w-full min-h-[320px] bg-slate-50 dark:bg-slate-900/50 rounded-2xl flex items-center justify-center text-[var(--text-muted)] font-bold border border-dashed border-[var(--border-main)]">
-              {docModal.doc.name} preview
-            </div>
-            <p className="text-xs text-[var(--text-muted)] italic text-center">This popup simulates the full document preview for admin review.</p>
+            {docModal.doc.url ? (
+              docModal.doc.isImage ? (
+                <img src={docModal.doc.url} alt={docModal.doc.name} className="max-h-[520px] w-full rounded-2xl border border-[var(--border-main)] object-contain bg-slate-50 dark:bg-slate-900/50" />
+              ) : (
+                <a href={docModal.doc.url} target="_blank" rel="noreferrer" className="w-full min-h-[220px] bg-slate-50 dark:bg-slate-900/50 rounded-2xl flex items-center justify-center text-brand-600 font-bold border border-dashed border-[var(--border-main)]">
+                  Open {docModal.doc.name}
+                </a>
+              )
+            ) : (
+              <div className="w-full min-h-[320px] bg-slate-50 dark:bg-slate-900/50 rounded-2xl flex items-center justify-center text-[var(--text-muted)] font-bold border border-dashed border-[var(--border-main)]">
+                No file uploaded
+              </div>
+            )}
           </div>
         )}
       </Modal>
 
       <Modal
         isOpen={actionModal.isOpen}
-        title={actionModal.type === 'approve' ? 'Confirm Approval' : actionModal.type === 'reject' ? 'Reject Worker' : 'Request Correction'}
+        title={actionModal.type === 'approve' ? 'Confirm Approval' : actionModal.type === 'reject' ? 'Reject Worker' : 'Mark For Correction'}
         onClose={closeAction}
         size="md"
         footer={(
@@ -421,7 +536,7 @@ export default function WorkerVerificationProfile() {
               <Btn v="danger" onClick={confirmReject}>Reject</Btn>
             )}
             {actionModal.type === 'correction' && (
-              <Btn v="warning" onClick={confirmCorrection} disabled={actionModal.items.length === 0}>Send Request</Btn>
+              <Btn v="warning" onClick={confirmCorrection} disabled={actionModal.items.length === 0}>Mark For Correction</Btn>
             )}
           </>
         )}
@@ -467,28 +582,38 @@ export default function WorkerVerificationProfile() {
 
         {actionModal.type === 'correction' && (
           <div className="grid gap-3.5">
-            <p className="text-sm text-[var(--text-main)] font-medium">Choose missing items to request from the worker:</p>
-            {CORRECTION_OPTIONS.map(option => (
-              <label key={option} className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
-                actionModal.items.includes(option) ? 'bg-[var(--bg-main)] border-[var(--color-brand-500)]' : 'bg-transparent border-[var(--border-main)] hover:bg-[var(--bg-main)]'
-              }`}>
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 accent-[var(--color-brand-500)]"
-                  checked={actionModal.items.includes(option)}
-                  onChange={() => {
-                    setActionModal(prev => {
-                      const has = prev.items.includes(option)
-                      return {
-                        ...prev,
-                        items: has ? prev.items.filter(item => item !== option) : [...prev.items, option],
-                      }
-                    })
-                  }}
-                />
-                <span className="text-sm font-bold text-[var(--text-main)]">{option}</span>
-              </label>
-            ))}
+            <p className="text-sm text-[var(--text-main)] font-medium">Select details the worker must update in the partner app:</p>
+            <select
+              value=""
+              onChange={(event) => {
+                const key = event.target.value
+                if (!key) return
+                setActionModal(prev => ({
+                  ...prev,
+                  items: prev.items.includes(key) ? prev.items : [...prev.items, key],
+                }))
+              }}
+              className="w-full rounded-xl border border-[var(--border-main)] p-3.5 text-sm font-bold text-[var(--text-main)] bg-[var(--card-bg)] focus:ring-2 focus:ring-[var(--color-brand-500)]/20 outline-none transition-all"
+            >
+              <option value="">Select correction field</option>
+              {CORRECTION_OPTIONS.filter(option => !actionModal.items.includes(option.key)).map(option => (
+                <option key={option.key} value={option.key}>{option.label}</option>
+              ))}
+            </select>
+            {actionModal.items.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {actionModal.items.map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setActionModal(prev => ({ ...prev, items: prev.items.filter(key => key !== item) }))}
+                    className="rounded-full border border-[var(--color-brand-500)]/50 bg-[var(--color-brand-500)]/10 px-3 py-1.5 text-xs font-bold text-[var(--color-brand-500)]"
+                  >
+                    {CORRECTION_OPTIONS.find(option => option.key === item)?.label || item} x
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="mt-2">
               <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Optional message to include with the request</p>
               <textarea

@@ -14,23 +14,46 @@ function getRankingSettings(query = {}) {
   }
 }
 
+async function listWorkerRecords(db) {
+  const snapshots = await Promise.all([
+    db.collection('workers').get().catch(() => ({ docs: [] })),
+    db.collection('servicemen').get().catch(() => ({ docs: [] })),
+  ])
+  const byId = new Map()
+
+  snapshots.flatMap((snapshot) => snapshot.docs).forEach((doc) => {
+    byId.set(doc.id, { ...(byId.get(doc.id) || {}), id: doc.id, ...doc.data() })
+  })
+
+  return [...byId.values()]
+}
+
+async function findWorkerRecord(db, workerId) {
+  for (const collectionName of ['workers', 'servicemen']) {
+    const ref = db.collection(collectionName).doc(workerId)
+    const doc = await ref.get()
+    if (doc.exists) return { ref, doc, collectionName }
+  }
+
+  return null
+}
+
 export function createWorkerController(db) {
   return {
     async listWorkers(request, response) {
-      const snapshot = await db.collection('workers').get()
-      const workers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      const workers = await listWorkerRecords(db)
       response.json(filterWorkers(workers, request.query || {}))
     },
 
     async getWorker(request, response) {
-      const workerDoc = await db.collection('workers').doc(request.params.workerId).get()
+      const record = await findWorkerRecord(db, request.params.workerId)
 
-      if (!workerDoc.exists) {
+      if (!record) {
         sendError(response, 404, 'Worker not found')
         return
       }
 
-      const worker = { id: workerDoc.id, ...workerDoc.data() }
+      const worker = { id: record.doc.id, ...record.doc.data() }
       response.json({
         ...worker,
         verificationChecklist: buildVerificationChecklist(worker),
@@ -55,16 +78,15 @@ export function createWorkerController(db) {
     },
 
     async reviewWorker(request, response) {
-      const workerRef = db.collection('workers').doc(request.params.workerId)
-      const workerDoc = await workerRef.get()
+      const record = await findWorkerRecord(db, request.params.workerId)
       const review = request.body || {}
 
-      if (!workerDoc.exists) {
+      if (!record) {
         sendError(response, 404, 'Worker not found')
         return
       }
 
-      const current = { id: workerDoc.id, ...workerDoc.data() }
+      const current = { id: record.doc.id, ...record.doc.data() }
 
       if (review.action === 'approve' && !canApproveWorker(current)) {
         sendError(response, 400, 'Worker is missing required verification items')
@@ -72,19 +94,17 @@ export function createWorkerController(db) {
       }
 
       const updated = buildReviewUpdate(current, review)
-      await workerRef.set(updated, { merge: true })
+      await record.ref.set(updated, { merge: true })
       response.json(updated)
     },
 
     async dashboard(request, response) {
-      const snapshot = await db.collection('workers').get()
-      const workers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      const workers = await listWorkerRecords(db)
       response.json(buildWorkerDashboard(workers, getRankingSettings(request.query || {})))
     },
 
     async rankedWorkers(request, response) {
-      const snapshot = await db.collection('workers').get()
-      const workers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      const workers = await listWorkerRecords(db)
       const settings = getRankingSettings(request.query || {})
       response.json({
         settings,
@@ -109,34 +129,32 @@ export function createWorkerController(db) {
     },
 
     async updateWorker(request, response) {
-      const workerRef = db.collection('workers').doc(request.params.workerId)
-      const workerDoc = await workerRef.get()
+      const record = await findWorkerRecord(db, request.params.workerId)
 
-      if (!workerDoc.exists) {
+      if (!record) {
         sendError(response, 404, 'Worker not found')
         return
       }
 
       const updates = normalizeWorkerPayload({
-        ...workerDoc.data(),
+        ...record.doc.data(),
         ...(request.body || {}),
-        createdAt: workerDoc.data().createdAt,
+        createdAt: record.doc.data().createdAt,
       })
 
-      await workerRef.set(updates, { merge: true })
-      response.json({ id: workerDoc.id, ...updates })
+      await record.ref.set(updates, { merge: true })
+      response.json({ id: record.doc.id, ...updates })
     },
 
     async deleteWorker(request, response) {
-      const workerRef = db.collection('workers').doc(request.params.workerId)
-      const workerDoc = await workerRef.get()
+      const record = await findWorkerRecord(db, request.params.workerId)
 
-      if (!workerDoc.exists) {
+      if (!record) {
         sendError(response, 404, 'Worker not found')
         return
       }
 
-      await workerRef.delete()
+      await record.ref.delete()
       response.status(204).end()
     },
   }

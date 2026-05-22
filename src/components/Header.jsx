@@ -18,6 +18,7 @@ export default function Header() {
   const [passwordError, setPasswordError] = useState('')
   const [passwordSuccess, setPasswordSuccess] = useState('')
   const [savingPassword, setSavingPassword] = useState(false)
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false)
 
   const label = Object.entries(ROUTE_LABELS).find(([path]) =>
     location.pathname === path || location.pathname.startsWith(path + '/')
@@ -72,6 +73,12 @@ export default function Header() {
     } finally {
       setSavingPassword(false)
     }
+  }
+
+  const confirmLogout = () => {
+    setLogoutModalOpen(false)
+    logout()
+    navigate('/login', { replace: true })
   }
 
   return (
@@ -157,10 +164,7 @@ export default function Header() {
           ) : null}
           <button
             type="button"
-            onClick={() => {
-              logout()
-              navigate('/login', { replace: true })
-            }}
+            onClick={() => setLogoutModalOpen(true)}
             className="h-10 rounded-2xl bg-gradient-to-br from-brand-100 to-brand-200 dark:from-brand-900 dark:to-brand-800 flex items-center justify-center gap-2 border border-brand-200 dark:border-brand-800 px-3 text-brand-700 dark:text-brand-300 hover:scale-105 transition-transform"
             title="Logout"
           >
@@ -201,6 +205,22 @@ export default function Header() {
           </label>
         ))}
       </div>
+    </Modal>
+    <Modal
+      isOpen={logoutModalOpen}
+      title="Confirm Logout"
+      onClose={() => setLogoutModalOpen(false)}
+      size="sm"
+      footer={(
+        <>
+          <Btn v="outline" onClick={() => setLogoutModalOpen(false)}>Cancel</Btn>
+          <Btn v="danger" onClick={confirmLogout}>Logout</Btn>
+        </>
+      )}
+    >
+      <p className="m-0 text-sm font-semibold text-[var(--text-main)]">
+        Are you sure you want to logout from the admin dashboard?
+      </p>
     </Modal>
     </>
   )

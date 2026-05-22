@@ -15,6 +15,7 @@ import { PinMap } from '../components/LeafletMap'
 import { buildCustomerActivity, formatTimelineStamp, getSortableDate, toSortedRecords } from '../utils/customerProfileActivity'
 import { buildPersonTrackingProfile } from '../utils/toLetProfiles'
 import { loadCustomerProfile, loadCustomers, upsertStoredCustomerRecord } from '../utils/customerStorage'
+import customersApi from '../services/customersApi'
 
 const STATUS_COLOR = { Active: C.success, Blocked: C.danger, Inactive: C.muted }
 const BOOKING_STATUS_COLOR = { Completed: C.success, 'In Progress': C.primary, Pending: C.warning, Cancelled: C.danger }
@@ -235,6 +236,13 @@ export default function CustomerProfile() {
   }
   const cancelEdit = () => { setForm(null); setEditMode(false) }
 
+  const deleteCustomer = async () => {
+    if (!customer?.id) return
+    if (!window.confirm(`Delete ${customer.name || 'this customer'} and all uploaded files?`)) return
+    await customersApi.deleteCustomer(customer.id)
+    navigate('/customers', { replace: true })
+  }
+
   const cur = data
   const set = key => val => setForm(p => ({ ...(p || customer), [key]: val }))
 
@@ -406,7 +414,7 @@ export default function CustomerProfile() {
             footer={
               <div className="flex flex-wrap gap-2">
                 <Btn v="outline" size="sm" onClick={() => setTab('bookings')}>View Bookings</Btn>
-                <Btn v="danger" size="sm">Delete Account</Btn>
+                <Btn v="danger" size="sm" onClick={deleteCustomer}>Delete Account</Btn>
               </div>
             }
           >

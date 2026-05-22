@@ -55,6 +55,7 @@ export default function Sidebar({ collapsed, onCollapse }) {
 
   const isActive = (path) => {
     if (path === '/dashboard') return location.pathname === '/dashboard'
+    if (path === '/workers') return location.pathname === '/workers' || /^\/workers\/(?!approval(?:\/|$))/.test(location.pathname)
     return location.pathname.startsWith(path)
   }
 

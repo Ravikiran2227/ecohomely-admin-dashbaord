@@ -555,8 +555,10 @@ export function registerBackendRoutes(app, db) {
   register(app, 'get', '/locations/clusters', locations.listClusters)
   register(app, 'get', '/locations/clusters/:clusterId/dashboard', requireParam('clusterId'), locations.clusterDashboard)
   register(app, 'get', '/locations/worker-coverage', locations.workerCoverage)
+  register(app, 'get', '/locations/areas', locations.listAreaNames)
   register(app, 'post', '/locations/areas', requireBodyObject, locations.createArea)
   register(app, 'patch', '/locations/areas/:areaId', requireParam('areaId'), requireBodyObject, locations.updateArea)
+  register(app, 'delete', '/locations/areas/:areaId', requireParam('areaId'), locations.deleteArea)
   register(app, 'post', '/locations/cities', requireBodyObject, locations.createCity)
   register(app, 'patch', '/locations/cities/:cityId', requireParam('cityId'), requireBodyObject, locations.updateCity)
 

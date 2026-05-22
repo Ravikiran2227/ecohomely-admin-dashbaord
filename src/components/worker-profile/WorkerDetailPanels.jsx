@@ -1,4 +1,4 @@
-import { AlertTriangle, FileText, PencilLine, Plus, Users } from 'lucide-react'
+import { AlertTriangle, FileText, PencilLine, Plus, Trash2, Users } from 'lucide-react'
 import Btn from '../Btn'
 import { Stars } from './ProfessionWorkspace'
 import { formatCurrency, getBookingBadge, getDocumentBadge } from '../../utils/workerProfileDetail'
@@ -272,7 +272,7 @@ export function EarningsBreakdown({ total, daily, weekly, monthly }) {
   )
 }
 
-export function SettingsPanel({ worker, suspended, onSuspendToggle, onEditProfile, onEditProfession, onEditSecondaryProfession, onOpenDocuments }) {
+export function SettingsPanel({ worker, suspended, onSuspendToggle, onEditProfile, onEditProfession, onEditSecondaryProfession, onOpenDocuments, onDeleteWorker }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/55 p-4">
@@ -283,6 +283,7 @@ export function SettingsPanel({ worker, suspended, onSuspendToggle, onEditProfil
           <SidebarActionButton icon={Users} onClick={onEditSecondaryProfession}>Edit Secondary Profession</SidebarActionButton>
           <SidebarActionButton icon={FileText} onClick={onOpenDocuments}>Manage Documents</SidebarActionButton>
           <SidebarActionButton icon={AlertTriangle} tone="destructive" onClick={onSuspendToggle}>{suspended ? 'Reactivate Worker' : 'Suspend Worker'}</SidebarActionButton>
+          <SidebarActionButton icon={Trash2} tone="destructive" onClick={onDeleteWorker}>Delete Worker</SidebarActionButton>
         </div>
       </div>
       <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/55 p-4">

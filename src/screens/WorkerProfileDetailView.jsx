@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
+  Medal,
   MessageCircle,
   PencilLine,
   Phone,
@@ -53,6 +54,23 @@ const TAB_ITEMS = [
 const DEFAULT_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DEFAULT_TIME_BLOCKS = ['07:00 - 11:00', '11:30 - 15:30', '16:30 - 20:00']
 const TODAY_MS = new Date().getTime()
+const MEMBERSHIP_BADGES = {
+  gold: {
+    label: 'Gold Member',
+    className: 'border-[#d7a82f]/70 bg-[linear-gradient(100deg,#d9a72f_0%,#fff3ad_48%,#b88513_100%)] text-[#33240a] shadow-[0_10px_24px_rgba(217,167,47,0.24)]',
+    iconClassName: 'bg-[#fff6c7] text-[#b88513]',
+  },
+  silver: {
+    label: 'Silver Member',
+    className: 'border-slate-300/70 bg-[linear-gradient(100deg,#a7b0bd_0%,#f8fafc_48%,#7c8795_100%)] text-[#202734] shadow-[0_10px_24px_rgba(148,163,184,0.22)]',
+    iconClassName: 'bg-white text-slate-600',
+  },
+  bronze: {
+    label: 'Bronze Member',
+    className: 'border-orange-700/60 bg-[linear-gradient(100deg,#a95b25_0%,#ffd0a3_48%,#7c3414_100%)] text-[#2f1608] shadow-[0_10px_24px_rgba(194,65,12,0.22)]',
+    iconClassName: 'bg-[#ffe4c2] text-orange-800',
+  },
+}
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
   { label: 'Phone Number', key: 'phone' },
@@ -333,6 +351,22 @@ function normalizeProfileLanguages(worker = {}) {
   return [...new Set(scan(worker))]
 }
 
+function getMembershipBadge(worker = {}) {
+  const key = String(worker.membership || 'gold').trim().toLowerCase()
+  return MEMBERSHIP_BADGES[key] || MEMBERSHIP_BADGES.gold
+}
+
+function MembershipBadge({ badge, compact = false }) {
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full border font-extrabold ${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2 text-sm'} ${badge.className}`}>
+      <span className={`inline-flex items-center justify-center rounded-full ${compact ? 'h-5 w-5' : 'h-6 w-6'} ${badge.iconClassName}`}>
+        <Medal className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+      </span>
+      {badge.label}
+    </span>
+  )
+}
+
 function correctionValue(value) {
   if (value === undefined || value === null) return ''
   if (Array.isArray(value)) return value.map((item) => (typeof item === 'object' ? item : String(item || '').trim())).filter(Boolean)
@@ -546,6 +580,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const experienceDisplay = /year|yr/i.test(experienceLabel) ? experienceLabel : `${experienceLabel} ${experienceLabel === '1' ? 'year' : 'years'}`
   const profileSkills = Array.isArray(worker.skills) ? worker.skills : []
   const profileBadges = Array.isArray(worker.profileBadges) && worker.profileBadges.length > 0 ? worker.profileBadges : getSmartBadges(worker)
+  const membershipBadge = getMembershipBadge(worker)
   const profileHighlights = Array.isArray(worker.profileHighlights) && worker.profileHighlights.length > 0
     ? worker.profileHighlights
     : [
@@ -907,6 +942,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                 {isVerified && <StatusChip label="Verified" className="border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" />}
                 <StatusChip label={workerStatus} className={isSuspended ? 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'} />
+                <MembershipBadge badge={membershipBadge} />
               </div>
             </div>
 
@@ -939,6 +975,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
                   <SidebarMetaRow label="ID" value={`#EH${worker.id.replace(/\D/g, '').padStart(4, '0')}`} />
                   <SidebarMetaRow label="Joined" value={joinedDate} />
                   <SidebarMetaRow label="Experience" value={/year|yr/i.test(experienceLabel) ? experienceLabel : `${experienceLabel} Yrs`} />
+                  <SidebarMetaRow label="Membership" value={membershipBadge.label.replace(' Member', '')} />
                   <SidebarMetaRow label="Location" value={workerLocation} />
                 </div>
               </section>

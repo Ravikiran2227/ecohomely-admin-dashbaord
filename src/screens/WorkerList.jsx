@@ -85,6 +85,40 @@ const emptyFilters = {
   availability: '',
 }
 
+const MEMBERSHIP_BADGES = {
+  gold: {
+    label: 'Gold Member',
+    className: 'border-[#d7a82f]/70 bg-[linear-gradient(100deg,#d9a72f_0%,#fff3ad_48%,#b88513_100%)] text-[#33240a] shadow-[0_8px_18px_rgba(217,167,47,0.2)]',
+    medalClassName: 'bg-[#fff6c7] text-[#b88513]',
+  },
+  silver: {
+    label: 'Silver Member',
+    className: 'border-slate-300/70 bg-[linear-gradient(100deg,#a7b0bd_0%,#f8fafc_48%,#7c8795_100%)] text-[#202734] shadow-[0_8px_18px_rgba(148,163,184,0.18)]',
+    medalClassName: 'bg-white text-slate-600',
+  },
+  bronze: {
+    label: 'Bronze Member',
+    className: 'border-orange-700/60 bg-[linear-gradient(100deg,#a95b25_0%,#ffd0a3_48%,#7c3414_100%)] text-[#2f1608] shadow-[0_8px_18px_rgba(194,65,12,0.18)]',
+    medalClassName: 'bg-[#ffe4c2] text-orange-800',
+  },
+}
+
+function getMembershipBadge(worker = {}) {
+  const key = String(worker.membership || 'gold').trim().toLowerCase()
+  return MEMBERSHIP_BADGES[key] || MEMBERSHIP_BADGES.gold
+}
+
+function MembershipBadge({ badge }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${badge.className}`}>
+      <span className={`inline-flex h-[18px] w-[18px] items-center justify-center rounded-full ${badge.medalClassName}`}>
+        <span className="block h-2 w-2 rounded-full bg-current" />
+      </span>
+      {badge.label}
+    </span>
+  )
+}
+
 const PAGE_SIZE = 15
 
 function firstText(...values) {
@@ -549,6 +583,7 @@ export default function WorkerList() {
             const flagged = worker.flagged || worker.isFlagged || worker.isFlaged
             const dateAdded = formatDateOnly(worker.createdAt || worker.createdDate || worker.dateAdded)
             const approvedBy = isApproved(worker) ? firstText(worker.approvedBy, worker.approvedByName, worker.approverName) || 'N/A' : 'N/A'
+            const membershipBadge = getMembershipBadge(worker)
             return (
             <TableRow
               key={worker.id}
@@ -565,6 +600,9 @@ export default function WorkerList() {
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-bold text-[var(--text-main)]">{worker.name}</p>
+                    <div className="mt-1">
+                      <MembershipBadge badge={membershipBadge} />
+                    </div>
                   </div>
                 </div>
               </TD>

@@ -218,6 +218,11 @@ function normalizeApprovalStatus(worker = {}) {
   return 'Pending'
 }
 
+function normalizeMembership(value) {
+  const normalized = String(value || 'gold').trim().toLowerCase()
+  return ['gold', 'silver', 'bronze'].includes(normalized) ? normalized : 'gold'
+}
+
 function fileNameFromValue(value = '', fallback = 'Document') {
   const text = String(value || '').split('?')[0]
   const last = decodeURIComponent(text.split('/').pop() || '').trim()
@@ -463,6 +468,7 @@ export function normalizeWorker(worker = {}) {
     approvalStatus,
     availability,
     planType: worker.planType || 'Free',
+    membership: normalizeMembership(worker.membership),
     serviceRadiusKm: worker.serviceRadiusKm || 10,
     rankDistanceKm: worker.rankDistanceKm ?? 999,
     state_id: worker.state_id || worker.stateId || '',

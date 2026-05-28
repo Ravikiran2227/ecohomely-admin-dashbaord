@@ -168,18 +168,84 @@ function mediaItemFromValue(value, index, prefix = 'media') {
   return null
 }
 
+function mediaListFromValue(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === 'object') {
+    if (Array.isArray(value.media)) return value.media
+    if (Array.isArray(value.images)) return value.images
+    if (Array.isArray(value.photos)) return value.photos
+    if (Array.isArray(value.files)) return value.files
+    if (!(value.src || value.url || value.downloadUrl || value.downloadURL || value.fileUrl || value.imageUrl || value.image || value.photo)) {
+      return Object.values(value).flatMap(mediaListFromValue)
+    }
+  }
+  return [value]
+}
+
+function mediaMatchesProfession(item, profession, type) {
+  const text = [
+    item?.type,
+    item?.professionType,
+    item?.profession,
+    item?.category,
+    item?.title,
+    item?.name,
+    item?.path,
+    item?.caption,
+  ].filter(Boolean).join(' ').toLowerCase()
+  if (!text) return true
+  const professionName = String(profession?.profession || '').toLowerCase()
+  const normalizedType = String(type || '').toLowerCase()
+  const hasExplicitType = /\b(primary|secondary)\b/.test(text)
+  const isMediaPath = /(profession[-_ ]?media|media|portfolio|work[-_ ]?photo|work[-_ ]?image|work[-_ ]?reference|reference[-_ ]?image|gallery|before|after|service[-_ ]?photo)/.test(text)
+
+  if (hasExplicitType) return text.includes(normalizedType)
+  if (professionName && (text.includes(professionName) || professionName.includes(text))) return true
+  if (isMediaPath) return true
+  return !/profession/.test(text)
+}
+
+function uniqueMediaItems(items = []) {
+  const bySource = new Map()
+  items.forEach((item) => {
+    const source = String(item.src || item.path || item.id || '').split('?')[0].toLowerCase()
+    if (!source || bySource.has(source)) return
+    bySource.set(source, item)
+  })
+  return [...bySource.values()]
+}
+
 function buildGalleryItems(profession, worker, type) {
   const storageMedia = [
+    ...mediaListFromValue(profession?.primaryProfessionMedia),
+    ...mediaListFromValue(profession?.secondaryProfessionMedia),
     ...(Array.isArray(profession?.media) ? profession.media : []),
     ...(Array.isArray(profession?.professionMedia) ? profession.professionMedia : []),
     ...(Array.isArray(profession?.workPhotos) ? profession.workPhotos : []),
     ...(Array.isArray(profession?.portfolioPhotos) ? profession.portfolioPhotos : []),
+    ...mediaListFromValue(profession?.workReferenceImages),
+    ...mediaListFromValue(profession?.referenceImages),
+    ...mediaListFromValue(profession?.images),
+    ...mediaListFromValue(profession?.photos),
+    ...mediaListFromValue(type === 'secondary' ? worker?.secondaryProfessionMedia : worker?.primaryProfessionMedia),
+    ...mediaListFromValue(type === 'secondary' ? worker?.secondaryWorkPhotos : worker?.primaryWorkPhotos),
+    ...mediaListFromValue(type === 'secondary' ? worker?.secondaryMedia : worker?.media),
+    ...mediaListFromValue(type === 'secondary' ? worker?.secondary_media : worker?.primary_media),
+    ...mediaListFromValue(type === 'secondary' ? worker?.secondaryMediaUrls : worker?.mediaUrls),
+    ...mediaListFromValue(type === 'secondary' ? worker?.secondaryMediaURLs : worker?.mediaURLs),
+    ...mediaListFromValue(type === 'secondary' ? worker?.secondaryProfession?.media : worker?.primaryProfession?.media),
     ...(Array.isArray(worker?.professionMedia) ? worker.professionMedia : []),
     ...(Array.isArray(worker?.workPhotos) ? worker.workPhotos : []),
     ...(Array.isArray(worker?.portfolioPhotos) ? worker.portfolioPhotos : []),
-  ].map((item, index) => mediaItemFromValue(item, index, `${type || 'profession'}-firebase`)).filter(Boolean)
+    ...mediaListFromValue(worker?.workReferenceImages),
+    ...mediaListFromValue(worker?.referenceImages),
+  ]
+    .filter((item) => mediaMatchesProfession(item, profession, type))
+    .map((item, index) => mediaItemFromValue(item, index, `${type || 'profession'}-firebase`))
+    .filter(Boolean)
 
-  return storageMedia
+  return uniqueMediaItems(storageMedia)
 }
 
 function buildPackages(profession) {
@@ -260,7 +326,7 @@ function LightboxPreview({ item, visual, onClose }) {
         </div>
         <div className="p-5">
           {item.src ? (
-            <img src={item.src} alt={item.title} className="h-[60vh] w-full rounded-[24px] object-cover" />
+            <img src={item.src} alt={item.title} loading="eager" decoding="async" className="h-[60vh] w-full rounded-[24px] object-cover" />
           ) : (
             <div className={cn('flex h-[60vh] w-full flex-col items-center justify-center rounded-[24px] border border-white/10 bg-gradient-to-br text-white', item.gradientClass || visual.bannerClass)}>
               <div className={cn('flex h-20 w-20 items-center justify-center rounded-[24px] border border-white/15 bg-white/10', visual.mediaClass)}>
@@ -594,9 +660,9 @@ export function ProfessionWorkspace({
               </>
             }
           >
-            {galleryItems.length > 0 ? (
+          {galleryItems.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {galleryItems.map((item) => (
+                {galleryItems.map((item, index) => (
                   <div key={item.id} className="group overflow-hidden rounded-[24px] border border-[var(--border-main)] bg-[var(--bg-main)] text-left transition-transform duration-200 hover:-translate-y-0.5">
                     <button
                       type="button"
@@ -604,7 +670,7 @@ export function ProfessionWorkspace({
                       className="block w-full text-left"
                     >
                       {item.src ? (
-                        <img src={item.src} alt={item.title} className="h-40 w-full object-cover" />
+                        <img src={item.src} alt={item.title} loading={index < 4 ? 'eager' : 'lazy'} fetchPriority={index < 4 ? 'high' : 'auto'} decoding="async" className="h-40 w-full object-cover" />
                       ) : (
                         <div className={cn('flex h-40 items-center justify-center bg-gradient-to-br', item.gradientClass)}>
                           <div className={cn('flex h-16 w-16 items-center justify-center rounded-2xl border', visual.mediaClass)}>
@@ -623,9 +689,10 @@ export function ProfessionWorkspace({
                           <button
                             type="button"
                             onClick={() => setPreviewItem(item)}
-                            className="rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] p-2 text-[var(--text-muted)] transition-colors hover:text-[var(--text-main)]"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-2.5 py-2 text-xs font-bold text-[var(--text-muted)] transition-colors hover:text-[var(--text-main)]"
                           >
                             <Eye className="h-4 w-4" />
+                            Preview
                           </button>
                           {item.id.startsWith('upload-') && (
                             <button

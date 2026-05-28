@@ -31,7 +31,7 @@ import workersApi from '../services/workersApi'
 import bookingsApi from '../services/bookingsApi'
 import customersApi from '../services/customersApi'
 import reviewsApi from '../services/reviewsApi'
-import { resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerStorageFiles } from '../services/firebaseClient'
+import { resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerMediaFiles, resolveWorkerStorageFiles } from '../services/firebaseClient'
 import { buildBookings, buildLeadRows, buildReviewRows, formatCurrency, formatDate, getLeadBadge } from '../utils/workerProfileDetail'
 
 const TAB_ITEMS = [
@@ -210,6 +210,28 @@ function withRequiredDocumentCards(documents = []) {
       { key: 'aadhaar', name: 'Aadhaar', status: 'Missing', url: '', isImage: false, description: 'Aadhaar is not uploaded.' },
       ...unique,
     ]
+}
+
+function firstProfilePhotoCandidate(worker = {}) {
+  const direct = [
+    worker.profilePhotoUrl,
+    worker.profilePhotoURL,
+    worker.photoUrl,
+    worker.photoURL,
+    worker.profileImageUrl,
+    worker.profileImage,
+    worker.imageUrl,
+    worker.image,
+    worker.avatarUrl,
+    worker.avatar,
+    worker.photo,
+  ].find((value) => typeof value === 'string' && value.trim())
+
+  if (direct) return direct
+
+  const documents = Array.isArray(worker.documents) ? worker.documents : []
+  const photoDocument = documents.find((document) => canonicalDocumentKind(document) === 'photo')
+  return photoDocument?.url || photoDocument?.downloadUrl || photoDocument?.downloadURL || photoDocument?.fileUrl || photoDocument?.path || photoDocument?.filePath || ''
 }
 
 function sameDocument(left = {}, right = {}) {
@@ -595,10 +617,29 @@ function WorkerProfileDetailViewContent({ workerId }) {
       })
       setWorkerBookings(bookings)
 
+      const fastProfilePhoto = firstProfilePhotoCandidate(data)
+      if (fastProfilePhoto) {
+        if (/^https?:\/\//i.test(fastProfilePhoto)) setWorkerPhotoUrl(fastProfilePhoto)
+        resolveStorageAssetUrl(fastProfilePhoto).then((resolvedUrl) => {
+          if (resolvedUrl) setWorkerPhotoUrl(resolvedUrl)
+        }).catch(() => {})
+      }
+
+      resolveWorkerMediaFiles(data).then((media) => {
+        if (!media.length) return
+        const existingMedia = [
+          ...(Array.isArray(data.professionMedia) ? data.professionMedia : []),
+          ...(Array.isArray(data.workPhotos) ? data.workPhotos : []),
+          ...(Array.isArray(data.portfolioPhotos) ? data.portfolioPhotos : []),
+          ...(Array.isArray(data.portfolio) ? data.portfolio : []),
+        ]
+        setWorker((current) => current?.id === data.id ? { ...current, professionMedia: [...existingMedia, ...media], workPhotos: [...existingMedia, ...media] } : current)
+      }).catch(() => {})
+
       scheduleIdle(() => {
         setAssetsLoading(true)
         Promise.all([
-          resolveWorkerAssetUrl(data, 'profile'),
+          fastProfilePhoto ? Promise.resolve('') : resolveWorkerAssetUrl(data, 'profile'),
           resolveWorkerAssetUrl(data, 'aadhaar'),
           resolveWorkerStorageFiles(data),
           Promise.all((data.documents || []).map(async (document) => {
@@ -630,7 +671,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
               : document
           )))
           setWorker((current) => current?.id === data.id ? { ...current, documents: cleanDocuments, professionMedia, workPhotos: professionMedia } : current)
-          setWorkerPhotoUrl(profileUrl)
+          if (profileUrl) setWorkerPhotoUrl(profileUrl)
           setAadhaarUrl(aadhaarDocumentUrl)
         }).finally(() => setAssetsLoading(false))
       })
@@ -1069,7 +1110,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
           <div className="rounded-[28px] border border-[var(--border-main)] bg-[var(--card-bg)] p-5 shadow-[0_18px_44px_rgba(15,23,42,0.06)]">
             <div className="text-center">
               {workerPhotoUrl ? (
-                <img src={workerPhotoUrl} alt={worker.name} decoding="async" className="mx-auto h-24 w-24 rounded-full border border-brand-500/20 object-cover shadow-lg shadow-black/10" />
+                <img src={workerPhotoUrl} alt={worker.name} loading="eager" fetchPriority="high" decoding="async" className="mx-auto h-24 w-24 rounded-full border border-brand-500/20 object-cover shadow-lg shadow-black/10" />
               ) : (
                 <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-brand-500/20 bg-brand-500/10 text-2xl font-black text-brand-700 dark:text-brand-300">
                   {worker.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}

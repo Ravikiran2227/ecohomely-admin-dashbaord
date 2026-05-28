@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { deleteObject, getDownloadURL, getStorage, listAll, ref as storageRef } from 'firebase/storage'
+import { deleteObject, getDownloadURL, getStorage, list, listAll, ref as storageRef } from 'firebase/storage'
 import {
   addDoc,
   collection,
@@ -33,6 +33,7 @@ export const db = initializeFirestore(app, {
 })
 export const auth = getAuth(app)
 export const storage = getStorage(app)
+let rootMediaFilesPromise = null
 
 const COLLECTION_ALIASES = {
   activityLogs: ['logs', 'activityLogs'],
@@ -107,7 +108,14 @@ const HEATMAP_AREA_COORDS = {
 }
 
 function docToJson(snapshot) {
-  return { id: snapshot.id, ...snapshot.data() }
+  const path = snapshot.ref?.path || ''
+  return {
+    id: snapshot.id,
+    ...snapshot.data(),
+    __path: path,
+    __parentId: snapshot.ref?.parent?.parent?.id || '',
+    __parentPath: snapshot.ref?.parent?.parent?.path || '',
+  }
 }
 
 function adminCollectionForRole(role = '') {
@@ -247,20 +255,69 @@ function firstNestedAssetValue(record = {}, fields = []) {
 }
 
 function assetKeys(record = {}) {
+  const deepKeys = []
+  const seen = new Set()
+  const idKeyPattern = /(^|_)(id|uid|authid|authuid|ownerid|owneruid|createdby|providerid|vendorid|firebaseuid|firebaseauthid|userid|useruid|workerid|workeruid|partnerid|partneruid|servicemanid|servicemanuid|serviceman|servicemanuserid|servicemanuid|serviceManId|profileid|documentid)(_|$)/i
+  const scan = (value, keyName = '') => {
+    if (value === undefined || value === null) return
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value).trim()
+      if (!text || /^https?:\/\//i.test(text) || /^gs:\/\//i.test(text)) return
+      const key = String(keyName || '').toLowerCase()
+      if (idKeyPattern.test(key)) {
+        deepKeys.push(text)
+      }
+      return
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => scan(item, keyName))
+      return
+    }
+    if (typeof value === 'object') {
+      if (seen.has(value)) return
+      seen.add(value)
+      Object.entries(value).forEach(([childKey, childValue]) => scan(childValue, childKey))
+    }
+  }
+
+  scan(record)
+  const pathKeys = [record.__path, record.__parentPath]
+    .filter(Boolean)
+    .flatMap((path) => String(path).split('/'))
+    .filter((part) => part && !/^(users|user|workers|worker|servicemen|serviceman|partners|partner|documents|media|profile_docs|aadhaar|aadhar)$/i.test(part))
+
   return [
     record.id,
     record.uid,
+    record.user_id,
+    record.worker_id,
+    record.serviceman_id,
     record.authId,
+    record.authUid,
+    record.ownerId,
+    record.ownerUid,
+    record.createdBy,
+    record.providerId,
+    record.vendorId,
+    record.firebaseUid,
+    record.firebaseAuthId,
+    record.userUid,
+    record.partnerUid,
     record.userId,
     record.workerId,
     record.servicemanId,
     record.serviceManId,
     record.partnerId,
+    record.partnerAuthId,
+    record.partnerUserId,
     record.profileId,
     record.documentId,
+    record.__parentId,
     record.phone,
     record.mobile,
     record.phoneNumber,
+    ...pathKeys,
+    ...deepKeys,
   ].filter(Boolean).flatMap((value) => {
     const text = String(value).trim()
     const digits = text.replace(/\D/g, '')
@@ -321,6 +378,38 @@ async function filesInFolder(folder, limit = 80) {
   }
 }
 
+async function rootMediaFiles() {
+  if (!rootMediaFilesPromise) {
+    rootMediaFilesPromise = (async () => {
+      const items = []
+      let pageToken
+      for (let page = 0; page < 12; page += 1) {
+        const listing = await list(storageRef(storage, 'media'), { maxResults: 1000, pageToken })
+        items.push(...listing.items)
+        if (!listing.nextPageToken) break
+        pageToken = listing.nextPageToken
+      }
+      return items
+    })()
+      .catch(() => [])
+  }
+  return rootMediaFilesPromise
+}
+
+function fileBelongsToAssetKeys(file, lowerKeys = []) {
+  const name = String(file?.name || '').toLowerCase()
+  const path = String(file?.fullPath || '').toLowerCase()
+  return lowerKeys
+    .filter((key) => String(key || '').length >= 6)
+    .some((key) => (
+      name === key
+      || name.startsWith(`${key}_`)
+      || name.startsWith(`${key}-`)
+      || name.startsWith(`${key}.`)
+      || path.includes(`/${key}/`)
+    ))
+}
+
 async function firstMatchingFileInFolder(folder, keys = []) {
   try {
     const normalizedKeys = keys.map((key) => String(key).toLowerCase()).filter(Boolean)
@@ -367,7 +456,7 @@ function fileDisplayName(path = '', fallback = 'Document') {
 }
 
 function looksLikeProfessionMedia(path = '') {
-  return /(profession|portfolio|work[-_ ]?photo|work[-_ ]?image|gallery|media|before|after|service[-_ ]?photo)/i.test(path)
+  return /(profession|primary[-_ ]?profession|secondary[-_ ]?profession|portfolio|work[-_ ]?photo|work[-_ ]?image|work[-_ ]?reference|reference[-_ ]?image|gallery|media|before|after|service[-_ ]?photo)/i.test(path)
 }
 
 function isProfileAssetPath(path = '') {
@@ -416,7 +505,6 @@ export async function resolveWorkerStorageFiles(worker = {}) {
   const keys = [...new Set(assetKeys(worker))]
   const roots = [
     'profile_docs',
-    'media',
     'servicemen',
     'serviceman',
     'documents',
@@ -482,6 +570,37 @@ export async function resolveWorkerStorageFiles(worker = {}) {
     }))
 
   return { documents: dedupeDocuments([...aadhaarFallbacks, ...documents]), media }
+}
+
+export async function resolveWorkerMediaFiles(worker = {}) {
+  const keys = [...new Set(assetKeys(worker))]
+  const lowerKeys = keys.map((key) => String(key).toLowerCase()).filter(Boolean)
+  const directFolders = keys.flatMap((key) => [
+    `media/${key}`,
+    `professionMedia/${key}`,
+    `profession_media/${key}`,
+    `servicemen/${key}/media`,
+    `serviceman/${key}/media`,
+    `workers/${key}/media`,
+  ])
+  const [directMatches, rootMediaFiles] = await Promise.all([
+    Promise.all(directFolders.map((folder) => filesInFolder(folder, 40))),
+    rootMediaFiles(),
+  ])
+  const files = uniqueFiles([...directMatches.flat(), ...rootMediaFiles.filter((file) => fileBelongsToAssetKeys(file, lowerKeys))])
+
+  const resolved = await Promise.all(files
+    .filter((file) => isImagePath(file.name) && looksLikeProfessionMedia(file.fullPath))
+    .slice(0, 24)
+    .map(async (file, index) => ({
+      id: `storage-media-${index + 1}`,
+      title: file.name.replace(/\.[^.]+$/, ''),
+      caption: 'Profession media from Firebase Storage',
+      src: await getDownloadURL(file).catch(() => ''),
+      path: file.fullPath,
+    })))
+
+  return resolved.filter((item) => item.src)
 }
 
 export async function resolveWorkerAssetUrl(worker = {}, kind = 'profile') {

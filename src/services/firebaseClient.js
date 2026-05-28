@@ -391,13 +391,19 @@ function uniqueFiles(files = []) {
 function dedupeDocuments(documents = []) {
   const bySignature = new Map()
   documents.forEach((document) => {
+    const fileName = String(document.fileName || document.name || document.path || '').split(/[\\/]/).pop().toLowerCase()
+    const genericGroup = /^secondary[_-]?document[_-]?\d+/.test(fileName)
+      ? 'generic:secondary-document'
+      : /^document[_-]?\d+/.test(fileName)
+        ? 'generic:document'
+        : ''
     const rawName = String(document.fileName || document.name || document.path || '').toLowerCase()
     const normalizedName = rawName
       .replace(/\.[^.]+$/, '')
       .replace(/^(secondary_)?document[_-]?/, '')
       .replace(/[_-]?\d{8,}.*$/, '')
       .replace(/[^a-z0-9]+/g, '')
-    const signature = normalizedName || String(document.url || document.path || document.key)
+    const signature = genericGroup || normalizedName || String(document.url || document.path || document.key)
     const current = bySignature.get(signature)
     if (!current || String(document.path || '').length < String(current.path || '').length) {
       bySignature.set(signature, document)

@@ -4,7 +4,6 @@ import PageHeader from '../components/PageHeader'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import EmptyState from '../components/EmptyState'
-import { areas, cities, districts, mandals, states } from '../data/locationExpansion'
 import {
   getLocationLabel,
   getPrimaryProfession,
@@ -14,6 +13,7 @@ import Icon from '../components/Icon'
 import ListToolbar from '../components/ListToolbar'
 import { Card } from '../components/Card'
 import { DataTable, TableRow, TD } from '../components/Table'
+import locationsApi from '../services/locationsApi'
 import workersApi from '../services/workersApi'
 
 function FilterField({ value, onChange, options, placeholder, icon }) {
@@ -261,6 +261,17 @@ function getRating(worker) {
   return rating ? `${rating}/5` : 'N/A'
 }
 
+function uniqueOptions(rows, idKeys, nameKeys) {
+  const byName = new Map()
+  rows.forEach((row) => {
+    const name = firstText(...nameKeys.map((key) => row[key]))
+    if (!name) return
+    const id = firstText(...idKeys.map((key) => row[key]), name)
+    byName.set(String(name).toLowerCase(), { id, name })
+  })
+  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
 function csvCell(value) {
   const text = String(value ?? '')
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
@@ -374,25 +385,31 @@ export default function WorkerList() {
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState(emptyFilters)
   const [workers, setWorkers] = useState([])
+  const [locationRows, setLocationRows] = useState({ states: [], districts: [], cities: [], areas: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
 
-  const stateOptions = useMemo(() => states.filter((item) => item.id === 'st-ap'), [])
-  const districtOptions = useMemo(() => districts.filter((item) => item.id === 'dist-vsp'), [])
-  const cityOptions = useMemo(() => cities.filter((item) => item.id === 'city-vizag'), [])
+  const stateOptions = useMemo(() => {
+    const firebaseStates = uniqueOptions(locationRows.states, ['id', 'state_id', 'stateId'], ['name', 'stateName', 'state'])
+    const workerStates = uniqueOptions(workers, ['state_id', 'stateId'], ['stateName', 'state'])
+    return uniqueOptions([...firebaseStates, ...workerStates], ['id'], ['name'])
+  }, [locationRows.states, workers])
+  const districtOptions = useMemo(() => {
+    const firebaseDistricts = uniqueOptions(locationRows.districts, ['id', 'district_id', 'districtId'], ['name', 'districtName', 'district'])
+    const workerDistricts = uniqueOptions(workers, ['district_id', 'districtId'], ['districtName', 'district'])
+    return uniqueOptions([...firebaseDistricts, ...workerDistricts], ['id'], ['name'])
+  }, [locationRows.districts, workers])
+  const cityOptions = useMemo(() => {
+    const firebaseCities = uniqueOptions(locationRows.cities, ['id', 'city_id', 'cityId'], ['name', 'cityName', 'city'])
+    const workerCities = uniqueOptions(workers, ['city_id', 'cityId'], ['cityName', 'city'])
+    return uniqueOptions([...firebaseCities, ...workerCities], ['id'], ['name'])
+  }, [locationRows.cities, workers])
   const areaOptions = useMemo(() => {
-    const mandalIds = mandals.filter((item) => item.city_id === 'city-vizag').map((item) => item.id)
-    const staticAreas = areas.filter((item) => mandalIds.includes(item.mandal_id))
-    const staticNames = new Set(staticAreas.map((item) => item.name.toLowerCase()))
-    const workerAreas = [...new Set(workers
-      .map((worker) => firstText(worker.areaName, worker.primaryArea, worker.serviceArea, worker.area))
-      .filter(Boolean)
-      .filter((name) => !staticNames.has(String(name).toLowerCase())))]
-      .map((name) => ({ id: `area-name:${name}`, name }))
-
-    return [...staticAreas, ...workerAreas].sort((left, right) => left.name.localeCompare(right.name))
-  }, [workers])
+    const firebaseAreas = uniqueOptions(locationRows.areas, ['id', 'area_id', 'areaId'], ['name', 'areaName', 'area'])
+    const workerAreas = uniqueOptions(workers, ['area_id', 'areaId'], ['areaName', 'primaryArea', 'serviceArea', 'area'])
+    return uniqueOptions([...firebaseAreas, ...workerAreas], ['id'], ['name'])
+  }, [locationRows.areas, workers])
 
   const loadWorkers = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true)
@@ -408,6 +425,14 @@ export default function WorkerList() {
 
   useEffect(() => {
     loadWorkers()
+    locationsApi.getHierarchy()
+      .then((data) => setLocationRows({
+        states: Array.isArray(data?.states) ? data.states : [],
+        districts: Array.isArray(data?.districts) ? data.districts : [],
+        cities: Array.isArray(data?.cities) ? data.cities : [],
+        areas: Array.isArray(data?.areas) ? data.areas : [],
+      }))
+      .catch(() => setLocationRows({ states: [], districts: [], cities: [], areas: [] }))
 
     const intervalId = window.setInterval(() => {
       loadWorkers({ silent: true })
@@ -438,16 +463,16 @@ export default function WorkerList() {
   }), [workers])
 
   const filtered = useMemo(() => sortedWorkers.filter((worker) => {
-    const selectedState = states.find((item) => item.id === filters.state_id)?.name || ''
-    const selectedDistrict = districts.find((item) => item.id === filters.district_id)?.name || ''
-    const selectedCity = cities.find((item) => item.id === filters.city_id)?.name || ''
+    const selectedState = stateOptions.find((item) => item.id === filters.state_id)?.name || ''
+    const selectedDistrict = districtOptions.find((item) => item.id === filters.district_id)?.name || ''
+    const selectedCity = cityOptions.find((item) => item.id === filters.city_id)?.name || ''
     const selectedArea = areaOptions.find((item) => item.id === filters.area_id)?.name || ''
     const locationLabel = getLocationLabel(worker)
     const text = `${worker.name} ${worker.phone} ${getProfessionLabel(worker)} ${locationLabel} ${getMainArea(worker)}`.toLowerCase()
     const profession = getProfessionLabel(worker).toLowerCase()
-    const matchesState = !filters.state_id || worker.state_id === filters.state_id || String(worker.stateName || worker.state || '').toLowerCase() === selectedState.toLowerCase() || selectedState === 'Andhra Pradesh'
-    const matchesDistrict = !filters.district_id || worker.district_id === filters.district_id || String(worker.districtName || worker.district || '').toLowerCase() === selectedDistrict.toLowerCase() || locationLabel.toLowerCase().includes(selectedDistrict.toLowerCase())
-    const matchesCity = !filters.city_id || worker.city_id === filters.city_id || String(worker.cityName || worker.city || '').toLowerCase() === selectedCity.toLowerCase() || ['visakhapatnam', 'vizag'].some((name) => locationLabel.toLowerCase().includes(name))
+    const matchesState = !filters.state_id || worker.state_id === filters.state_id || worker.stateId === filters.state_id || String(worker.stateName || worker.state || '').toLowerCase() === selectedState.toLowerCase()
+    const matchesDistrict = !filters.district_id || worker.district_id === filters.district_id || worker.districtId === filters.district_id || String(worker.districtName || worker.district || '').toLowerCase() === selectedDistrict.toLowerCase() || (selectedDistrict && locationLabel.toLowerCase().includes(selectedDistrict.toLowerCase()))
+    const matchesCity = !filters.city_id || worker.city_id === filters.city_id || worker.cityId === filters.city_id || String(worker.cityName || worker.city || '').toLowerCase() === selectedCity.toLowerCase() || (selectedCity && locationLabel.toLowerCase().includes(selectedCity.toLowerCase()))
     const matchesArea = !filters.area_id || worker.area_id === filters.area_id || String(worker.areaName || worker.area || '').toLowerCase() === selectedArea.toLowerCase() || locationLabel.toLowerCase().includes(selectedArea.toLowerCase())
     const matchesProfession = !filters.profession || profession === String(filters.profession).toLowerCase()
     const matchesPlan = !filters.planType || String(worker.planType || '').toLowerCase() === String(filters.planType).toLowerCase()
@@ -455,7 +480,7 @@ export default function WorkerList() {
     const matchesSearch = !search || text.includes(search.toLowerCase())
 
     return matchesState && matchesDistrict && matchesCity && matchesArea && matchesProfession && matchesPlan && matchesAvailability && matchesSearch
-  }), [areaOptions, filters, search, sortedWorkers])
+  }), [areaOptions, cityOptions, districtOptions, filters, search, sortedWorkers, stateOptions])
   const pageCount = Math.max(Math.ceil(filtered.length / PAGE_SIZE), 1)
   const safePage = Math.min(page, pageCount)
   const pagedWorkers = useMemo(() => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filtered, safePage])
@@ -560,9 +585,9 @@ export default function WorkerList() {
         actions={<Btn v="ghost" size="sm" onClick={resetFilters}>Reset filters</Btn>}
         filters={(
           <>
-            <FilterField value={filters.state_id} onChange={() => setFilters((c) => ({ ...c, state_id: 'st-ap', district_id: 'dist-vsp', city_id: 'city-vizag', area_id: '' }))} options={stateOptions} placeholder="State" />
-            <FilterField value={filters.district_id} onChange={() => setFilters((c) => ({ ...c, state_id: 'st-ap', district_id: 'dist-vsp', city_id: 'city-vizag', area_id: '' }))} options={districtOptions} placeholder="District" />
-            <FilterField value={filters.city_id} onChange={() => setFilters((c) => ({ ...c, state_id: 'st-ap', district_id: 'dist-vsp', city_id: 'city-vizag', area_id: '' }))} options={cityOptions} placeholder="City" />
+            <FilterField value={filters.state_id} onChange={(v) => setFilters((c) => ({ ...c, state_id: v, district_id: '', city_id: '', area_id: '' }))} options={stateOptions} placeholder="State" />
+            <FilterField value={filters.district_id} onChange={(v) => setFilters((c) => ({ ...c, district_id: v, city_id: '', area_id: '' }))} options={districtOptions} placeholder="District" />
+            <FilterField value={filters.city_id} onChange={(v) => setFilters((c) => ({ ...c, city_id: v, area_id: '' }))} options={cityOptions} placeholder="City" />
             <FilterField value={filters.area_id} onChange={(v) => setFilters((c) => ({ ...c, area_id: v }))} options={areaOptions} placeholder="Area" />
             <FilterField value={filters.profession} onChange={(v) => setFilters((c) => ({ ...c, profession: v }))} options={professionOptions} placeholder="Role" icon="star" />
             <FilterField value={filters.planType} onChange={(v) => setFilters((c) => ({ ...c, planType: v }))} options={['Free', 'Pro']} placeholder="Plan" icon="dollar" />

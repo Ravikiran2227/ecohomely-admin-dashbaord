@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import Btn from '../components/Btn'
 import Badge from '../components/Badge'
 import { Card } from '../components/Card'
-import { areas, cities, districts, mandals, states } from '../data/locationExpansion'
-import { onboardingDraft, professionCatalog } from '../data/workerSystem'
+import { professionCatalog } from '../data/workerSystem'
+import locationsApi from '../services/locationsApi'
 import workersApi from '../services/workersApi'
 
 const serviceOptions = {
@@ -16,6 +16,32 @@ const serviceOptions = {
   'AC Repair': ['AC service', 'Cooling check', 'Gas refill'],
   Painter: ['Wall painting', 'Touch-up', 'Exterior work'],
   Carpenter: ['Furniture repair', 'Door fitting', 'Shelf install'],
+}
+
+const emptyOnboardingDraft = {
+  mobile: '',
+  location: {
+    state_id: '',
+    district_id: '',
+    city_id: '',
+    mandal_id: '',
+    area_id: '',
+  },
+  planType: 'Free',
+  professions: [
+    {
+      type: 'Primary',
+      profession: '',
+      pricingModel: 'hourly',
+      price: '',
+      experienceYears: '',
+      services: [],
+      description: '',
+    },
+  ],
+  about: '',
+  aadhaarUploaded: false,
+  profilePhotoUploaded: false,
 }
 
 function Field({ label, children }) {
@@ -40,15 +66,44 @@ function Select({ value, onChange, options, placeholder }) {
 
 export default function WorkerOnboarding() {
   const navigate = useNavigate()
-  const [form, setForm] = useState(onboardingDraft)
+  const [form, setForm] = useState(emptyOnboardingDraft)
   const [status, setStatus] = useState('Draft')
   const [loading, setLoading] = useState(false)
+  const [locationsLoading, setLocationsLoading] = useState(true)
+  const [locations, setLocations] = useState({ states: [], districts: [], cities: [], mandals: [], areas: [] })
   const [error, setError] = useState('')
 
-  const districtOptions = useMemo(() => districts.filter((item) => !form.location.state_id || item.state_id === form.location.state_id), [form.location.state_id])
-  const cityOptions = useMemo(() => cities.filter((item) => !form.location.district_id || item.district_id === form.location.district_id), [form.location.district_id])
-  const mandalOptions = useMemo(() => mandals.filter((item) => !form.location.city_id || item.city_id === form.location.city_id), [form.location.city_id])
-  const areaOptions = useMemo(() => areas.filter((item) => !form.location.mandal_id || item.mandal_id === form.location.mandal_id), [form.location.mandal_id])
+  useEffect(() => {
+    let cancelled = false
+    setLocationsLoading(true)
+    locationsApi.getHierarchy()
+      .then((data) => {
+        if (!cancelled) {
+          setLocations({
+            states: Array.isArray(data?.states) ? data.states : [],
+            districts: Array.isArray(data?.districts) ? data.districts : [],
+            cities: Array.isArray(data?.cities) ? data.cities : [],
+            mandals: Array.isArray(data?.mandals) ? data.mandals : [],
+            areas: Array.isArray(data?.areas) ? data.areas : [],
+          })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLocations({ states: [], districts: [], cities: [], mandals: [], areas: [] })
+      })
+      .finally(() => {
+        if (!cancelled) setLocationsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const districtOptions = useMemo(() => locations.districts.filter((item) => !form.location.state_id || item.state_id === form.location.state_id || item.stateId === form.location.state_id), [form.location.state_id, locations.districts])
+  const cityOptions = useMemo(() => locations.cities.filter((item) => !form.location.district_id || item.district_id === form.location.district_id || item.districtId === form.location.district_id), [form.location.district_id, locations.cities])
+  const mandalOptions = useMemo(() => locations.mandals.filter((item) => !form.location.city_id || item.city_id === form.location.city_id || item.cityId === form.location.city_id), [form.location.city_id, locations.mandals])
+  const areaOptions = useMemo(() => locations.areas.filter((item) => !form.location.mandal_id || item.mandal_id === form.location.mandal_id || item.mandalId === form.location.mandal_id), [form.location.mandal_id, locations.areas])
 
   function updateLocation(field, nextValue) {
     const resets = {
@@ -158,7 +213,7 @@ export default function WorkerOnboarding() {
             <div style={{ display: 'grid', gap: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-main)' }}>Location Selection</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-                <Field label="State"><Select value={form.location.state_id} onChange={(value) => updateLocation('state_id', value)} options={states} placeholder="Select state" /></Field>
+                <Field label="State"><Select value={form.location.state_id} onChange={(value) => updateLocation('state_id', value)} options={locations.states} placeholder={locationsLoading ? 'Loading states' : 'Select state'} /></Field>
                 <Field label="District"><Select value={form.location.district_id} onChange={(value) => updateLocation('district_id', value)} options={districtOptions} placeholder="Select district" /></Field>
                 <Field label="City / Town"><Select value={form.location.city_id} onChange={(value) => updateLocation('city_id', value)} options={cityOptions} placeholder="Select city" /></Field>
                 <Field label="Mandal"><Select value={form.location.mandal_id} onChange={(value) => updateLocation('mandal_id', value)} options={mandalOptions} placeholder="Select mandal" /></Field>

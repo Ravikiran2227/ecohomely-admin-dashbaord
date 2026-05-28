@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import Btn from '../components/Btn'
 import { Card } from '../components/Card'
-import { areas as fallbackAreas, buildHierarchyLabel as fallbackHierarchyLabel, cities as fallbackCities, mandals as fallbackMandals } from '../data/locationExpansion'
 import CitySelector from './CitySelector'
 
 function detectServiceMode(areaId, areas) {
@@ -20,9 +19,9 @@ function buildHierarchyLabel(areaId, { areas, mandals, cities, districts = [], s
 }
 
 export default function LocationSelector({ data = {} }) {
-  const cities = data.cities || fallbackCities
-  const mandals = data.mandals || fallbackMandals
-  const areas = data.areas || fallbackAreas
+  const cities = data.cities || []
+  const mandals = data.mandals || []
+  const areas = data.areas || []
   const initialCity = cities[0]?.id || ''
   const [cityId, setCityId] = useState(initialCity)
   const [areaId, setAreaId] = useState('')
@@ -83,7 +82,7 @@ export default function LocationSelector({ data = {} }) {
             {mode === 'village' ? 'Village Mode Detected' : 'City Mode Detected'}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-main)', marginTop: 6 }}>
-            {data.areas ? buildHierarchyLabel(selectedAreaId, { ...data, areas, mandals, cities }) : fallbackHierarchyLabel(selectedAreaId)}
+            {buildHierarchyLabel(selectedAreaId, { ...data, areas, mandals, cities })}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
             Selected city/town: {selectedCity?.name || 'Not selected'}

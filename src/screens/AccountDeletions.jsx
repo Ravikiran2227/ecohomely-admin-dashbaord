@@ -113,12 +113,48 @@ function normalizeRequest(row = {}, profile = null) {
   }
 }
 
+function ThemedSelect({ id, label, value, options, open, onToggle, onChange }) {
+  const selected = options.find((option) => option.value === value) || options[0]
+
+  return (
+    <div className="relative z-40 grid min-w-[170px] gap-2">
+      <div className="text-xs font-black uppercase tracking-[0.08em] text-[var(--text-muted)]">{label}</div>
+      <button
+        type="button"
+        onClick={() => onToggle(open ? '' : id)}
+        className={`flex h-[46px] w-full items-center justify-between gap-3 rounded-xl border bg-[var(--bg-main)] px-4 text-left text-sm font-black text-[var(--text-main)] outline-none transition-colors ${open ? 'border-brand-500 shadow-[0_0_0_3px_rgba(20,184,166,0.12)]' : 'border-[var(--border-main)] hover:border-brand-500/70'}`}
+      >
+        <span className="truncate">{selected?.label || '-'}</span>
+        <span className={`text-brand-400 transition-transform ${open ? 'rotate-180' : ''}`}>v</span>
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-[76px] z-50 w-full min-w-max overflow-hidden rounded-xl border border-brand-500/40 bg-[#07111f] p-1 shadow-2xl shadow-black/50">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value)
+                onToggle('')
+              }}
+              className={`block w-full rounded-lg px-3 py-2.5 text-left text-sm font-black transition-colors ${option.value === value ? 'bg-brand-500 text-white' : 'text-[var(--text-main)] hover:bg-brand-500/15 hover:text-brand-300'}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function AccountDeletions() {
   const [records, setRecords] = useState([])
   const [search, setSearch] = useState('')
   const [sourceFilter, setSourceFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [sortOrder, setSortOrder] = useState('newest')
+  const [openSelect, setOpenSelect] = useState('')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -159,6 +195,11 @@ export default function AccountDeletions() {
     acc[source] = (acc[source] || 0) + 1
     return acc
   }, {}), [records])
+
+  const sourceOptions = useMemo(() => [
+    { value: 'all', label: 'All sources' },
+    ...Object.keys(sourceCounts).sort().map((source) => ({ value: source, label: source })),
+  ], [sourceCounts])
 
   const filteredRecords = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -222,7 +263,7 @@ export default function AccountDeletions() {
         <Card className="p-5"><div className="ui-eyebrow">Resolved</div><div className="mt-2 text-3xl font-black text-emerald-400">{metrics.resolved}</div></Card>
       </div>
 
-      <Card className="p-5">
+      <Card className="relative z-30 overflow-visible p-5">
         <div className="grid gap-4">
           <input
             value={search}
@@ -231,30 +272,40 @@ export default function AccountDeletions() {
             className="w-full rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500"
           />
           <div className="flex flex-wrap items-end gap-4">
-            <label className="grid min-w-[220px] gap-2 text-xs font-black uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Source
-              <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold normal-case tracking-normal text-[var(--text-main)] outline-none focus:border-brand-500">
-                <option value="all">All sources</option>
-                {Object.keys(sourceCounts).sort().map((source) => (
-                  <option key={source} value={source}>{source}</option>
-                ))}
-              </select>
-            </label>
-            <label className="grid min-w-[160px] gap-2 text-xs font-black uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Status
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold normal-case tracking-normal text-[var(--text-main)] outline-none focus:border-brand-500">
-                <option value="all">All</option>
-                <option value="pending">Pending</option>
-                <option value="solved">Solved</option>
-              </select>
-            </label>
-            <label className="grid min-w-[170px] gap-2 text-xs font-black uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Sort
-              <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold normal-case tracking-normal text-[var(--text-main)] outline-none focus:border-brand-500">
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-              </select>
-            </label>
+            <ThemedSelect
+              id="source"
+              label="Source"
+              value={sourceFilter}
+              options={sourceOptions}
+              open={openSelect === 'source'}
+              onToggle={setOpenSelect}
+              onChange={setSourceFilter}
+            />
+            <ThemedSelect
+              id="status"
+              label="Status"
+              value={statusFilter}
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'pending', label: 'Pending' },
+                { value: 'solved', label: 'Solved' },
+              ]}
+              open={openSelect === 'status'}
+              onToggle={setOpenSelect}
+              onChange={setStatusFilter}
+            />
+            <ThemedSelect
+              id="sort"
+              label="Sort"
+              value={sortOrder}
+              options={[
+                { value: 'newest', label: 'Newest first' },
+                { value: 'oldest', label: 'Oldest first' },
+              ]}
+              open={openSelect === 'sort'}
+              onToggle={setOpenSelect}
+              onChange={setSortOrder}
+            />
             <Btn v="outline" onClick={loadRequests} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</Btn>
           </div>
           <div className="text-sm font-semibold text-[var(--text-muted)]">

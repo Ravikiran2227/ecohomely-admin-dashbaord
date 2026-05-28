@@ -1,6 +1,4 @@
-import { cities as fallbackCities } from '../data/locationExpansion'
-
-export default function CitySelector({ value, onChange, cities = fallbackCities }) {
+export default function CitySelector({ value, onChange, cities = [] }) {
   const priorityCities = cities.filter((item) => ['city-vizag', 'city-vijayawada', 'city-guntur'].includes(item.id))
 
   return (

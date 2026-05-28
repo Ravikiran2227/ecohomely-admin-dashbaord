@@ -269,6 +269,56 @@
     color: var(--text-muted);
   }
 
+  .smooth-panel {
+    animation: panel-fade-in 180ms ease both;
+    content-visibility: auto;
+    contain-intrinsic-size: 720px;
+  }
+
+  .smooth-card {
+    content-visibility: auto;
+    contain-intrinsic-size: 280px;
+  }
+
+  .loading-shell {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border-main);
+    border-radius: 1rem;
+    background: var(--card-bg);
+  }
+
+  .loading-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  }
+
+  .loading-shimmer::after {
+    position: absolute;
+    inset: 0;
+    content: "";
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent);
+    animation: loading-shimmer 1.25s ease-in-out infinite;
+  }
+
+  @keyframes loading-shimmer {
+    100% { transform: translateX(100%); }
+  }
+
+  @keyframes panel-fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .smooth-panel,
+    .loading-shimmer::after {
+      animation: none;
+    }
+  }
+
   .dashboard-date-picker {
     position: relative;
     z-index: 30;

@@ -5,11 +5,9 @@ import Btn from '../components/Btn'
 import Badge from '../components/Badge'
 import { Card } from '../components/Card'
 import {
-  defaultRankingSettings,
   getClusterName,
   getLocationLabel,
   getPrimaryProfession,
-  rankWorkers,
 } from '../data/workerSystem'
 import workersApi, { normalizeWorkerList } from '../services/workersApi'
 
@@ -24,7 +22,6 @@ function SmallStat({ label, value, color }) {
 
 export default function WorkerDashboard() {
   const navigate = useNavigate()
-  const [settings, setSettings] = useState(defaultRankingSettings)
   const [dashboard, setDashboard] = useState(null)
   const [workers, setWorkers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -33,7 +30,7 @@ export default function WorkerDashboard() {
     setLoading(true)
     setError('')
     try {
-      const data = await workersApi.getWorkerDashboard(settings)
+      const data = await workersApi.getWorkerDashboard()
       setDashboard(data)
       setWorkers(normalizeWorkerList(data.ranked_workers || data.workers || []))
     } catch (err) {
@@ -45,8 +42,16 @@ export default function WorkerDashboard() {
   useEffect(() => {
     loadDashboard()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings])
-  const ranked = useMemo(() => rankWorkers(workers, settings), [settings, workers])
+  }, [])
+  const ranked = useMemo(() => {
+    const firebaseRanked = normalizeWorkerList(dashboard?.ranked_workers || dashboard?.top_ranked_workers || [])
+    const source = firebaseRanked.length ? firebaseRanked : workers
+    return [...source].sort((left, right) => {
+      const leftScore = Number(left?.ranking?.rankingScore ?? left?.rankingScore ?? 0)
+      const rightScore = Number(right?.ranking?.rankingScore ?? right?.rankingScore ?? 0)
+      return rightScore - leftScore
+    })
+  }, [dashboard, workers])
   const metrics = useMemo(() => ({
     totalWorkers: dashboard?.total_workers ?? workers.length,
     activeWorkers: dashboard?.active_workers ?? workers.filter((worker) => worker.availability === 'Available').length,
@@ -112,7 +117,7 @@ export default function WorkerDashboard() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-main)' }}>Nearest To You</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Ranking is sorted by availability, distance, performance score, fair rotation, then plan boost.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Ranking values are shown only from Firebase records.</div>
             </div>
             <Badge label="Top 5 ranked" color="#0F5C37" />
           </div>
@@ -132,7 +137,7 @@ export default function WorkerDashboard() {
                     <Badge label={worker.availability} color={worker.availability === 'Available' ? '#16A34A' : worker.availability === 'Busy' ? '#2563EB' : '#64748B'} />
                     <Badge label={worker.planType} color={worker.planType === 'Pro' ? '#0F5C37' : '#94A3B8'} />
                     <Badge label={worker.ranking.earningBoost} color={worker.ranking.earningBoost === 'Boosted' ? '#16A34A' : worker.ranking.earningBoost === 'Reduced' ? '#DC2626' : '#64748B'} />
-                    {worker.ranking.badges.map((badge) => <Badge key={badge} label={badge} color={badge === 'Top Rated' ? '#F59E0B' : badge === 'Fast Response' ? '#0EA5E9' : badge === 'Popular' ? '#EF4444' : '#0F5C37'} />)}
+                    {(worker.ranking.badges || []).map((badge) => <Badge key={badge} label={badge} color={badge === 'Top Rated' ? '#F59E0B' : badge === 'Fast Response' ? '#0EA5E9' : badge === 'Popular' ? '#EF4444' : '#0F5C37'} />)}
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginTop: 12 }}>
@@ -158,37 +163,19 @@ export default function WorkerDashboard() {
           </div>
         </Card>
 
-        <Card style={{ background: '#FFFFFF', borderRadius: 16 }} pad={18}>
-          <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-main)' }}>Ranking Controls</div>
-          <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-            {[
-              { key: 'distanceWeight', label: 'Distance Weight' },
-              { key: 'ratingWeight', label: 'Rating Weight' },
-              { key: 'fairnessWeight', label: 'Fair Distribution' },
-            ].map((item) => (
-              <div key={item.key} style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 12, background: 'var(--card-bg)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{item.label}</div>
-                  <strong style={{ color: 'var(--text-main)' }}>{settings[item.key]}</strong>
+        {metrics.topWorkers.length ? (
+          <Card style={{ background: '#FFFFFF', borderRadius: 16 }} pad={18}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-main)' }}>Firebase Ranking Snapshot</div>
+            <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+              {metrics.topWorkers.slice(0, 5).map((worker) => (
+                <div key={worker.id} style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 12, background: 'var(--card-bg)' }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-main)' }}>{worker.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{getPrimaryProfession(worker)?.profession || 'Profession not set'}</div>
                 </div>
-                <input
-                  type="range"
-                  min="5"
-                  max="40"
-                  value={settings[item.key]}
-                  onChange={(event) => setSettings((current) => ({ ...current, [item.key]: Number(event.target.value) }))}
-                  style={{ width: '100%', marginTop: 10 }}
-                />
-              </div>
-            ))}
-            <div style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 12, background: 'color-mix(in srgb, var(--bg-main) 82%, var(--card-bg))' }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Village mode</div>
-              <div style={{ fontSize: 13, color: 'var(--text-main)', marginTop: 6 }}>
-                Village ranking lowers distance pressure and boosts response/completion more strongly.
-              </div>
+              ))}
             </div>
-          </div>
-        </Card>
+          </Card>
+        ) : null}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 18 }}>

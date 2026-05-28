@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -48,6 +48,12 @@ const TAB_ITEMS = [
 
 const WORKING_DAY_OPTIONS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const TODAY_MS = new Date().getTime()
+const scheduleIdle = (callback) => {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    return window.requestIdleCallback(callback, { timeout: 900 })
+  }
+  return window.setTimeout(callback, 80)
+}
 const MEMBERSHIP_BADGES = {
   gold: {
     label: 'Gold Member',
@@ -80,22 +86,130 @@ const CORRECTION_OPTIONS = [
   { label: 'Profession Media', key: 'professionMedia' },
 ]
 
-function documentSignature(document = {}) {
-  const rawName = String(document.fileName || document.name || document.path || document.url || '').toLowerCase()
+function canonicalDocumentKind(document = {}) {
+  const directLabel = [
+    document.key,
+    document.type,
+    document.name,
+  ].filter(Boolean).join(' ').trim().toLowerCase()
+  const text = [
+    document.key,
+    document.type,
+    document.name,
+    document.fileName,
+    document.label,
+    document.path,
+    document.filePath,
+    document.storagePath,
+    document.url,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  if (/aadhaar|aadhar|adhaar|adhar/.test(text)) return 'aadhaar'
+  if (/\bpan\b|pan[-_ ]?card|pancard/.test(text)) return 'pan'
+  if (/experience/.test(text)) return 'experienceLetter'
+  if (/govt|government|skill/.test(text)) return 'govtSkillCertificate'
+  if (/certificat/.test(text)) return 'certificates'
+  if (/(^|\s)(image|photo|profile photo|profile picture|profile image|avatar)(\s|$)/.test(directLabel)) return 'photo'
+  if (/profile[-_ ]?(photo|picture|image)|avatar/.test(text)) return 'photo'
+  return ''
+}
+
+function documentDisplayName(kind, fallback) {
+  const names = {
+    aadhaar: 'Aadhaar',
+    pan: 'PAN Card',
+    experienceLetter: 'Experience Letter',
+    govtSkillCertificate: 'Govt Skill Certificate',
+    certificates: 'Certificates',
+    photo: 'Image',
+  }
+  return names[kind] || fallback
+}
+
+function firebaseStoragePath(value = '') {
+  const text = String(value || '')
+  const match = text.match(/\/o\/([^?]+)/)
+  if (!match) return ''
+  try {
+    return decodeURIComponent(match[1]).toLowerCase()
+  } catch {
+    return match[1].toLowerCase()
+  }
+}
+
+function genericDocumentGroup(value = '') {
+  const fileName = String(value || '').split(/[\\/]/).pop().toLowerCase()
+  if (/^secondary[_-]?document[_-]?\d+/.test(fileName)) return 'generic:secondary-document'
+  if (/^document[_-]?\d+/.test(fileName)) return 'generic:document'
+  return ''
+}
+
+function documentSignature(document = {}, index = 0) {
+  const kind = canonicalDocumentKind(document)
+  if (kind) return `kind:${kind}`
+
+  const genericGroup = [
+    document.fileName,
+    document.name,
+    document.path,
+    document.filePath,
+    document.storagePath,
+    firebaseStoragePath(document.url || document.downloadURL || document.downloadUrl),
+  ].map(genericDocumentGroup).find(Boolean)
+  if (genericGroup) return genericGroup
+
+  const urlPath = firebaseStoragePath(document.url || document.downloadURL || document.downloadUrl)
+  if (urlPath) return `path:${urlPath}`
+
+  const url = String(document.url || document.downloadURL || document.downloadUrl || '').split('?')[0].toLowerCase()
+  if (url) return `url:${url}`
+
+  const path = String(document.path || document.filePath || document.storagePath || document.fullPath || '').toLowerCase()
+  if (path) return `path:${path}`
+
+  const rawName = String(document.fileName || document.name || document.key || `document-${index}`).toLowerCase()
   return rawName
     .replace(/\.[^.]+$/, '')
-    .replace(/^(secondary_)?document[_-]?/, '')
     .replace(/[_-]?\d{8,}.*$/, '')
-    .replace(/[^a-z0-9]+/g, '') || String(document.url || document.path || document.key || '')
+    .replace(/[^a-z0-9]+/g, '') || `document-${index}`
+}
+
+function mergeDocument(previous = {}, next = {}) {
+  const kind = canonicalDocumentKind(previous) || canonicalDocumentKind(next)
+  const friendlyName = documentDisplayName(kind, '')
+  return {
+    ...previous,
+    ...next,
+    key: kind || next.key || previous.key,
+    name: friendlyName || next.name || previous.name,
+    url: next.url || previous.url,
+    path: next.path || previous.path,
+    filePath: next.filePath || previous.filePath,
+    fileName: next.fileName || previous.fileName,
+    status: next.status === 'Missing' && previous.status ? previous.status : (next.status || previous.status),
+    isImage: Boolean(next.isImage || previous.isImage),
+  }
 }
 
 function uniqueDocuments(documents = []) {
   const bySignature = new Map()
-  documents.forEach((document) => {
-    const signature = documentSignature(document)
-    if (!bySignature.has(signature)) bySignature.set(signature, document)
+  documents.filter(Boolean).forEach((document, index) => {
+    const signature = documentSignature(document, index)
+    const previous = bySignature.get(signature)
+    bySignature.set(signature, previous ? mergeDocument(previous, document) : document)
   })
   return [...bySignature.values()]
+}
+
+function withRequiredDocumentCards(documents = []) {
+  const unique = uniqueDocuments(documents)
+  const hasAadhaar = unique.some((document) => canonicalDocumentKind(document) === 'aadhaar')
+  return hasAadhaar
+    ? unique
+    : [
+      { key: 'aadhaar', name: 'Aadhaar', status: 'Missing', url: '', isImage: false, description: 'Aadhaar is not uploaded.' },
+      ...unique,
+    ]
 }
 
 function sameDocument(left = {}, right = {}) {
@@ -368,6 +482,31 @@ function MembershipBadge({ badge, compact = false }) {
   )
 }
 
+function ProfileLoadingSkeleton() {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="loading-shell p-5">
+        <div className="loading-shimmer mx-auto h-24 w-24 rounded-full" />
+        <div className="loading-shimmer mx-auto mt-5 h-7 w-40 rounded-full" />
+        <div className="mt-8 grid gap-3">
+          <div className="loading-shimmer h-11 rounded-xl" />
+          <div className="loading-shimmer h-11 rounded-xl" />
+          <div className="loading-shimmer h-11 rounded-xl" />
+        </div>
+      </div>
+      <div className="loading-shell p-6">
+        <div className="loading-shimmer h-8 w-56 rounded-full" />
+        <div className="loading-shimmer mt-5 h-28 rounded-2xl" />
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <div className="loading-shimmer h-32 rounded-2xl" />
+          <div className="loading-shimmer h-32 rounded-2xl" />
+          <div className="loading-shimmer h-32 rounded-2xl" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function correctionValue(value) {
   if (value === undefined || value === null) return ''
   if (Array.isArray(value)) return value.map((item) => (typeof item === 'object' ? item : String(item || '').trim())).filter(Boolean)
@@ -420,6 +559,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const [workingSlots, setWorkingSlots] = useState([])
   const [notice, setNotice] = useState(null)
   const [correctionModal, setCorrectionModal] = useState({ isOpen: false, items: [], message: '' })
+  const [isTabPending, startTabTransition] = useTransition()
 
   const loadWorker = async () => {
     setLoading(true)
@@ -455,43 +595,45 @@ function WorkerProfileDetailViewContent({ workerId }) {
       })
       setWorkerBookings(bookings)
 
-      setAssetsLoading(true)
-      Promise.all([
-        resolveWorkerAssetUrl(data, 'profile'),
-        resolveWorkerAssetUrl(data, 'aadhaar'),
-        resolveWorkerStorageFiles(data),
-        Promise.all((data.documents || []).map(async (document) => {
-          const url = document.url || document.downloadUrl || document.downloadURL || document.fileUrl || document.path || document.filePath || ''
-          const resolvedUrl = url ? await resolveStorageAssetUrl(url) : ''
-          return {
-            ...document,
-            url: resolvedUrl || url,
-            isImage: /\.(png|jpe?g|webp|gif|heic)(\?|#|$)/i.test(resolvedUrl || url),
-            status: document.status || (resolvedUrl || url ? 'Uploaded' : 'Missing'),
-          }
-        })),
-      ]).then(([profileUrl, aadhaarDocumentUrl, storageFiles, documents]) => {
-        const documentKeys = new Set(documents.map((document) => `${document.key || ''}:${document.url || document.path || ''}`))
-        const mergedDocuments = uniqueDocuments([
-          ...documents,
-          ...(storageFiles.documents || []).filter((document) => !documentKeys.has(`${document.key || ''}:${document.url || document.path || ''}`)),
-        ])
-        const existingMedia = [
-          ...(Array.isArray(data.professionMedia) ? data.professionMedia : []),
-          ...(Array.isArray(data.workPhotos) ? data.workPhotos : []),
-          ...(Array.isArray(data.portfolioPhotos) ? data.portfolioPhotos : []),
-          ...(Array.isArray(data.portfolio) ? data.portfolio : []),
-        ]
-        const professionMedia = [...existingMedia, ...(storageFiles.media || [])]
-        const cleanDocuments = mergedDocuments.map((document) => (
-          document.key === 'aadhaar' && /licen[cs]e|driving|driver/i.test(`${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`)
-            ? { ...document, key: 'license', name: 'Driving License' }
-            : document
-        ))
-        setWorker((current) => current?.id === data.id ? { ...current, documents: cleanDocuments, professionMedia, workPhotos: professionMedia } : current)
-        setWorkerPhotoUrl(profileUrl)
-        setAadhaarUrl(aadhaarDocumentUrl)
-      }).finally(() => setAssetsLoading(false))
+      scheduleIdle(() => {
+        setAssetsLoading(true)
+        Promise.all([
+          resolveWorkerAssetUrl(data, 'profile'),
+          resolveWorkerAssetUrl(data, 'aadhaar'),
+          resolveWorkerStorageFiles(data),
+          Promise.all((data.documents || []).map(async (document) => {
+            const url = document.url || document.downloadUrl || document.downloadURL || document.fileUrl || document.path || document.filePath || ''
+            const resolvedUrl = url ? await resolveStorageAssetUrl(url) : ''
+            return {
+              ...document,
+              url: resolvedUrl || url,
+              isImage: /\.(png|jpe?g|webp|gif|heic)(\?|#|$)/i.test(resolvedUrl || url),
+              status: document.status || (resolvedUrl || url ? 'Uploaded' : 'Missing'),
+            }
+          })),
+        ]).then(([profileUrl, aadhaarDocumentUrl, storageFiles, documents]) => {
+          const documentKeys = new Set(documents.map((document) => `${document.key || ''}:${document.url || document.path || ''}`))
+          const mergedDocuments = uniqueDocuments([
+            ...documents,
+            ...(storageFiles.documents || []).filter((document) => !documentKeys.has(`${document.key || ''}:${document.url || document.path || ''}`)),
+          ])
+          const existingMedia = [
+            ...(Array.isArray(data.professionMedia) ? data.professionMedia : []),
+            ...(Array.isArray(data.workPhotos) ? data.workPhotos : []),
+            ...(Array.isArray(data.portfolioPhotos) ? data.portfolioPhotos : []),
+            ...(Array.isArray(data.portfolio) ? data.portfolio : []),
+          ]
+          const professionMedia = [...existingMedia, ...(storageFiles.media || [])]
+          const cleanDocuments = withRequiredDocumentCards(mergedDocuments.map((document) => (
+            document.key === 'aadhaar' && /licen[cs]e|driving|driver/i.test(`${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`)
+              ? { ...document, key: 'license', name: 'Driving License' }
+              : document
+          )))
+          setWorker((current) => current?.id === data.id ? { ...current, documents: cleanDocuments, professionMedia, workPhotos: professionMedia } : current)
+          setWorkerPhotoUrl(profileUrl)
+          setAadhaarUrl(aadhaarDocumentUrl)
+        }).finally(() => setAssetsLoading(false))
+      })
     } catch (err) {
       setError(err.message || 'Unable to load worker profile.')
       setLoading(false)
@@ -518,7 +660,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   }, [notice])
 
   if (loading) {
-    return <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] px-6 py-10">Loading worker profile...</div>
+    return <ProfileLoadingSkeleton />
   }
 
   if (error) {
@@ -541,7 +683,10 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const secondaryProfession = worker ? getSecondaryProfession(worker) : null
   const workerLocation = worker ? getLocationLabel(worker) : ''
   const joinedDate = formatDate(worker.verificationVersions?.[0]?.updatedAt || worker.lastActive)
-  const documentCards = uniqueDocuments(worker.documents || []).filter((document) => document.url || document.path || document.filePath || document.downloadUrl || document.downloadURL)
+  const documentCards = withRequiredDocumentCards(worker.documents || []).filter((document) => {
+    if (canonicalDocumentKind(document) === 'aadhaar') return true
+    return document.url || document.path || document.filePath || document.downloadUrl || document.downloadURL
+  })
   const bookingCards = buildBookings(worker, primaryProfession, workerBookings)
   const leadRows = buildLeadRows(worker, primaryProfession, workerBookings)
   const reviewCards = buildReviewRows(worker, primaryProfession, workerReviews)
@@ -683,6 +828,10 @@ function WorkerProfileDetailViewContent({ workerId }) {
     if (!window.confirm(`Delete ${worker.name || 'this worker'} and all uploaded files?`)) return
     await workersApi.deleteWorker(worker.id)
     navigate('/workers', { replace: true })
+  }
+
+  const handleTabChange = (tabId) => {
+    startTabTransition(() => setActiveTab(tabId))
   }
 
   const handleMarkForCorrection = async () => {
@@ -920,7 +1069,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
           <div className="rounded-[28px] border border-[var(--border-main)] bg-[var(--card-bg)] p-5 shadow-[0_18px_44px_rgba(15,23,42,0.06)]">
             <div className="text-center">
               {workerPhotoUrl ? (
-                <img src={workerPhotoUrl} alt={worker.name} className="mx-auto h-24 w-24 rounded-full border border-brand-500/20 object-cover shadow-lg shadow-black/10" />
+                <img src={workerPhotoUrl} alt={worker.name} decoding="async" className="mx-auto h-24 w-24 rounded-full border border-brand-500/20 object-cover shadow-lg shadow-black/10" />
               ) : (
                 <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-brand-500/20 bg-brand-500/10 text-2xl font-black text-brand-700 dark:text-brand-300">
                   {worker.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}
@@ -985,7 +1134,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => handleTabChange(tab.id)}
                   className={`rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition-all ${activeTab === tab.id ? 'border-brand-500/30 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-transparent bg-[var(--bg-main)]/70 text-[var(--text-main)] hover:border-[var(--border-main)]'}`}
                 >
                   {tab.label}
@@ -996,6 +1145,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
         </aside>
 
         <main className="min-w-0 space-y-6 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto xl:pr-2">
+          {isTabPending && (
+            <div className="rounded-xl border border-brand-500/20 bg-brand-500/10 px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">
+              Opening tab...
+            </div>
+          )}
+          <div key={activeTab} className="smooth-panel space-y-6">
           {activeTab === 'overview' && renderOverview()}
           {activeTab === 'primary' && renderProfessionTab('primary', primaryProfession)}
           {activeTab === 'secondary' && renderProfessionTab('secondary', secondaryProfession)}
@@ -1088,11 +1243,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
                 onEditProfile={() => setIsProfileEditing(true)}
                 onEditProfession={() => setEditTarget('primary')}
                 onEditSecondaryProfession={() => setEditTarget('secondary')}
-                onOpenDocuments={() => setActiveTab('documents')}
+                onOpenDocuments={() => handleTabChange('documents')}
                 onDeleteWorker={handleDeleteWorker}
               />
             </WorkerDetailSection>
           )}
+          </div>
         </main>
       </div>
 

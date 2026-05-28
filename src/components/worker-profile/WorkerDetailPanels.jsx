@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { AlertTriangle, Eye, FileText, Image, PencilLine, Plus, Trash2, Users } from 'lucide-react'
 import Btn from '../Btn'
 import { Stars } from './ProfessionWorkspace'
@@ -78,7 +78,7 @@ function isPdfDocument(document = {}) {
 
 function DocumentThumbnail({ document }) {
   if (document.isImage && document.url) {
-    return <img src={document.url} alt={document.name} className="h-36 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
+    return <img src={document.url} alt={document.name} loading="lazy" decoding="async" className="h-36 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
   }
 
   return (
@@ -117,7 +117,7 @@ function DocumentPreviewModal({ document, onClose }) {
         </div>
         <div className="p-5">
           {document.isImage ? (
-            <img src={document.url} alt={document.name} className="max-h-[70vh] w-full rounded-[24px] object-contain bg-black/25" />
+            <img src={document.url} alt={document.name} loading="lazy" decoding="async" className="max-h-[70vh] w-full rounded-[24px] object-contain bg-black/25" />
           ) : pdf ? (
             <iframe title={document.name || 'Document preview'} src={document.url} className="h-[70vh] w-full rounded-[24px] border border-white/10 bg-white" />
           ) : (
@@ -135,11 +135,11 @@ function DocumentPreviewModal({ document, onClose }) {
   )
 }
 
-export function DocumentCard({ document, onStatusChange, onReset }) {
+export const DocumentCard = memo(function DocumentCard({ document, onStatusChange, onReset }) {
   const [previewOpen, setPreviewOpen] = useState(false)
 
   return (
-    <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+    <div className="smooth-card rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
       <div className="flex items-start justify-between gap-3">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-brand-500/15 bg-brand-500/10 text-brand-700 dark:text-brand-300">
           {document.isImage ? <Image className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
@@ -147,7 +147,9 @@ export function DocumentCard({ document, onStatusChange, onReset }) {
         <StatusChip label={document.status} className={getDocumentBadge(document.status)} />
       </div>
       <div className="mt-4 text-base font-bold text-[var(--text-main)]">{document.name}</div>
-      <div className="mt-1 text-sm text-[var(--text-muted)]">Upload status and verification summary for this document.</div>
+      <div className="mt-1 text-sm text-[var(--text-muted)]">
+        {document.description || (document.key === 'aadhaar' && document.status === 'Missing' ? 'Aadhaar is not uploaded.' : 'Upload status and verification summary for this document.')}
+      </div>
       {document.url ? (
         <button type="button" onClick={() => setPreviewOpen(true)} className="group mt-4 block w-full overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] text-left">
           <DocumentThumbnail document={document} />
@@ -176,7 +178,7 @@ export function DocumentCard({ document, onStatusChange, onReset }) {
       {previewOpen && <DocumentPreviewModal document={document} onClose={() => setPreviewOpen(false)} />}
     </div>
   )
-}
+})
 
 export function BookingCard({ booking }) {
   return (
@@ -184,7 +186,7 @@ export function BookingCard({ booking }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           {booking.customerPhotoUrl ? (
-            <img src={booking.customerPhotoUrl} alt={booking.customer} className="h-11 w-11 shrink-0 rounded-full border border-[var(--border-main)] object-cover" />
+            <img src={booking.customerPhotoUrl} alt={booking.customer} loading="lazy" decoding="async" className="h-11 w-11 shrink-0 rounded-full border border-[var(--border-main)] object-cover" />
           ) : (
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-brand-500/20 bg-brand-500/10 text-sm font-black text-brand-600">
               {String(booking.customer || 'C').slice(0, 2).toUpperCase()}

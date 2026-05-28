@@ -1,19 +1,10 @@
-import {
-  areas as fallbackAreas,
-  cities as fallbackCities,
-  clusters as fallbackClusters,
-  districts as fallbackDistricts,
-  mandals as fallbackMandals,
-  states as fallbackStates,
-} from '../data/locationExpansion'
-
 export default function Filters({ value, onChange, data = {} }) {
-  const states = data.states || fallbackStates
-  const districts = data.districts || fallbackDistricts
-  const cities = data.cities || fallbackCities
-  const mandals = data.mandals || fallbackMandals
-  const areas = data.areas || fallbackAreas
-  const clusters = data.clusters || fallbackClusters
+  const states = data.states || []
+  const districts = data.districts || []
+  const cities = data.cities || []
+  const mandals = data.mandals || []
+  const areas = data.areas || []
+  const clusters = data.clusters || []
   const districtOptions = districts.filter((item) => !value.state_id || item.state_id === value.state_id)
   const cityOptions = cities.filter((item) => !value.district_id || item.district_id === value.district_id)
   const mandalOptions = mandals.filter((item) => !value.city_id || item.city_id === value.city_id)

@@ -19,13 +19,6 @@ import { getPrimaryProfession, getLocationLabel } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
 import { resolveStorageAssetUrl, resolveWorkerStorageFiles } from '../services/firebaseClient'
 
-const REJECT_REASONS = [
-  'Invalid Aadhaar',
-  'Fake profile',
-  'Duplicate worker',
-  'Incomplete details',
-]
-
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
   { label: 'Phone Number', key: 'phone' },
@@ -98,7 +91,7 @@ export default function WorkerVerificationProfile() {
   const [statusOverrides, setStatusOverrides] = useState({})
   const [alert, setAlert] = useState(null)
   const [docModal, setDocModal] = useState({ isOpen: false, doc: null })
-  const [actionModal, setActionModal] = useState({ isOpen: false, type: null, reason: REJECT_REASONS[0], items: [], message: '' })
+  const [actionModal, setActionModal] = useState({ isOpen: false, type: null, items: [], message: '' })
 
   const loadWorker = async () => {
     setLoading(true)
@@ -168,6 +161,14 @@ export default function WorkerVerificationProfile() {
       worker.spokenLanguage,
       worker.preferredLanguages,
     ))
+    const firebasePricing = worker.pricing || {}
+    if (!firebasePricing.minimalCharge && primary?.price) {
+      firebasePricing.minimalCharge = {
+        amount: primary.price,
+        unit: primary.pricingModel === 'hourly' ? 'hr' : 'job',
+        details: primary.services || [],
+      }
+    }
 
     return {
       ...worker,
@@ -175,24 +176,14 @@ export default function WorkerVerificationProfile() {
       phone: worker.phone,
       profession: primary?.profession,
       area: getLocationLabel(worker),
-      experience: `${experienceYears} ${experienceYears === 1 ? 'year' : 'years'}`,
+      experience: experienceYears > 0 ? `${experienceYears} ${experienceYears === 1 ? 'year' : 'years'}` : '',
       languages,
       location: worker.gps,
-      about: worker.professions?.[0]?.description || worker.about || 'Experienced service professional with a strong track record of customer satisfaction, fast response times and verified documentation.',
+      about: worker.professions?.[0]?.description || worker.about || '',
       specializations: (worker.professions || []).flatMap((item) => item.services || []),
       services: (worker.professions || []).flatMap((item) => item.services || []),
-      workPhotos: worker.workPhotos || [
-        { id: 1, title: 'Before/after repair' },
-        { id: 2, title: 'Installed setup' },
-        { id: 3, title: 'Safety check' },
-        { id: 4, title: 'Team at work' },
-      ],
-      pricing: worker.pricing || {
-        minimalCharge: { amount: primary?.price || 299, unit: primary?.pricingModel === 'hourly' ? 'hr' : 'job', details: primary?.services || ['Inspection included', 'Parts extra', 'Service warranty 7 days'] },
-        packagePricing: { amount: (primary?.price || 299) * 3, details: ['Full service', 'Materials excluded', 'Priority support'] },
-        workingHours: '8 AM – 8 PM',
-        workingDays: 'Mon – Sat',
-      },
+      workPhotos: worker.workPhotos || [],
+      pricing: firebasePricing,
       documents: worker.documents || [],
       currentVersion: worker.verificationVersions?.length || 1,
       versions: (worker.verificationVersions || []).map((version) => ({
@@ -239,8 +230,8 @@ export default function WorkerVerificationProfile() {
 
   const openDoc = (doc) => setDocModal({ isOpen: true, doc })
   const closeDoc = () => setDocModal({ isOpen: false, doc: null })
-  const openAction = (type) => setActionModal({ isOpen: true, type, reason: REJECT_REASONS[0], items: [], message: '' })
-  const closeAction = () => setActionModal({ isOpen: false, type: null, reason: REJECT_REASONS[0], items: [], message: '' })
+  const openAction = (type) => setActionModal({ isOpen: true, type, items: [], message: '' })
+  const closeAction = () => setActionModal({ isOpen: false, type: null, items: [], message: '' })
 
   const confirmApprove = async () => {
     const updated = await workersApi.approveWorker(profile.id, { note: actionModal.message })
@@ -253,12 +244,12 @@ export default function WorkerVerificationProfile() {
   }
 
   const confirmReject = async () => {
-    const updated = await workersApi.rejectWorker(profile.id, { reason: actionModal.reason, note: actionModal.message })
+    const updated = await workersApi.rejectWorker(profile.id, { reason: actionModal.message, note: actionModal.message })
     setWorker(updated)
     if (statusKey) {
       setStatusOverrides((prev) => ({ ...prev, [statusKey]: 'Rejected' }))
     }
-    setAlert({ type: 'danger', text: `Rejected due to “${actionModal.reason}”. Worker notified.` })
+    setAlert({ type: 'danger', text: 'Worker rejected and notified.' })
     closeAction()
   }
 
@@ -390,9 +381,9 @@ export default function WorkerVerificationProfile() {
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-4">
               <InfoRow label="Service Area" value={profile.area} icon="map-pin" />
-              <InfoRow label="GPS Coordinates" value={profile.location ? `${profile.location.lat.toFixed(4)}, ${profile.location.lng.toFixed(4)}` : 'Location pending'} icon="target" />
+              <InfoRow label="GPS Coordinates" value={profile.location ? `${profile.location.lat.toFixed(4)}, ${profile.location.lng.toFixed(4)}` : ''} icon="target" />
             </div>
-            <PinMap lat={profile.location?.lat || 17.7231} lng={profile.location?.lng || 83.3012} label={profile.area} />
+            {profile.location?.lat && profile.location?.lng && <PinMap lat={profile.location.lat} lng={profile.location.lng} label={profile.area} />}
           </SectionCard>
 
           <SectionCard 
@@ -415,9 +406,11 @@ export default function WorkerVerificationProfile() {
             <div className="space-y-6">
               <div>
                 <p className="text-label mb-2">About the Worker</p>
-                <p className="text-sm leading-relaxed text-[var(--text-main)] break-words">
-                  {profile.about}
-                </p>
+                {profile.about && (
+                  <p className="text-sm leading-relaxed text-[var(--text-main)] break-words">
+                    {profile.about}
+                  </p>
+                )}
               </div>
               
               <div>
@@ -445,20 +438,26 @@ export default function WorkerVerificationProfile() {
             </div>
           </SectionCard>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <PricingCard 
-              title="Base Pricing"
-              amount={profile.pricing.minimalCharge.amount}
-              unit={profile.pricing.minimalCharge.unit}
-              details={profile.pricing.minimalCharge.details}
-            />
-            <PricingCard 
-              title="Package Deal"
-              amount={profile.pricing.packagePricing.amount}
-              details={profile.pricing.packagePricing.details}
-              status="Recommended"
-            />
-          </div>
+          {(profile.pricing.minimalCharge || profile.pricing.packagePricing) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {profile.pricing.minimalCharge && (
+                <PricingCard
+                  title="Base Pricing"
+                  amount={profile.pricing.minimalCharge.amount}
+                  unit={profile.pricing.minimalCharge.unit}
+                  details={profile.pricing.minimalCharge.details || []}
+                />
+              )}
+              {profile.pricing.packagePricing && (
+                <PricingCard
+                  title="Package Deal"
+                  amount={profile.pricing.packagePricing.amount}
+                  details={profile.pricing.packagePricing.details || []}
+                  status={profile.pricing.packagePricing.status}
+                />
+              )}
+            </div>
+          )}
 
           <SectionCard 
             title="Document Proofs" 
@@ -554,22 +553,8 @@ export default function WorkerVerificationProfile() {
 
         {actionModal.type === 'reject' && (
           <div className="grid gap-3.5">
-            <p className="text-sm text-[var(--text-main)] font-medium">Select a reason for rejection:</p>
-            {REJECT_REASONS.map(reason => (
-              <label key={reason} className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
-                actionModal.reason === reason ? 'bg-[var(--bg-main)] border-[var(--color-brand-500)]' : 'bg-transparent border-[var(--border-main)] hover:bg-[var(--bg-main)]'
-              }`}>
-                <input
-                  type="radio"
-                  className="w-4 h-4 accent-[var(--color-brand-500)]"
-                  checked={actionModal.reason === reason}
-                  onChange={() => setActionModal(prev => ({ ...prev, reason }))}
-                />
-                <span className="text-sm font-bold text-[var(--text-main)]">{reason}</span>
-              </label>
-            ))}
             <div className="mt-2">
-              <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Add a note for the worker (optional)</p>
+              <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Message to send with rejection</p>
               <textarea
                 value={actionModal.message}
                 onChange={(e) => setActionModal(prev => ({ ...prev, message: e.target.value }))}

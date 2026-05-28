@@ -3,16 +3,12 @@ import {
   ArrowLeft,
   ArrowUpRight,
   Briefcase,
-  CheckCircle2,
   Eye,
   ImagePlus,
-  IndianRupee,
   MessageCircle,
-  ShieldCheck,
   Sparkles,
   Star,
   Trash2,
-  TrendingUp,
   Wrench,
   Zap,
 } from 'lucide-react'
@@ -173,13 +169,6 @@ function mediaItemFromValue(value, index, prefix = 'media') {
 }
 
 function buildGalleryItems(profession, worker, type) {
-  const gradients = [
-    'from-brand-500/18 via-brand-500/8 to-transparent',
-    'from-amber-500/18 via-amber-500/8 to-transparent',
-    'from-emerald-500/18 via-emerald-500/8 to-transparent',
-    'from-sky-500/18 via-sky-500/8 to-transparent',
-  ]
-
   const storageMedia = [
     ...(Array.isArray(profession?.media) ? profession.media : []),
     ...(Array.isArray(profession?.professionMedia) ? profession.professionMedia : []),
@@ -190,88 +179,38 @@ function buildGalleryItems(profession, worker, type) {
     ...(Array.isArray(worker?.portfolioPhotos) ? worker.portfolioPhotos : []),
   ].map((item, index) => mediaItemFromValue(item, index, `${type || 'profession'}-firebase`)).filter(Boolean)
 
-  const placeholders = (profession?.services || []).slice(0, 4).map((service, index) => ({
-    id: `${profession.profession}-${index}`,
-    title: service,
-    caption: index % 2 === 0 ? 'Field reference image' : 'Finished customer-facing result',
-    gradientClass: gradients[index % gradients.length],
-    src: null,
-  }))
-
-  return [...storageMedia, ...placeholders]
+  return storageMedia
 }
 
 function buildPackages(profession) {
-  const base = Number(profession?.price || 299)
-  const services = profession?.services || []
+  const packages = profession?.packages || profession?.pricingPackages || profession?.servicePackages || []
+  if (!Array.isArray(packages)) return []
 
-  return [
-    {
-      id: 'standard',
-      label: 'Standard Visit',
-      price: base,
-      recommended: false,
-      description: 'Best for inspection, diagnosis, and one quick resolution.',
-      features: [
-        'Inspection and issue diagnosis',
-        '30-45 minute service window',
-        services[0] || 'Single-task resolution',
-      ],
-    },
-    {
-      id: 'emergency',
-      label: 'Emergency Service',
-      price: Math.round(base * 1.7),
-      recommended: false,
-      description: 'Priority dispatch for urgent service requirements.',
-      features: [
-        'Priority response slot',
-        'Higher urgency routing',
-        services[1] || 'Rapid on-site support',
-      ],
-    },
-    {
-      id: 'premium',
-      label: 'Premium Package',
-      price: Math.round(base * 3.35),
-      recommended: true,
-      description: 'Bundled maintenance plan for repeat service and stronger value.',
-      features: [
-        'Multi-point service coverage',
-        'Follow-up support included',
-        services[2] || 'Bundled preventive maintenance',
-      ],
-    },
-  ]
+  return packages.map((item, index) => ({
+    id: item.id || item.key || `package-${index}`,
+    label: item.label || item.name || item.title || `Package ${index + 1}`,
+    price: Number(item.price || item.amount || item.value || 0),
+    recommended: Boolean(item.recommended || item.isRecommended),
+    description: item.description || item.details || '',
+    features: Array.isArray(item.features) ? item.features : Array.isArray(item.includes) ? item.includes : [],
+  }))
 }
 
-function buildReviews(worker, profession) {
-  const serviceName = profession?.profession || 'Service visit'
-  const rating = worker?.performance?.rating || 4.7
-
-  return [
-    {
-      id: `${worker?.id || 'worker'}-review-1`,
-      customer: 'Priya Sharma',
-      title: `${serviceName} visit`,
-      rating,
-      feedback: 'Reached on time, explained the work clearly, and finished with clean execution.',
-    },
-    {
-      id: `${worker?.id || 'worker'}-review-2`,
-      customer: 'Ramesh Babu',
-      title: 'Repeat booking',
-      rating: Math.max(4, Number((rating - 0.1).toFixed(1))),
-      feedback: 'Professional behavior and transparent pricing. Strong confidence for future work.',
-    },
-    {
-      id: `${worker?.id || 'worker'}-review-3`,
-      customer: 'Lakshmi Devi',
-      title: 'Emergency support',
-      rating: Math.max(4, Number((rating - 0.2).toFixed(1))),
-      feedback: 'Quick arrival and solid service quality under urgency. The issue was resolved neatly.',
-    },
-  ]
+function buildReviews(reviews = [], profession) {
+  const professionName = String(profession?.profession || '').toLowerCase()
+  return (Array.isArray(reviews) ? reviews : [])
+    .filter((review) => {
+      if (!professionName) return true
+      const service = String(review.service || review.title || '').toLowerCase()
+      return !service || service.includes(professionName) || professionName.includes(service)
+    })
+    .map((review, index) => ({
+      id: review.id || review.reviewId || `review-${index}`,
+      customer: review.customer || review.customerName || 'Customer',
+      title: review.service || review.title || profession?.profession || 'Review',
+      rating: Number(review.rating || 0),
+      feedback: review.feedback || review.comment || review.review || '',
+    }))
 }
 
 function EmptyProfessionState({ type }) {
@@ -375,7 +314,7 @@ export function ProfessionSummaryCard({ type, worker, profession, onOpen, onEdit
             </div>
             <h3 className="mt-1 text-2xl font-black text-[var(--text-main)]">{profession.profession}</h3>
             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-[var(--text-muted)]">
-              <Stars rating={worker?.performance?.rating || 4.7} />
+              <Stars rating={Number(worker?.performance?.rating || worker?.rating || 0)} />
               <span className="rounded-full border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-1 font-semibold text-[var(--text-main)]">
                 {experienceYears}+ years
               </span>
@@ -427,6 +366,7 @@ export function ProfessionWorkspace({
   onChat,
   onBook,
   onNotify,
+  reviews = [],
 }) {
   const initialUiState = getProfessionUiState(worker?.id, type)
   const [descriptionExpanded, setDescriptionExpanded] = useState(() => Boolean(initialUiState.descriptionExpanded))
@@ -438,7 +378,7 @@ export function ProfessionWorkspace({
   const visual = useMemo(() => getProfessionVisual(profession?.profession), [profession])
   const galleryItems = useMemo(() => [...buildGalleryItems(profession, worker, type), ...uploadedGallery], [profession, uploadedGallery, worker, type])
   const packageCards = useMemo(() => buildPackages(profession), [profession])
-  const reviewCards = useMemo(() => buildReviews(worker, profession), [worker, profession])
+  const reviewCards = useMemo(() => buildReviews(reviews, profession), [reviews, profession])
 
   useEffect(() => {
     if (!worker?.id || !type) return
@@ -455,17 +395,17 @@ export function ProfessionWorkspace({
   }
 
   const Icon = visual.icon
-  const coverageLabel = worker?.serviceRadiusKm ? `${worker.serviceRadiusKm} km service radius` : 'Flexible service radius'
-  const planLabel = worker?.planType ? `${worker.planType} Plan` : 'Free Plan'
-  const planExpiryLabel = worker?.planExpiry ? formatPlanExpiry(worker.planExpiry) : 'No expiry set'
+  const coverageLabel = worker?.serviceRadiusKm ? `${worker.serviceRadiusKm} km service radius` : ''
+  const planLabel = worker?.planType ? `${worker.planType} Plan` : ''
+  const planExpiryLabel = worker?.planExpiry ? formatPlanExpiry(worker.planExpiry) : ''
   const experienceYears = getExperienceYears(worker, profession)
   const quickFacts = [
-    { label: 'Experience', value: `${experienceYears}+ years` },
-    { label: 'Plan', value: planLabel },
-    { label: 'Pricing Model', value: profession.pricingModel || 'Standard' },
-    { label: 'Plan Expiry', value: planExpiryLabel },
-    { label: 'Coverage', value: coverageLabel },
-  ]
+    experienceYears > 0 ? { label: 'Experience', value: `${experienceYears}+ years` } : null,
+    planLabel ? { label: 'Plan', value: planLabel } : null,
+    profession.pricingModel ? { label: 'Pricing Model', value: profession.pricingModel } : null,
+    planExpiryLabel ? { label: 'Plan Expiry', value: planExpiryLabel } : null,
+    coverageLabel ? { label: 'Coverage', value: coverageLabel } : null,
+  ].filter(Boolean)
 
   const selectedPackageDetails = packageCards.find((item) => item.id === selectedPackage) || packageCards[0]
 
@@ -565,7 +505,7 @@ export function ProfessionWorkspace({
             </div>
             <h2 className="mt-4 text-3xl font-black text-[var(--text-main)] sm:text-4xl">{profession.profession}</h2>
             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-[var(--text-muted)]">
-              <Stars rating={worker?.performance?.rating || 4.7} />
+              <Stars rating={Number(worker?.performance?.rating || worker?.rating || 0)} />
               <span className="rounded-full border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-3 py-1 font-semibold text-[var(--text-main)]">
                 {experienceYears}+ years experience
               </span>
@@ -582,7 +522,7 @@ export function ProfessionWorkspace({
                 overflow: 'hidden',
               }}
             >
-              {profession.description || 'A complete profession profile helps the admin team understand service scope, quality confidence, and pricing structure for this worker.'}
+              {profession.description || 'No profession description has been added yet.'}
             </p>
             <button type="button" onClick={() => setDescriptionExpanded((current) => !current)} className="mt-3 text-sm font-semibold text-brand-700 dark:text-brand-300">
               {descriptionExpanded ? 'Show Less' : 'Read More'}
@@ -711,8 +651,9 @@ export function ProfessionWorkspace({
           </SectionCard>
 
           <SectionCard title="Customer Reviews" subtitle="Recent feedback for this profession with consistent admin presentation">
-            <div className="grid gap-4 lg:grid-cols-2">
-              {reviewCards.map((review) => (
+            {reviewCards.length > 0 ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                {reviewCards.map((review) => (
                 <div key={review.id} className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -723,53 +664,21 @@ export function ProfessionWorkspace({
                   </div>
                   <p className="mt-3 text-sm leading-6 text-[var(--text-main)]">{review.feedback}</p>
                 </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[var(--border-main)] bg-[var(--bg-main)]/50 px-5 py-8 text-center text-sm text-[var(--text-muted)]">
+                No customer reviews added yet.
+              </div>
+            )}
           </SectionCard>
         </div>
 
         <div className="space-y-6">
-          <SectionCard title="Quick Info" subtitle="Fast profession facts for admin decision making">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-              <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-4">
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Readiness</div>
-                <div className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-                  <ShieldCheck className="h-4 w-4" />
-                  Profession verified for admin review
-                </div>
-              </div>
-              <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-4">
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Growth Potential</div>
-                <div className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-300">
-                  <TrendingUp className="h-4 w-4" />
-                  Suitable for bundled premium upsell
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Plan Access" subtitle="Current subscription plan visibility for this profession">
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-4">
-                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Current Plan</div>
-                <div className="mt-2 text-lg font-black text-[var(--text-main)]">{planLabel}</div>
-                <div className="mt-1 text-sm text-[var(--text-muted)]">Plan expiry: {planExpiryLabel}</div>
-              </div>
-              <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-4 text-sm leading-6 text-[var(--text-main)]">
-                {type === 'secondary'
-                  ? worker?.planType === 'Pro'
-                    ? 'Secondary profession access is enabled because this worker is on the Pro plan.'
-                    : 'Secondary profession is normally reserved for Pro plans. Upgrade the worker plan if you want full secondary-profession support.'
-                  : worker?.planType === 'Pro'
-                    ? 'Primary profession is active with Pro plan support, including stronger upsell and multi-profession positioning.'
-                    : 'Primary profession is active on the current plan. Upgrade to Pro if you need stronger visibility and secondary profession access.'}
-              </div>
-            </div>
-          </SectionCard>
-
           <SectionCard title="Pricing Packages" subtitle="Structured packages with active selection and booking-focused CTA">
-            <div className="space-y-3">
-              {packageCards.map((item) => (
+            {packageCards.length > 0 ? (
+              <div className="space-y-3">
+                {packageCards.map((item) => (
                 <button
                   key={item.id}
                   type="button"
@@ -794,19 +703,26 @@ export function ProfessionWorkspace({
                       <div className="mt-1 text-2xl font-black text-[var(--text-main)]">{formatCurrency(item.price)}</div>
                     </div>
                   </div>
+                  {item.features.length > 0 && (
                   <div className="mt-4 space-y-2">
                     {item.features.map((feature) => (
                       <div key={feature} className="flex items-start gap-2 text-sm text-[var(--text-main)]">
                         <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
                         </span>
                         <span>{feature}</span>
                       </div>
                     ))}
                   </div>
+                  )}
                 </button>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[var(--border-main)] bg-[var(--bg-main)]/50 px-5 py-8 text-center text-sm text-[var(--text-muted)]">
+                No pricing packages added yet.
+              </div>
+            )}
 
             {selectedPackageDetails && (
               <div className="mt-4 rounded-[24px] border border-[var(--border-main)] bg-[var(--card-bg)] p-4">
@@ -816,7 +732,6 @@ export function ProfessionWorkspace({
                     <div className="mt-1 text-lg font-black text-[var(--text-main)]">{selectedPackageDetails.label}</div>
                   </div>
                   <div className="inline-flex items-center gap-2 rounded-full border border-brand-500/20 bg-brand-500/10 px-3 py-1 text-sm font-semibold text-brand-700 dark:text-brand-300">
-                    <IndianRupee className="h-4 w-4" />
                     {formatCurrency(selectedPackageDetails.price)}
                   </div>
                 </div>

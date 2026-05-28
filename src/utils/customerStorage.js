@@ -1,6 +1,7 @@
 import customersApi from '../services/customersApi'
 import bookingsApi from '../services/bookingsApi'
 import complaintsApi from '../services/complaintsApi'
+import { resolveStorageAssetUrl } from '../services/firebaseClient'
 
 function cloneRecord(record) {
   return {
@@ -12,6 +13,95 @@ function cloneRecord(record) {
 function pickFirst(record, keys, fallback = '') {
   const key = keys.find((item) => record?.[item] !== undefined && record?.[item] !== null && record?.[item] !== '')
   return key ? record[key] : fallback
+}
+
+const CUSTOMER_PHOTO_FIELDS = [
+  'photoUrl',
+  'photoURL',
+  'photo_url',
+  'profilePhotoUrl',
+  'profilePhotoURL',
+  'profile_photo_url',
+  'profilePhoto',
+  'profile_photo',
+  'profilePictureUrl',
+  'profilePictureURL',
+  'profile_picture_url',
+  'profilePicture',
+  'profile_picture',
+  'profilePic',
+  'profile_pic',
+  'profileImageUrl',
+  'profile_image_url',
+  'profileImage',
+  'profile_image',
+  'imageUrl',
+  'imageURL',
+  'image_url',
+  'image',
+  'avatarUrl',
+  'avatarURL',
+  'avatar_url',
+  'avatar',
+  'photo',
+  'picture',
+  'pictureUrl',
+  'pictureURL',
+  'picture_url',
+  'userPhoto',
+  'user_photo',
+  'userImage',
+  'user_image',
+  'userImageUrl',
+  'user_image_url',
+  'downloadUrl',
+  'downloadURL',
+  'download_url',
+  'url',
+]
+
+function pickNestedFirst(record = {}, keys = []) {
+  const direct = pickFirst(record, keys, '')
+  if (direct) return direct
+
+  const lowerKeys = new Set(keys.map((key) => String(key).toLowerCase()))
+  const stack = Object.values(record || {}).filter((value) => value && typeof value === 'object')
+  const seen = new Set()
+
+  while (stack.length) {
+    const current = stack.shift()
+    if (!current || seen.has(current)) continue
+    seen.add(current)
+
+    if (Array.isArray(current)) {
+      stack.push(...current.filter((value) => value && typeof value === 'object'))
+      continue
+    }
+
+    const matchedKey = Object.keys(current).find((key) => lowerKeys.has(key.toLowerCase()) && current[key] !== undefined && current[key] !== null && current[key] !== '')
+    if (matchedKey) return current[matchedKey]
+    stack.push(...Object.values(current).filter((value) => value && typeof value === 'object'))
+  }
+
+  return ''
+}
+
+function normalizePhotoValue(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (/^(https?:\/\/|data:image\/)/i.test(text)) return text
+  if (/^\/9j\//.test(text)) return `data:image/jpeg;base64,${text}`
+  if (/^iVBORw0KGgo/.test(text)) return `data:image/png;base64,${text}`
+  if (/^UklGR/.test(text)) return `data:image/webp;base64,${text}`
+  return text
+}
+
+function canResolveStoragePath(value = '') {
+  const text = String(value || '').trim()
+  if (!text || /^(https?:\/\/|data:image\/)/i.test(text)) return false
+  if (/^\/9j\/|^iVBORw0KGgo|^UklGR/.test(text)) return false
+  if (text.length > 700) return false
+  return /^(gs:\/\/|[A-Za-z0-9_-]+\/)/.test(text)
 }
 
 function formatDate(value) {
@@ -42,14 +132,14 @@ function normalizedStatus(record = {}) {
   if (['blocked', 'suspended', 'banned'].includes(explicit)) return 'Blocked'
   if (['inactive', 'disabled'].includes(explicit)) return 'Inactive'
   if (record.active === false || record.isActive === false || record.enabled === false) return 'Inactive'
-  return 'Active'
+  if (['active', 'enabled'].includes(explicit) || record.active === true || record.isActive === true || record.enabled === true) return 'Active'
+  return ''
 }
 
 function normalizedDevice(record = {}) {
   const device = pickFirst(record, ['device', 'deviceName', 'deviceType', 'platform', 'os', 'source', 'appVersion'], '')
   if (device) return device
-  if (record.expoPushToken || record.pushToken || record.fcmToken) return 'Mobile app'
-  return 'Not recorded'
+  return ''
 }
 
 function getIdentityKeys(record = {}) {
@@ -95,10 +185,11 @@ export function normalizeCustomerRecord(record = {}, related = {}) {
   return cloneRecord({
     ...record,
     id: String(record.id || record.customerId || ''),
-    name: pickFirst(record, ['name', 'fullName', 'displayName'], 'Unnamed Customer'),
+    name: pickFirst(record, ['name', 'fullName', 'displayName'], ''),
     phone: pickFirst(record, ['phone', 'phoneNumber', 'mobile'], ''),
     email: pickFirst(record, ['email'], ''),
-    area: pickFirst(record, ['area', 'areaName', 'city', 'cityName'], 'Not set'),
+    photoUrl: normalizePhotoValue(pickNestedFirst(record, CUSTOMER_PHOTO_FIELDS)),
+    area: pickFirst(record, ['area', 'areaName', 'city', 'cityName'], ''),
     dateJoined: formatDate(pickFirst(record, ['dateJoined', 'joinedAt', 'createdAt', 'registeredAt', 'updatedAt'], '')),
     status: normalizedStatus(record),
     bookings: bookings.length || Number(record.bookings ?? record.bookingCount ?? 0),
@@ -109,6 +200,15 @@ export function normalizeCustomerRecord(record = {}, related = {}) {
     completedBookings: completedBookings.length,
     payments: related.payments || [],
   })
+}
+
+export async function hydrateCustomerPhoto(record = {}) {
+  if (!record.photoUrl) {
+    return record
+  }
+  if (!canResolveStoragePath(record.photoUrl)) return record
+  const photoUrl = await resolveStorageAssetUrl(record.photoUrl).catch(() => '')
+  return photoUrl ? { ...record, photoUrl } : record
 }
 
 export function normalizeCustomerRecords(records = []) {
@@ -128,13 +228,15 @@ export async function loadCustomers(filters = {}, options = {}) {
   const bookings = bookingsResult.status === 'fulfilled' && Array.isArray(bookingsResult.value) ? bookingsResult.value : []
   const complaints = complaintsResult.status === 'fulfilled' && Array.isArray(complaintsResult.value) ? complaintsResult.value : []
 
-  return records.map((record) => {
+  const normalized = records.map((record) => {
     const customerKeys = getIdentityKeys(record)
     return normalizeCustomerRecord(record, {
       bookings: bookings.filter((booking) => isRelatedToCustomer(booking, customerKeys)),
       complaints: complaints.filter((complaint) => isRelatedToCustomer(complaint, customerKeys)),
     })
   })
+
+  return Promise.all(normalized.map((record) => hydrateCustomerPhoto(record)))
 }
 
 export async function loadCustomerProfile(customerId, options = {}) {
@@ -144,7 +246,7 @@ export async function loadCustomerProfile(customerId, options = {}) {
   ])
 
   return {
-    customer: normalizeCustomerRecord(customer, related),
+    customer: await hydrateCustomerPhoto(normalizeCustomerRecord(customer, related)),
     related: {
       bookings: related?.bookings || [],
       complaints: related?.complaints || [],
@@ -179,13 +281,4 @@ export function getStoredCustomers() {
 
 export function saveStoredCustomers(records) {
   return normalizeCustomerRecords(records)
-}
-
-export function getNextCustomerId(records) {
-  const maxId = records.reduce((highest, customer) => {
-    const numeric = Number.parseInt(String(customer.id || '').replace(/\D/g, ''), 10)
-    return Number.isFinite(numeric) ? Math.max(highest, numeric) : highest
-  }, 0)
-
-  return `C${String(maxId + 1).padStart(3, '0')}`
 }

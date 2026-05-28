@@ -4,8 +4,6 @@ import bookingsApi from '../services/bookingsApi'
 import {
   appendActivity,
   assignWorkerToBooking,
-  buildActivityLog,
-  getCurrentTimestamp,
   normalizeStatusLabel,
   updateBookingStatus,
 } from '../utils/bookingTrackerData'
@@ -41,7 +39,7 @@ function normalizeActivity(entry, bookingId) {
 }
 
 function normalizeBooking(record = {}) {
-  const requestedAt = toDateTimeString(record.requestedAt || record.bookingDate || record.bookedAt || record.scheduledAt || record.createdAt) || getCurrentTimestamp()
+  const requestedAt = toDateTimeString(record.requestedAt || record.bookingDate || record.bookedAt || record.scheduledAt || record.createdAt) || ''
   const customerLocation = record.userLocation || record.customerDetails?.location || record.location || null
   const workerLocation = record.servicemanLocation || record.workerLocation || record.workerDetails?.location || null
   const booking = {
@@ -49,11 +47,11 @@ function normalizeBooking(record = {}) {
     id: record.id || record.bookingId,
     customerId: record.customerId || record.userId || record.customer_id || '',
     workerId: record.workerId || record.servicemanId || record.worker_id || '',
-    customerName: record.customerName || record.customer || record.customerDetails?.name || record.name || record.userName || 'Customer',
+    customerName: record.customerName || record.customer || record.customerDetails?.name || record.name || record.userName || '',
     workerName: record.workerName || record.servicemanName || record.worker || record.workerDetails?.name || '',
-    service: record.service || record.profession || record.category || record.serviceName || record.job || 'Service',
-    category: record.category || record.profession || record.service || record.serviceName || 'Service',
-    area: record.area || record.customerDetails?.area || locationArea(customerLocation) || record.city || 'Vizag',
+    service: record.service || record.profession || record.category || record.serviceName || record.job || '',
+    category: record.category || record.profession || record.service || record.serviceName || '',
+    area: record.area || record.customerDetails?.area || locationArea(customerLocation) || record.city || '',
     status: normalizeStatusLabel(record.status),
     requestedAt,
     assignedAt: toDateTimeString(record.assignedAt),
@@ -64,24 +62,24 @@ function normalizeBooking(record = {}) {
     estimatedPrice: Number(record.estimatedPrice || record.amount || record.amt || 0),
     finalPrice: Number(record.finalPrice || record.amount || record.amt || 0),
     paid: Boolean(record.paid || record.paymentStatus === 'Paid' || record.status === 'Paid'),
-    paymentMode: record.paymentMode || record.method || 'Cash',
-    address: record.address || record.customerDetails?.address || customerLocation?.address || `${record.area || 'Vizag'}, Visakhapatnam`,
-    landmark: record.landmark || 'Customer will confirm on call',
+    paymentMode: record.paymentMode || record.method || '',
+    address: record.address || record.customerDetails?.address || customerLocation?.address || '',
+    landmark: record.landmark || '',
     customerDetails: record.customerDetails || {
       id: record.customerId || record.userId || '',
-      name: record.customerName || record.customer || record.userName || 'Customer',
+      name: record.customerName || record.customer || record.userName || '',
       email: record.customerEmail || record.email || '',
-      phone: record.customerPhone || record.phone || 'Not Available',
-      area: record.area || locationArea(customerLocation) || 'Vizag',
+      phone: record.customerPhone || record.phone || '',
+      area: record.area || locationArea(customerLocation) || '',
       bookings: record.customerBookings || 0,
       location: customerLocation,
     },
     workerDetails: record.workerDetails || (record.workerId || record.servicemanId ? {
       id: record.workerId || record.servicemanId,
-      name: record.workerName || record.servicemanName || record.worker || 'Assigned Worker',
+      name: record.workerName || record.servicemanName || record.worker || '',
       phone: record.workerPhone || '',
-      profession: record.profession || record.service || record.category || 'Service',
-      status: record.workerStatus || 'Assigned',
+      profession: record.profession || record.service || record.category || '',
+      status: record.workerStatus || '',
       rating: record.workerRating || null,
       location: workerLocation,
     } : null),
@@ -93,7 +91,7 @@ function normalizeBooking(record = {}) {
   const activityLog = asArray(record.activityLog).map((entry) => normalizeActivity(entry, booking.id))
   return {
     ...booking,
-    activityLog: activityLog.length > 0 ? activityLog : buildActivityLog(booking),
+    activityLog,
   }
 }
 

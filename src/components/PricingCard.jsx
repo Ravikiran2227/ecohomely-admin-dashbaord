@@ -1,13 +1,15 @@
-import React from 'react';
-import SectionCard from './SectionCard';
-import Badge from './Badge';
+import React from 'react'
+import SectionCard from './SectionCard'
+import Badge from './Badge'
 
 /**
  * Reusable PricingCard component for highlighting service and pricing.
  * Adheres to consistent green theme for pricing.
  */
-export default function PricingCard({ title, amount, unit, details = [], status, className = "" }) {
-  // Consistent green theme, layout, and spacing
+export default function PricingCard({ title, amount, unit, details = [], status, className = '' }) {
+  const hasAmount = amount !== undefined && amount !== null && amount !== ''
+  const numericAmount = Number(amount || 0)
+
   return (
     <SectionCard
       title={title}
@@ -17,9 +19,9 @@ export default function PricingCard({ title, amount, unit, details = [], status,
       <div className="space-y-5">
         <div className="flex items-end gap-2">
           <span className="text-[28px] font-extrabold text-emerald-600 leading-none">
-            ₹{amount.toLocaleString('en-IN')}
+            {hasAmount ? `Rs ${numericAmount.toLocaleString('en-IN')}` : ''}
           </span>
-          {unit && (
+          {hasAmount && unit && (
             <span className="text-[14px] font-medium text-[var(--text-muted)] lowercase tracking-tight mb-0.5">
               / {unit}
             </span>
@@ -36,5 +38,5 @@ export default function PricingCard({ title, amount, unit, details = [], status,
         )}
       </div>
     </SectionCard>
-  );
+  )
 }

@@ -254,11 +254,11 @@ export function AvailabilityEditor({ days, slots, onToggleDay, onSlotChange, onA
 
 export function EarningsBreakdown({ total, daily, weekly, monthly }) {
   const items = [
-    { label: 'Daily Avg', value: formatCurrency(daily) },
-    { label: 'Weekly Avg', value: formatCurrency(weekly) },
-    { label: 'Monthly Projection', value: formatCurrency(monthly) },
+    daily !== undefined && daily !== null ? { label: 'Daily Avg', value: formatCurrency(daily) } : null,
+    weekly !== undefined && weekly !== null ? { label: 'Weekly Avg', value: formatCurrency(weekly) } : null,
+    monthly !== undefined && monthly !== null ? { label: 'Monthly Projection', value: formatCurrency(monthly) } : null,
     { label: 'Lifetime Revenue', value: formatCurrency(total) },
-  ]
+  ].filter(Boolean)
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

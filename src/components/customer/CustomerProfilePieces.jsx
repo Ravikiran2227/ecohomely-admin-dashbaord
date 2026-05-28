@@ -1,9 +1,43 @@
 import { C } from '../../theme'
 
-export function CustomerAvatar({ name, size = 80 }) {
-  const initials = name.split(' ').map((part) => part[0]).join('').substring(0, 2).toUpperCase()
+export function CustomerAvatar({ name = '', photoUrl = '', size = 80 }) {
+  const initials = String(name || '').split(' ').map((part) => part[0]).join('').substring(0, 2).toUpperCase()
   const colors = [C.primary, C.teal, C.purple, C.success, C.info]
-  const color = colors[name.charCodeAt(0) % colors.length]
+  const color = colors[(name || 'C').charCodeAt(0) % colors.length]
+
+  if (photoUrl) {
+    return (
+      <>
+        <img
+          src={photoUrl}
+          alt={name || 'Customer'}
+          className="rounded-full shrink-0 border-4 object-cover"
+          style={{
+            width: size,
+            height: size,
+            borderColor: `${color}35`,
+          }}
+          onError={(event) => {
+            event.currentTarget.style.display = 'none'
+            event.currentTarget.nextElementSibling?.classList.remove('hidden')
+          }}
+        />
+        <div
+          className="hidden rounded-full flex items-center justify-center font-black shrink-0 border-4"
+          style={{
+            width: size,
+            height: size,
+            background: `${color}18`,
+            borderColor: `${color}35`,
+            fontSize: size * 0.33,
+            color,
+          }}
+        >
+          {initials || 'C'}
+        </div>
+      </>
+    )
+  }
 
   return (
     <div
@@ -17,7 +51,7 @@ export function CustomerAvatar({ name, size = 80 }) {
         color,
       }}
     >
-      {initials}
+      {initials || 'C'}
     </div>
   )
 }

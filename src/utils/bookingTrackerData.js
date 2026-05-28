@@ -33,7 +33,7 @@ export function parseDateTime(value) {
 
 export function formatDateTime(value) {
   const date = parseDateTime(value)
-  if (!date) return 'Not updated'
+  if (!date) return ''
   return date.toLocaleString('en-IN', {
     day: '2-digit',
     month: 'short',
@@ -63,14 +63,15 @@ export function statusColor(status) {
 }
 
 export function normalizeStatusLabel(status = '') {
-  const value = String(status || 'Pending').trim().toLowerCase()
+  const value = String(status || '').trim().toLowerCase()
+  if (!value) return ''
   if (value === 'pending') return 'Pending'
   if (value === 'completed' || value === 'done') return 'Completed'
   if (value === 'cancelled' || value === 'canceled') return 'Cancelled'
   if (value === 'accepted') return 'Accepted'
   if (value === 'assigned') return 'Accepted'
   if (value.includes('progress') || value === 'active') return 'In Progress'
-  return status || 'Pending'
+  return status || ''
 }
 
 export function computeDistanceKm(origin, target) {

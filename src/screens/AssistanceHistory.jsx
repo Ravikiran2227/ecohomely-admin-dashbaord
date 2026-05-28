@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+﻿import { useRef, useState } from 'react'
 import { Card } from '../components/Card'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
@@ -151,14 +151,14 @@ export default function AssistanceHistory({ sessions, loading = false, onView, o
                     disabled={!session.customerId}
                     className="block w-full truncate text-left text-sm font-bold text-[var(--text-main)] disabled:cursor-default hover:text-brand-600"
                   >
-                    {session.customerName || 'Walk-in / Phone support'}
+                    {session.customerName || ''}
                   </button>
-                  <div className="truncate text-[11px] text-[var(--text-muted)]">{session.customerEmail || session.raw?.email || 'No email'}</div>
+                  <div className="truncate text-[11px] text-[var(--text-muted)]">{session.customerEmail || session.raw?.email || ''}</div>
                 </td>
-                <td className="px-3 py-3 text-xs font-semibold text-[var(--text-main)] truncate">{session.customerPhone || 'Not captured'}</td>
-                <td className="px-3 py-3 text-xs text-[var(--text-main)] truncate">{session.location?.address || session.location?.area || 'Area not captured'}</td>
+                <td className="px-3 py-3 text-xs font-semibold text-[var(--text-main)] truncate">{session.customerPhone || ''}</td>
+                <td className="px-3 py-3 text-xs text-[var(--text-main)] truncate">{session.location?.address || session.location?.area || ''}</td>
                 <td className="px-3 py-3 text-xs text-[var(--text-main)] truncate">{session.service}</td>
-                <td className="px-3 py-3 text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{session.createdAt || 'Not recorded'}</td>
+                <td className="px-3 py-3 text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{session.createdAt || ''}</td>
                 <td className="px-3 py-3 text-sm font-bold text-[var(--text-main)]">{session.workers.length}</td>
                 <td className="px-3 py-3">
                   <Badge label={session.status} color={statusColor(session.status)} size="xs" />
@@ -179,7 +179,7 @@ export default function AssistanceHistory({ sessions, loading = false, onView, o
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-main)] p-3">
         <div className="text-xs font-bold text-[var(--text-muted)]">
-          Page {safePage} of {pageCount} · Showing {pagedSessions.length} records
+          Page {safePage} of {pageCount} - Showing {pagedSessions.length} records
         </div>
         <div className="flex items-center gap-1.5">
           <Btn v="outline" size="sm" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(current - 1, 1))}>Previous</Btn>
@@ -212,3 +212,4 @@ export default function AssistanceHistory({ sessions, loading = false, onView, o
     </Card>
   )
 }
+

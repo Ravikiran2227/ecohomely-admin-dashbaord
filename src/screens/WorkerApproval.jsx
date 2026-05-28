@@ -10,13 +10,6 @@ import { C } from '../theme'
 import { getLocationLabel, getPrimaryProfession } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
 
-const REJECT_REASONS = [
-  'Invalid Aadhaar',
-  'Fake profile',
-  'Duplicate worker',
-  'Incomplete details',
-]
-
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
   { label: 'Phone Number', key: 'phone' },
@@ -37,6 +30,16 @@ const STATUS_COLOR = {
   'Correction Required': C.warning,
   Approved: C.success,
   Rejected: C.danger,
+}
+
+function normalizeLanguages(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean)
+  if (!value) return []
+  return String(value).split(/[,/|]+/).map((item) => item.trim()).filter(Boolean)
+}
+
+function firstValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
 }
 
 function formatDate(value) {
@@ -163,14 +166,14 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
         </div>
       </div>
 
-      {expanded && (
+          {expanded && (
         <div className="mt-4 pt-4 border-t border-[var(--border-main)] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             { label: 'Experience', value: worker.experience, icon: 'clock' },
             { label: 'Languages', value: worker.languages.join(', '), icon: 'globe' },
             { label: 'Device', value: worker.device, icon: 'smartphone' },
             { label: 'Location', value: worker.location ? `${worker.location.lat.toFixed(4)}, ${worker.location.lng.toFixed(4)}` : 'Unset', icon: 'target' },
-          ].map((item, index) => (
+          ].filter((item) => String(item.value || '').trim() !== '').map((item, index) => (
             <div key={index} className="bg-[var(--bg-main)] rounded-xl p-3.5 border border-[var(--border-main)]/50">
               <div className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5">
                 <Icon n={item.icon} sz={10} /> {item.label}
@@ -189,7 +192,7 @@ export default function WorkerApproval() {
   const [queue, setQueue] = useState([])
   const [approvedCount, setApprovedCount] = useState(0)
   const [history, setHistory] = useState([])
-  const [modal, setModal] = useState({ isOpen: false, type: null, worker: null, reason: REJECT_REASONS[0], items: [], message: '' })
+  const [modal, setModal] = useState({ isOpen: false, type: null, worker: null, items: [], message: '' })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -197,13 +200,13 @@ export default function WorkerApproval() {
     ...worker,
     profession: getPrimaryProfession(worker)?.profession,
     area: getLocationLabel(worker),
-    dateAdded: formatDate(worker.verificationVersions?.[0]?.updatedAt) || formatDate(worker.createdAt) || 'Pending',
+    dateAdded: formatDate(worker.verificationVersions?.[0]?.updatedAt) || formatDate(worker.createdAt),
     status: worker.approvalStatus,
     aadhaar: worker.documents?.some(doc => doc.key === 'aadhaar' && doc.status === 'Verified') ? 'verified' : 'pending',
     photo: worker.profilePhoto,
     amount: getPrimaryProfession(worker)?.price || 0,
-    experience: `${getPrimaryProfession(worker)?.experienceYears || 0} years`,
-    languages: worker.languages || (worker.state_id === 'st-ap' ? ['Telugu', 'Hindi'] : ['Hindi']),
+    experience: firstValue(getPrimaryProfession(worker)?.experienceRange, getPrimaryProfession(worker)?.experienceYears, getPrimaryProfession(worker)?.experience, worker.experienceRange, worker.experienceYears, worker.experience),
+    languages: normalizeLanguages(firstValue(worker.languages, worker.language, worker.knownLanguages, worker.knownLanguage, worker.spokenLanguages, worker.spokenLanguage, worker.preferredLanguages)),
     location: worker.gps,
     statusColor: worker.documents?.some(doc => doc.key === 'aadhaar' && doc.status === 'Verified') ? '#14b8a6' : '#ef4444',
   })
@@ -231,16 +234,16 @@ export default function WorkerApproval() {
   const rejectedCount = history.filter(item => item.type === 'reject').length
 
   const openModal = (type, worker) => {
-    setModal({ isOpen: true, type, worker, reason: REJECT_REASONS[0], items: [], message: '' })
+    setModal({ isOpen: true, type, worker, items: [], message: '' })
   }
 
   const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }))
 
   const handleReject = async () => {
     if (!modal.worker) return
-    await workersApi.rejectWorker(modal.worker.id, { reason: modal.reason, note: modal.message })
+    await workersApi.rejectWorker(modal.worker.id, { reason: modal.message, note: modal.message })
     setQueue(prev => prev.filter(w => w.id !== modal.worker.id))
-    setHistory(prev => [...prev, { id: modal.worker.id, type: 'reject', name: modal.worker.name, note: modal.reason }])
+    setHistory(prev => [...prev, { id: modal.worker.id, type: 'reject', name: modal.worker.name, note: modal.message }])
     closeModal()
   }
 
@@ -372,17 +375,8 @@ export default function WorkerApproval() {
       >
         {modal.worker && modal.type === 'reject' && (
           <div className="grid gap-4">
-            <p className="text-sm font-medium text-[var(--text-main)]">Select a rejection reason for {modal.worker.name}.</p>
-            {REJECT_REASONS.map(reason => (
-              <label key={reason} className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
-                modal.reason === reason ? 'bg-[var(--bg-main)] border-brand-500' : 'bg-transparent border-[var(--border-main)] hover:bg-[var(--bg-main)]'
-              }`}>
-                <input type="radio" className="w-4 h-4 accent-brand-500" name="rejectReason" checked={modal.reason === reason} onChange={() => setModal(prev => ({ ...prev, reason }))} />
-                <span className="text-sm font-bold text-[var(--text-main)]">{reason}</span>
-              </label>
-            ))}
             <div className="mt-1">
-              <p className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Optional note to send with rejection</p>
+              <p className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2">Message to send with rejection</p>
               <textarea
                 value={modal.message}
                 onChange={(e) => setModal(prev => ({ ...prev, message: e.target.value }))}

@@ -9,7 +9,7 @@ import {
   doc,
   getDoc,
   getDocs,
-  getFirestore,
+  initializeFirestore,
   query,
   setDoc,
   where,
@@ -27,7 +27,10 @@ const firebaseConfig = {
 }
 
 const app = initializeApp(firebaseConfig)
-export const db = getFirestore(app)
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  useFetchStreams: false,
+})
 export const auth = getAuth(app)
 export const storage = getStorage(app)
 
@@ -209,6 +212,32 @@ function firstAssetValue(record = {}, fields = []) {
   return fields.find((field) => record[field] !== undefined && record[field] !== null && String(record[field]).trim() !== '')
     ? record[fields.find((field) => record[field] !== undefined && record[field] !== null && String(record[field]).trim() !== '')]
     : ''
+}
+
+function firstNestedAssetValue(record = {}, fields = []) {
+  const direct = firstAssetValue(record, fields)
+  if (direct) return direct
+
+  const lowerFields = new Set(fields.map((field) => String(field).toLowerCase()))
+  const stack = Object.values(record || {}).filter((value) => value && typeof value === 'object')
+  const seen = new Set()
+
+  while (stack.length) {
+    const current = stack.shift()
+    if (!current || seen.has(current)) continue
+    seen.add(current)
+
+    if (Array.isArray(current)) {
+      stack.push(...current.filter((value) => value && typeof value === 'object'))
+      continue
+    }
+
+    const matchedKey = Object.keys(current).find((key) => lowerFields.has(key.toLowerCase()) && current[key] !== undefined && current[key] !== null && String(current[key]).trim() !== '')
+    if (matchedKey) return current[matchedKey]
+    stack.push(...Object.values(current).filter((value) => value && typeof value === 'object'))
+  }
+
+  return ''
 }
 
 function assetKeys(record = {}) {
@@ -463,6 +492,95 @@ export async function resolveWorkerAssetUrl(worker = {}, kind = 'profile') {
       const resolved = kind === 'aadhaar'
         ? await firstFileMatching(`${folder}/${key}`, (path) => /aadhaar|aadhar|adhaar|adhar/i.test(path) && !/licen[cs]e|driving|driver|profile|avatar/i.test(path))
         : await firstFileInFolder(`${folder}/${key}`)
+      if (resolved) return resolved
+    }
+  }
+
+  return ''
+}
+
+export async function resolveCustomerAssetUrl(customer = {}) {
+  const directFields = [
+    'photoUrl',
+    'photoURL',
+    'photo_url',
+    'profilePhotoUrl',
+    'profilePhotoURL',
+    'profile_photo_url',
+    'profilePhoto',
+    'profile_photo',
+    'profilePictureUrl',
+    'profilePictureURL',
+    'profile_picture_url',
+    'profilePicture',
+    'profile_picture',
+    'profilePic',
+    'profile_pic',
+    'profileImageUrl',
+    'profile_image_url',
+    'profileImage',
+    'profile_image',
+    'imageUrl',
+    'imageURL',
+    'image_url',
+    'image',
+    'avatarUrl',
+    'avatarURL',
+    'avatar_url',
+    'avatar',
+    'photo',
+    'picture',
+    'pictureUrl',
+    'pictureURL',
+    'picture_url',
+    'userPhoto',
+    'user_photo',
+    'userImage',
+    'user_image',
+    'userImageUrl',
+    'user_image_url',
+    'downloadUrl',
+    'downloadURL',
+    'download_url',
+    'url',
+  ]
+  const direct = firstNestedAssetValue(customer, directFields)
+  if (direct && typeof direct === 'string') {
+    const resolved = await downloadAsset(direct)
+    if (resolved) return resolved
+  }
+
+  const keys = assetKeys(customer)
+  const folders = [
+    'profile-pictures',
+    'profile_pictures',
+    'profilePictures',
+    'profilePhotos',
+    'profile_photos',
+    'photos',
+    'media',
+    'users',
+    'user',
+    'customers',
+    'customer',
+  ]
+  const extensions = ['', '.jpg', '.jpeg', '.png', '.webp']
+
+  for (const key of keys) {
+    for (const folder of folders) {
+      for (const extension of extensions) {
+        const resolved = await downloadAsset(`${folder}/${key}${extension}`)
+        if (resolved) return resolved
+      }
+    }
+  }
+
+  for (const key of keys) {
+    for (const folder of folders) {
+      const resolved = await firstFileMatching(`${folder}/${key}`, (path) => {
+        const text = String(path || '').toLowerCase()
+        return isImagePath(text) && !/aadhaar|aadhar|adhaar|adhar|pan|licen[cs]e|driving|driver|document|doc|pdf/.test(text)
+      })
       if (resolved) return resolved
     }
   }

@@ -91,10 +91,10 @@ export default function BookingTracker() {
 
   const filtered = useMemo(() => {
     return processed.filter((booking) => {
-      const matchesSearch = booking.id.toLowerCase().includes(search.toLowerCase())
+      const matchesSearch = String(booking.id || '').toLowerCase().includes(search.toLowerCase())
         || String(booking.bookingId || '').toLowerCase().includes(search.toLowerCase())
-        || booking.customerName.toLowerCase().includes(search.toLowerCase())
-        || booking.service.toLowerCase().includes(search.toLowerCase())
+        || String(booking.customerName || '').toLowerCase().includes(search.toLowerCase())
+        || String(booking.service || '').toLowerCase().includes(search.toLowerCase())
       const matchesStatus = filterStatus === 'All' || booking.derivedStatus === filterStatus
       return matchesSearch && matchesStatus
     })

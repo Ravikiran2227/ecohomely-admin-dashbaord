@@ -130,24 +130,28 @@ export default function WorkerFinder({
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'start' }}>
                         <div>
                           <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-main)' }}>{worker.name}</div>
-                          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{worker.profession} • {worker.area}</div>
+                          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{[worker.profession, worker.area].filter(Boolean).join(' - ')}</div>
                         </div>
                         <Badge label={worker.available ? 'Available' : 'Busy'} color={statusColor(worker.available)} />
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-                        <div style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 10, background: 'color-mix(in srgb, var(--bg-main) 72%, var(--card-bg))' }}>
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Rating</div>
-                          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-main)', marginTop: 4 }}>{worker.rating.toFixed(1)}★</div>
-                        </div>
+                        {Number.isFinite(worker.rating) ? (
+                          <div style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 10, background: 'color-mix(in srgb, var(--bg-main) 72%, var(--card-bg))' }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Rating</div>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-main)', marginTop: 4 }}>{worker.rating.toFixed(1)} star</div>
+                          </div>
+                        ) : null}
                         <div style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 10, background: 'color-mix(in srgb, var(--bg-main) 72%, var(--card-bg))' }}>
                           <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Distance</div>
                           <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-main)', marginTop: 4 }}>{worker.distanceKm.toFixed(1)} km</div>
                         </div>
-                        <div style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 10, background: 'color-mix(in srgb, var(--bg-main) 72%, var(--card-bg))' }}>
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Charge</div>
-                          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-main)', marginTop: 4 }}>₹{worker.minCharge}/hr</div>
-                        </div>
+                        {worker.minCharge ? (
+                          <div style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 10, background: 'color-mix(in srgb, var(--bg-main) 72%, var(--card-bg))' }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Charge</div>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-main)', marginTop: 4 }}>Rs {worker.minCharge}/hr</div>
+                          </div>
+                        ) : null}
                         <div style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 10, background: 'color-mix(in srgb, var(--bg-main) 72%, var(--card-bg))' }}>
                           <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Match</div>
                           <div style={{ fontSize: 15, fontWeight: 800, color: worker.serviceMatch ? '#16A34A' : '#64748B', marginTop: 4 }}>
@@ -170,10 +174,6 @@ export default function WorkerFinder({
                   </Card>
                 )
               })}
-            </div>
-
-            <div style={{ border: '1px solid var(--border-main)', background: 'color-mix(in srgb, var(--bg-main) 82%, var(--card-bg))', borderRadius: 14, padding: 14, fontSize: 13, color: 'var(--text-muted)' }}>
-              Workers will receive: "New customer nearby. Call now to get the job." via {notificationChannels.join(', ')}.
             </div>
           </div>
         )}

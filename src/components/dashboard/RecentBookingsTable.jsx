@@ -2,7 +2,16 @@ import { Card } from '../Card'
 import Badge from '../Badge'
 import Icon from '../Icon'
 import SectionCard from '../SectionCard'
-import { bookingStatusColor } from '../../utils/dashboardControlCenter'
+
+function bookingStatusColor(status) {
+  return {
+    Pending: '#F59E0B',
+    'In Progress': '#3B82F6',
+    Completed: '#10B981',
+    Cancelled: '#EF4444',
+    Canceled: '#EF4444',
+  }[status] || '#64748B'
+}
 
 function parseBookingDate(value) {
   if (!value) return null

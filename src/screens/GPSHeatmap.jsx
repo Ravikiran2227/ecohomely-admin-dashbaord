@@ -10,6 +10,7 @@ import { HeatMap } from '../components/LeafletMap'
 import locationsApi from '../services/locationsApi'
 
 const DEMAND_COLORS = { High: '#DC2626', Medium: '#D97706', Low: '#16A34A', Gap: '#7C3AED' }
+const ZONE_PAGE_SIZE = 10
 
 function Metric({ label, value, sub, tone, icon }) {
   const MetricIcon = icon
@@ -102,6 +103,7 @@ export default function GPSHeatmap() {
   const [zones, setZones] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [zonePage, setZonePage] = useState(1)
 
   const loadHeatmap = useCallback(async () => {
     setLoading(true)
@@ -121,7 +123,15 @@ export default function GPSHeatmap() {
     loadHeatmap()
   }, [loadHeatmap])
 
+  useEffect(() => {
+    setZonePage(1)
+  }, [filter, layer])
+
   const visibleZones = useMemo(() => zones.filter((zone) => filter === 'All' || zone.demand === filter), [filter, zones])
+  const sortedZones = useMemo(() => visibleZones.slice().sort((a, b) => b.bookings - a.bookings), [visibleZones])
+  const zonePageCount = Math.max(Math.ceil(sortedZones.length / ZONE_PAGE_SIZE), 1)
+  const safeZonePage = Math.min(zonePage, zonePageCount)
+  const pagedZones = useMemo(() => sortedZones.slice((safeZonePage - 1) * ZONE_PAGE_SIZE, safeZonePage * ZONE_PAGE_SIZE), [safeZonePage, sortedZones])
   const gaps = zones.filter((zone) => zone.demand === 'Gap' || zone.workers === 0)
   const highDemand = zones.filter((zone) => zone.demand === 'High')
   const totalWorkers = zones.reduce((sum, zone) => sum + zone.workers, 0)
@@ -178,18 +188,29 @@ export default function GPSHeatmap() {
           <Card className="p-5">
             <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Zone Overview</div>
             <div className="mt-3 grid gap-3">
-              {visibleZones.slice().sort((a, b) => b.bookings - a.bookings).map((zone) => (
+              {pagedZones.map((zone) => (
                 <button key={zone.area_id || zone.area} type="button" onClick={() => setSelected((current) => current?.area === zone.area ? null : zone)} className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition-all ${selected?.area === zone.area ? 'border-brand-500/25 bg-brand-500/10' : 'border-[var(--border-main)] bg-[var(--bg-main)]/70 hover:bg-[var(--bg-main)]'}`}>
                   <div className="h-3 w-3 rounded-full" style={{ background: DEMAND_COLORS[zone.demand] }} />
                   <div className="min-w-0 flex-1">
                     <div className="font-bold text-[var(--text-main)]">{zone.area}</div>
-                    <div className="mt-1 text-sm text-[var(--text-muted)]">{zone.workers} workers · {zone.bookings} bookings</div>
+                    <div className="mt-1 text-sm text-[var(--text-muted)]">{zone.workers} workers - {zone.bookings} bookings</div>
                   </div>
                   <Badge label={zone.demand} color={DEMAND_COLORS[zone.demand]} />
                 </button>
               ))}
               {!loading && !error && visibleZones.length === 0 && <EmptyState title="No zones found" description="Try another demand filter." className="py-8" />}
             </div>
+            {visibleZones.length > ZONE_PAGE_SIZE ? (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-main)] pt-4">
+                <div className="text-xs font-bold text-[var(--text-muted)]">
+                  Page {safeZonePage} of {zonePageCount} - Showing {pagedZones.length} zones
+                </div>
+                <div className="flex items-center gap-2">
+                  <Btn v="outline" size="sm" disabled={safeZonePage === 1} onClick={() => setZonePage((current) => Math.max(current - 1, 1))}>Previous</Btn>
+                  <Btn v="outline" size="sm" disabled={safeZonePage === zonePageCount} onClick={() => setZonePage((current) => Math.min(current + 1, zonePageCount))}>Next</Btn>
+                </div>
+              </div>
+            ) : null}
           </Card>
         </div>
 

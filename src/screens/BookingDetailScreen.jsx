@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import Badge from '../components/Badge'
@@ -13,8 +13,8 @@ import { sendSMS } from '../services/msg91'
 import { useBookings } from '../context/bookingContextValue'
 import complaintsApi from '../services/complaintsApi'
 import workersApi from '../services/workersApi'
-import { cashbackRecords, couponRedemptionRecords } from '../data/growthIncentives'
-import { reviewRecords } from '../data/reviews'
+import reviewsApi from '../services/reviewsApi'
+import commercialApi from '../services/commercialApi'
 import {
   STATUS_ORDER,
   buildNearbyWorkers,
@@ -29,6 +29,9 @@ export default function BookingDetailScreen() {
   const [selectedWorkerId, setSelectedWorkerId] = useState('')
   const [statusDraft, setStatusDraft] = useState('')
   const [relatedComplaints, setRelatedComplaints] = useState([])
+  const [relatedReviews, setRelatedReviews] = useState([])
+  const [relatedCashbacks, setRelatedCashbacks] = useState([])
+  const [relatedCouponUses, setRelatedCouponUses] = useState([])
   const [availableWorkers, setAvailableWorkers] = useState([])
   const [complaintError, setComplaintError] = useState('')
   const { bookings, assignWorker, changeStatus, error, loadBooking, loading, refreshBookings, updateNotes, markReminderSent, updating } = useBookings()
@@ -80,18 +83,38 @@ export default function BookingDetailScreen() {
       cancelled = true
     }
   }, [id])
-  const relatedReviews = useMemo(
-    () => (booking ? reviewRecords.filter((item) => item.bookingId === booking.id) : []),
-    [booking]
-  )
-  const relatedCashbacks = useMemo(
-    () => (booking ? cashbackRecords.filter((item) => item.bookingId === booking.id || item.redeemedInBookingId === booking.id) : []),
-    [booking]
-  )
-  const relatedCouponUses = useMemo(
-    () => (booking ? couponRedemptionRecords.filter((item) => item.bookingId === booking.id) : []),
-    [booking]
-  )
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadRelatedRecords() {
+      if (!id) return
+      try {
+        const [reviews, cashbacks, couponUses] = await Promise.all([
+          reviewsApi.listReviews({ bookingId: id }).catch(() => []),
+          commercialApi.listCashbacks({ bookingId: id }).catch(() => []),
+          commercialApi.listCouponRedemptions({ bookingId: id }).catch(() => []),
+        ])
+        if (cancelled) return
+        const reviewRows = Array.isArray(reviews) ? reviews : []
+        const cashbackRows = Array.isArray(cashbacks?.cashbacks) ? cashbacks.cashbacks : Array.isArray(cashbacks) ? cashbacks : []
+        const couponRows = Array.isArray(couponUses) ? couponUses : []
+        setRelatedReviews(reviewRows.filter((item) => item.bookingId === id || item.booking === id))
+        setRelatedCashbacks(cashbackRows.filter((item) => item.bookingId === id || item.redeemedInBookingId === id))
+        setRelatedCouponUses(couponRows.filter((item) => item.bookingId === id || item.booking === id))
+      } catch {
+        if (!cancelled) {
+          setRelatedReviews([])
+          setRelatedCashbacks([])
+          setRelatedCouponUses([])
+        }
+      }
+    }
+
+    loadRelatedRecords()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
   const relatedRecordSummary = useMemo(() => ([
     { label: 'Complaints', value: relatedComplaints.length, color: '#EF4444' },
     { label: 'Reviews', value: relatedReviews.length, color: '#F59E0B' },
@@ -104,28 +127,28 @@ export default function BookingDetailScreen() {
       iconName: 'alert',
       color: '#EF4444',
       title: complaint.id,
-      date: complaint.date,
-      description: complaint.issue,
-      meta: `Status: ${complaint.status}${complaint.assignedTo ? ` · Assigned to ${complaint.assignedTo}` : ''}`,
+      date: complaint.date || complaint.createdAt,
+      description: complaint.issue || complaint.description || '',
+      meta: [complaint.status ? `Status: ${complaint.status}` : '', complaint.assignedTo ? `Assigned to ${complaint.assignedTo}` : ''].filter(Boolean).join(' - '),
       badges: [
         { label: 'Complaint', color: '#EF4444' },
-        { label: complaint.status, color: '#F97316', dot: false },
-      ],
+        complaint.status ? { label: complaint.status, color: '#F97316', dot: false } : null,
+      ].filter(Boolean),
       actions: [
         { label: 'Open Complaint', onClick: () => navigate(`/complaints?complaint=${encodeURIComponent(complaint.id)}`) },
       ],
     })),
     ...relatedReviews.map((review) => ({
-      id: `review-${review.id}`,
+      id: `review-${review.id || review.reviewId}`,
       iconName: 'star',
       color: review.flagged ? '#DC2626' : '#F59E0B',
-      title: review.id,
-      date: review.date,
-      description: `"${review.review}"`,
-      meta: `Customer: ${review.customer} · Worker: ${review.worker}`,
+      title: review.id || review.reviewId,
+      date: review.date || review.createdAt,
+      description: review.review || review.comment || '',
+      meta: [review.customer || review.customerName ? `Customer: ${review.customer || review.customerName}` : '', review.worker || review.workerName ? `Worker: ${review.worker || review.workerName}` : ''].filter(Boolean).join(' - '),
       badges: [
-        { label: `Review ${review.rating}/5`, color: review.flagged ? '#DC2626' : '#F59E0B' },
-      ],
+        review.rating ? { label: `Review ${review.rating}/5`, color: review.flagged ? '#DC2626' : '#F59E0B' } : null,
+      ].filter(Boolean),
       actions: [
         ...(review.customerId ? [{ label: 'Customer', onClick: () => navigate(`/customers/${review.customerId}`) }] : []),
         ...(review.workerId ? [{ label: 'Worker', onClick: () => navigate(`/workers/${review.workerId}`) }] : []),
@@ -133,13 +156,13 @@ export default function BookingDetailScreen() {
       ],
     })),
     ...relatedCashbacks.map((cashback) => ({
-      id: `cashback-${cashback.id}`,
+      id: `cashback-${cashback.id || cashback.cashbackId}`,
       iconName: 'dollar',
       color: '#10B981',
-      title: cashback.id,
-      date: cashback.issuedOn,
-      description: `₹${cashback.cashbackAmount.toLocaleString('en-IN')} ${cashback.redeemedInBookingId === booking?.id ? 'redeemed on this booking' : 'issued from this booking'}.`,
-      meta: `Status: ${cashback.status} · Source: ${cashback.source}`,
+      title: cashback.id || cashback.cashbackId,
+      date: cashback.issuedOn || cashback.createdAt || cashback.date,
+      description: cashback.cashbackAmount || cashback.amount ? `Rs ${Number(cashback.cashbackAmount || cashback.amount).toLocaleString('en-IN')} ${cashback.redeemedInBookingId === booking?.id ? 'redeemed on this booking' : 'issued from this booking'}.` : '',
+      meta: [cashback.status ? `Status: ${cashback.status}` : '', cashback.source ? `Source: ${cashback.source}` : ''].filter(Boolean).join(' - '),
       badges: [
         { label: 'Cashback', color: '#10B981' },
       ],
@@ -149,13 +172,13 @@ export default function BookingDetailScreen() {
       ],
     })),
     ...relatedCouponUses.map((coupon) => ({
-      id: `coupon-${coupon.id}`,
+      id: `coupon-${coupon.id || coupon.redemptionId}`,
       iconName: 'ticket',
       color: '#0EA5E9',
-      title: coupon.couponId,
-      date: coupon.redeemedOn,
-      description: `Discount of ₹${coupon.discountAmount.toLocaleString('en-IN')} applied on this booking.`,
-      meta: `Status: ${coupon.status} · Redemption ID: ${coupon.id}`,
+      title: coupon.couponId || coupon.code || coupon.id,
+      date: coupon.redeemedOn || coupon.createdAt,
+      description: coupon.discountAmount || coupon.amount ? `Discount of Rs ${Number(coupon.discountAmount || coupon.amount).toLocaleString('en-IN')} applied on this booking.` : '',
+      meta: [coupon.status ? `Status: ${coupon.status}` : '', coupon.id ? `Redemption ID: ${coupon.id}` : ''].filter(Boolean).join(' - '),
       badges: [
         { label: 'Coupon', color: '#0EA5E9' },
       ],
@@ -165,7 +188,6 @@ export default function BookingDetailScreen() {
       ],
     })),
   ]), [booking?.id, navigate, relatedCashbacks, relatedComplaints, relatedCouponUses, relatedReviews])
-
   const currentStage = booking?.completedAt
     ? 'Completed'
     : booking?.startedAt
@@ -229,7 +251,7 @@ export default function BookingDetailScreen() {
         <PageHeader
           title="Booking Not Found"
           sub={`Booking ${id || ''} could not be loaded`}
-          action={<Btn v="outline" onClick={() => navigate('/bookings')}>← Back to Bookings</Btn>}
+          action={<Btn v="outline" onClick={() => navigate('/bookings')}>Back to Bookings</Btn>}
         />
         <SectionCard title="Missing Booking Record">
           <p className="text-sm text-[var(--text-muted)]">{error || 'The requested booking does not exist in the backend dataset.'}</p>
@@ -247,10 +269,10 @@ export default function BookingDetailScreen() {
       <PageHeader
         title={`Booking ${booking.id}`}
         badge={booking.derivedStatus}
-        sub={`${formatDateTime(booking.requestedAt)} · ${booking.service} · ${booking.area}`}
+        sub={[formatDateTime(booking.requestedAt), booking.service, booking.area].filter(Boolean).join(' - ')}
         action={
           <div className="flex flex-wrap gap-2.5">
-            <Btn v="outline" onClick={() => navigate('/bookings')}>← Back</Btn>
+            <Btn v="outline" onClick={() => navigate('/bookings')}>Back</Btn>
             <Btn v="outline" onClick={handleReminder} disabled={updating}>Send Reminder</Btn>
           </div>
         }
@@ -269,7 +291,7 @@ export default function BookingDetailScreen() {
         <SectionCard title="Customer Card" subtitle="Who requested the service" className="h-full" icon={<Icon name="users" size={18} />}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <InfoRow label="Name" value={booking.customerDetails?.name || booking.customerName} />
-            <InfoRow label="Phone" value={booking.customerDetails?.phone || 'Not Available'} />
+            <InfoRow label="Phone" value={booking.customerDetails?.phone || ''} />
             <InfoRow label="Location" value={booking.customerDetails?.area || booking.area} className="sm:col-span-2" />
             <InfoRow label="Booking Count" value={booking.customerDetails?.bookings || 0} />
           </div>
@@ -287,10 +309,10 @@ export default function BookingDetailScreen() {
         >
           <div className="grid gap-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <InfoRow label="Name" value={booking.workerDetails?.name || booking.workerName || 'Not Assigned'} />
+              <InfoRow label="Name" value={booking.workerDetails?.name || booking.workerName || ''} />
               <InfoRow label="Profession" value={booking.workerDetails?.profession || booking.service} />
-              <InfoRow label="Rating" value={booking.workerDetails?.rating ? `${booking.workerDetails.rating.toFixed(1)} / 5` : 'Not rated'} />
-              <InfoRow label="Status" value={booking.workerDetails?.status || (booking.workerId ? 'Assigned' : 'Awaiting assignment')} />
+              <InfoRow label="Rating" value={booking.workerDetails?.rating ? `${booking.workerDetails.rating.toFixed(1)} / 5` : ''} />
+              <InfoRow label="Status" value={booking.workerDetails?.status || ''} />
             </div>
             <div className="flex flex-wrap gap-2">
               <Btn v="outline" size="sm" onClick={() => booking.workerDetails?.phone && window.open(`tel:${booking.workerDetails.phone}`, '_self')} disabled={!booking.workerDetails?.phone}>Call</Btn>
@@ -312,26 +334,36 @@ export default function BookingDetailScreen() {
             </div>
           </SectionCard>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <PricingCard
-              title="Estimated Price"
-              amount={booking.estimatedPrice || 0}
-              unit="job"
-              details={[`Captured at booking creation`, `Current status: ${booking.paid ? 'Paid' : 'Awaiting payment'}`]}
-            />
-            <SectionCard title="Pricing" subtitle="Final settlement and payment mode" className="h-full">
-              <div className="grid gap-4">
-                <div>
-                  <div className="text-label mb-2">Final Price</div>
-                  <div className="text-[30px] font-extrabold leading-none text-emerald-600">₹{(booking.finalPrice || booking.amount || 0).toLocaleString('en-IN')}</div>
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <InfoRow label="Payment Mode" value={booking.paymentMode} />
-                  <InfoRow label="Payment State" value={booking.paid ? 'Paid' : 'Pending'} />
-                </div>
-              </div>
-            </SectionCard>
-          </div>
+          {(booking.estimatedPrice || booking.finalPrice || booking.amount || booking.paymentMode || booking.paid) && (
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              {booking.estimatedPrice ? (
+                <PricingCard
+                  title="Estimated Price"
+                  amount={booking.estimatedPrice}
+                  unit="job"
+                  details={[booking.paymentMode ? `Payment mode: ${booking.paymentMode}` : '', booking.paid ? 'Payment state: Paid' : ''].filter(Boolean)}
+                />
+              ) : null}
+              {(booking.finalPrice || booking.amount || booking.paymentMode || booking.paid) ? (
+                <SectionCard title="Pricing" subtitle="Final settlement and payment mode" className="h-full">
+                  <div className="grid gap-4">
+                    {(booking.finalPrice || booking.amount) ? (
+                      <div>
+                        <div className="text-label mb-2">Final Price</div>
+                        <div className="text-[30px] font-extrabold leading-none text-emerald-600">Rs {Number(booking.finalPrice || booking.amount).toLocaleString('en-IN')}</div>
+                      </div>
+                    ) : null}
+                    {(booking.paymentMode || booking.paid) ? (
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        {booking.paymentMode ? <InfoRow label="Payment Mode" value={booking.paymentMode} /> : null}
+                        {booking.paid ? <InfoRow label="Payment State" value="Paid" /> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </SectionCard>
+              ) : null}
+            </div>
+          )}
 
           <SectionCard title="Timeline" subtitle="Booking stages with timestamps" icon={<Icon name="clock" size={18} />}>
             <Timeline booking={booking} statusColor={statusColor} />
@@ -410,7 +442,7 @@ export default function BookingDetailScreen() {
               <select value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)} className="h-11 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-3 text-sm font-medium text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
                 <option value="">Select worker</option>
                 {nearbyWorkers.map((worker) => (
-                  <option key={worker.id} value={worker.id}>{worker.name} · {worker.profession} · {worker.distance}</option>
+                  <option key={worker.id} value={worker.id}>{[worker.name, worker.profession, worker.distance].filter(Boolean).join(' - ')}</option>
                 ))}
               </select>
               <Btn v="outline" className="justify-center" onClick={handleAssignWorker} disabled={!selectedWorkerId || updating}>Assign Worker</Btn>
@@ -443,3 +475,4 @@ export default function BookingDetailScreen() {
     </div>
   )
 }
+

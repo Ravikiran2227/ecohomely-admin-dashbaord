@@ -83,16 +83,16 @@ function normalizeReview(record = {}, customers = [], workers = [], bookings = [
   return {
     ...record,
     id: record.id || record.reviewId || record.ratingId,
-    worker: record.workerName || record.servicemanName || record.worker || worker?.name || booking?.workerName || 'Worker',
+    worker: record.workerName || record.servicemanName || record.worker || worker?.name || booking?.workerName || '',
     workerId: record.workerId || record.servicemanId || worker?.id || booking?.workerId || '',
     bookingId: record.bookingId || record.booking_id || booking?.id || booking?.bookingId || '',
-    job: record.profession || record.service || record.category || record.job || worker?.profession || booking?.service || 'Service',
-    customer: record.customerName || record.userName || record.customer || customer?.name || booking?.customerName || 'Customer',
+    job: record.profession || record.service || record.category || record.job || worker?.profession || booking?.service || '',
+    customer: record.customerName || record.userName || record.customer || customer?.name || booking?.customerName || '',
     customerId: record.customerId || record.userId || record.uid || customer?.id || booking?.customerId || '',
     rating,
     review: record.review || record.comment || record.message || record.feedback || record.description || '',
     date: parseDate(record.date || record.createdAt || record.updatedAt || record.time),
-    status: flagged ? 'Flagged' : (record.status || 'Published'),
+    status: flagged ? 'Flagged' : (record.status || ''),
     flagged,
   }
 }
@@ -101,7 +101,7 @@ function Stars({ r, size = 15 }) {
   return (
     <span style={{ fontSize: size, letterSpacing: 1 }}>
       {[1, 2, 3, 4, 5].map(i => (
-        <span key={i} style={{ color: i <= r ? '#f59e0b' : '#d1d5db' }}>★</span>
+        <span key={i} style={{ color: i <= r ? '#f59e0b' : '#d1d5db' }}>*</span>
       ))}
     </span>
   )
@@ -250,7 +250,7 @@ export default function Reviews() {
     reviewsApi.deleteReview(id).catch(() => {})
   }
 
-  const avg = reviews.length ? (reviews.reduce((a, b) => a + b.rating, 0) / reviews.length).toFixed(1) : '0.0'
+  const avg = reviews.length ? (reviews.reduce((a, b) => a + b.rating, 0) / reviews.length).toFixed(1) : ''
   const zebraBackground = (index) => index % 2
     ? 'color-mix(in srgb, var(--bg-main) 92%, var(--card-bg))'
     : 'var(--card-bg)'
@@ -262,7 +262,7 @@ export default function Reviews() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
         {[
           { label: 'Total Reviews', value: reviews.length,                                       color: C.primary },
-          { label: 'Avg Rating',    value: `${avg}★`,                                            color: '#f59e0b' },
+          { label: 'Avg Rating',    value: avg ? `${avg}/5` : '',                                 color: '#f59e0b' },
           { label: 'Flagged',       value: reviews.filter(r => r.flagged).length,                color: C.danger  },
           { label: 'Published',     value: reviews.filter(r => r.status === 'Published').length, color: C.success },
         ].map((s, i) => (
@@ -334,7 +334,7 @@ export default function Reviews() {
                         <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{r.worker}</span>
                       )}
                       <span style={{ fontSize: 11, color: C.muted }}>({r.job})</span>
-                      {r.flagged && <Badge label="🚩 Flagged" color={C.danger} />}
+                      {r.flagged && <Badge label="Flagged" color={C.danger} />}
                     </div>
                     <div style={{
                       fontSize: 13, color: C.text, lineHeight: 1.6,
@@ -354,7 +354,7 @@ export default function Reviews() {
                         </button>
                       ) : (
                         <strong style={{ color: C.text }}>{r.customer}</strong>
-                      )} · {r.date}{matchedBooking ? ` · ${matchedBooking.id}` : ''}
+                      )} {r.date ? ` - ${r.date}` : ''}{matchedBooking ? ` - ${matchedBooking.id}` : ''}
                     </div>
                   </div>
                   <div style={{ minWidth: 44, flexShrink: 0 }}>
@@ -423,12 +423,9 @@ export default function Reviews() {
                         <span style={{ fontWeight: 700, color: ratingColor(r.rating), fontSize: 13 }}>{r.rating}/5</span>
                       </div>
                     </td>
-                    <td style={{ padding: '11px 16px', fontSize: 13, color: C.text }}>1</td>
+                    <td style={{ padding: '11px 16px', fontSize: 13, color: C.text }} />
                     <td style={{ padding: '11px 16px' }}>
-                      <Badge
-                        label={r.flagged ? 'Flagged' : 'OK'}
-                        color={r.flagged ? C.danger : C.success}
-                      />
+                      {r.flagged ? <Badge label="Flagged" color={C.danger} /> : null}
                     </td>
                     <td style={{ padding: '11px 16px' }}>
                       <ReviewActions

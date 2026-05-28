@@ -45,9 +45,9 @@ export default function AssistanceDetail({ session, onClose, onRenotify, onCompl
         <Card style={{ borderRadius: 16 }} pad={18}>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Customer Info</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <InfoCard label="Customer" value={session.customerName || 'Anonymous caller'} />
+            <InfoCard label="Customer" value={session.customerName || ''} />
             <InfoCard label="Phone" value={session.customerPhone} />
-            <InfoCard label="Location" value={session.location?.area || 'Area not captured'} />
+            <InfoCard label="Location" value={session.location?.area || ''} />
             <InfoCard label="Service" value={session.service} />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -63,11 +63,11 @@ export default function AssistanceDetail({ session, onClose, onRenotify, onCompl
               <div key={worker.id} className="ui-shell flex flex-wrap items-center justify-between gap-3 rounded-[16px] p-4">
                 <div>
                   <div className="text-[15px] font-bold text-[var(--text-main)]">{worker.name}</div>
-                  <div className="mt-1 text-sm text-[var(--text-muted)]">{worker.profession} • {worker.phone}</div>
+                  <div className="mt-1 text-sm text-[var(--text-muted)]">{[worker.profession, worker.phone].filter(Boolean).join(' - ')}</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge label={`${worker.distanceKm.toFixed(1)} km`} color="#2563EB" />
-                  <Badge label={worker.responseStatus} color={detailStatusColor(worker.responseStatus)} />
+                  {Number.isFinite(worker.distanceKm) ? <Badge label={`${worker.distanceKm.toFixed(1)} km`} color="#2563EB" /> : null}
+                  {worker.responseStatus ? <Badge label={worker.responseStatus} color={detailStatusColor(worker.responseStatus)} /> : null}
                   <Btn v="ghost" size="sm" onClick={() => onOpenWorker?.(worker.id)}>Profile</Btn>
                 </div>
               </div>

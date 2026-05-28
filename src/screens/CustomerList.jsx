@@ -13,17 +13,28 @@ import { C } from '../theme'
 import { loadCustomers } from '../utils/customerStorage'
 import customersApi from '../services/customersApi'
 
-function Avatar({ name, size = 40 }) {
-  const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+function Avatar({ name = '', photoUrl = '', size = 40 }) {
+  const initials = String(name || '').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
   const colors = ['bg-brand-500/20 border-brand-500/40 text-brand-600 dark:text-brand-400', 'bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400', 'bg-purple-500/20 border-purple-500/40 text-purple-600 dark:text-purple-400', 'bg-blue-500/20 border-blue-500/40 text-blue-600 dark:text-blue-400']
-  const colorClass = colors[name.charCodeAt(0) % colors.length]
+  const colorClass = colors[(name || 'C').charCodeAt(0) % colors.length]
+
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt={name || 'Customer'}
+        className="rounded-full object-cover border-2 shrink-0 border-brand-500/30"
+        style={{ width: size, height: size }}
+      />
+    )
+  }
   
   return (
     <div 
       className={`rounded-full flex items-center justify-center font-bold border-2 shrink-0 ${colorClass}`}
       style={{ width: size, height: size, fontSize: size * 0.33 }}
     >
-      {initials}
+      {initials || 'C'}
     </div>
   )
 }
@@ -33,13 +44,7 @@ function ActionMenu({ customer, navigate, onDelete }) {
   const actions = [
     { label: 'View Profile',   icon: 'eye',      fn: () => navigate(`/customers/${customer.id}`) },
     { label: 'Edit Profile',   icon: 'edit',     fn: () => navigate(`/customers/${customer.id}?edit=true`) },
-    { label: 'Send Message',   icon: 'send',     fn: () => {} },
     { label: 'View Bookings',  icon: 'calendar', fn: () => navigate('/bookings') },
-    {
-      label: customer.status === 'Active' ? 'Block Customer' : 'Unblock',
-      icon: customer.status === 'Active' ? 'close' : 'check',
-      fn: () => {}, danger: customer.status === 'Active',
-    },
     { label: 'Delete Account', icon: 'trash', fn: () => onDelete(customer), danger: true },
   ]
 
@@ -242,10 +247,10 @@ export default function CustomerList() {
               <TD className="text-xs font-bold text-[var(--text-muted)] w-12">{((safePage - 1) * PAGE_SIZE) + i + 1}</TD>
               <TD>
                 <div className="flex items-center gap-3.5 py-1">
-                  <Avatar name={c.name} />
+                  <Avatar name={c.name} photoUrl={c.photoUrl} />
                   <div className="min-w-0">
                     <p className="font-extrabold text-sm text-[var(--text-main)] truncate">{c.name}</p>
-                    <p className="text-[10px] font-bold text-[var(--text-muted)] tracking-tighter lowercase">{c.email || 'No email'}</p>
+                    {c.email && <p className="text-[10px] font-bold text-[var(--text-muted)] tracking-tighter lowercase">{c.email}</p>}
                   </div>
                 </div>
               </TD>

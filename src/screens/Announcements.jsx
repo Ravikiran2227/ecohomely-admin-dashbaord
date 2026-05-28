@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
-import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, Timestamp, updateDoc } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, Timestamp, updateDoc } from 'firebase/firestore'
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
 import { ArrowLeft, Edit3, Megaphone, Plus, RefreshCw, Search, Trash2, UploadCloud } from 'lucide-react'
 import Badge from '../components/Badge'
@@ -107,22 +107,23 @@ function AnnouncementList() {
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [sortBy, setSortBy] = useState('newest')
 
-  useEffect(() => {
-    const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'))
-    const unsubscribe = onSnapshot(
-      announcementsQuery,
-      (snapshot) => {
-        setAnnouncements(snapshot.docs.map((item) => normalizeAnnouncement({ id: item.id, ...item.data() })))
-        setLoading(false)
-      },
-      (snapshotError) => {
-        setError(snapshotError.message || 'Unable to load announcements.')
-        setLoading(false)
-      },
-    )
-
-    return () => unsubscribe()
+  const loadAnnouncements = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'))
+      const snapshot = await getDocs(announcementsQuery)
+      setAnnouncements(snapshot.docs.map((item) => normalizeAnnouncement({ id: item.id, ...item.data() })))
+    } catch (snapshotError) {
+      setError(snapshotError.message || 'Unable to load announcements.')
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    loadAnnouncements()
+  }, [loadAnnouncements])
 
   const filteredAnnouncements = useMemo(() => {
     const search = searchTerm.trim().toLowerCase()
@@ -156,6 +157,7 @@ function AnnouncementList() {
   const handleDelete = useCallback(async (announcement) => {
     if (!window.confirm(`Are you sure you want to delete "${announcement.title}"?`)) return
     await deleteDoc(doc(db, 'announcements', announcement.id))
+    setAnnouncements((current) => current.filter((item) => item.id !== announcement.id))
   }, [])
 
   const handleToggleStatus = useCallback(async (announcement) => {

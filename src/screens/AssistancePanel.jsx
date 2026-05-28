@@ -10,24 +10,10 @@ import WorkerFinder from './WorkerFinder'
 import AssistanceHistory from './AssistanceHistory'
 import AssistanceDetail from './AssistanceDetail'
 import { getAreaCoords, getNearestArea } from './mapViewUtils'
-import { ECOHOMELY_SERVICE_CATALOG } from '../data/services'
 import customersApi from '../services/customersApi'
 import workersApi from '../services/workersApi'
 import notificationsApi from '../services/notificationsApi'
 import assistanceApi from '../services/assistanceApi'
-
-const SERVICE_OPTIONS = ECOHOMELY_SERVICE_CATALOG
-const VIZAG_AREAS = ['MVP Colony', 'Gajuwaka', 'Madhurawada', 'Beach Road', 'Dwaraka Nagar', 'Seethammadhara', 'Siripuram', 'Pendurthi']
-
-const BASE_WORKER_RATES = {
-  Plumber: 250,
-  Electrician: 300,
-  'AC Repair': 350,
-  Carpenter: 320,
-  Driver: 280,
-  Cleaner: 220,
-  Painter: 260,
-}
 
 const INITIAL_SESSIONS = []
 
@@ -42,7 +28,7 @@ function formatNow() {
 }
 
 function formatTimestamp(value) {
-  if (!value) return 'Not recorded'
+  if (!value) return ''
   let date = value
   if (typeof value?.toDate === 'function') date = value.toDate()
   else if (typeof value?.toMillis === 'function') date = new Date(value.toMillis())
@@ -50,7 +36,7 @@ function formatTimestamp(value) {
   else if (typeof value?.seconds === 'number') date = new Date(value.seconds * 1000)
   else date = new Date(String(value).replace(' ', 'T'))
 
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 'Not recorded'
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
   const yyyy = date.getFullYear()
   const mm = String(date.getMonth() + 1).padStart(2, '0')
   const dd = String(date.getDate()).padStart(2, '0')
@@ -64,10 +50,25 @@ function normaliseLocation(location = {}) {
   const longitude = Number(location.longitude ?? location.lng)
   return {
     ...location,
-    area: location.area || location.city || location.address || 'Area not captured',
+    area: location.area || location.city || location.address || '',
     lat: Number.isFinite(latitude) ? latitude : undefined,
     lng: Number.isFinite(longitude) ? longitude : undefined,
   }
+}
+
+function normaliseTimeline(record = {}, timestamp = '') {
+  const source = Array.isArray(record.timeline)
+    ? record.timeline
+    : Array.isArray(record.activityLog)
+      ? record.activityLog
+      : []
+
+  return source.map((item, index) => ({
+    id: item.id || `${record.id || record.uid || 'assistance'}-${index}`,
+    time: item.time || formatTimestamp(item.at || item.createdAt || item.updatedAt || item.date).slice(11),
+    title: item.title || item.action || '',
+    note: item.note || item.description || item.meta || '',
+  })).filter((item) => item.title || item.note || item.time || timestamp)
 }
 
 function normaliseAssistanceSession(record = {}, customers = []) {
@@ -79,39 +80,25 @@ function normaliseAssistanceSession(record = {}, customers = []) {
   ))
   const solved = record.solved === true || String(record.status || '').toLowerCase() === 'completed'
   const location = normaliseLocation(record.location || record.userLocation || {})
-  const customerName = record.name || record.customerName || customer?.name || 'Walk-in / Phone support'
+  const customerName = record.name || record.customerName || customer?.name || ''
   const customerEmail = record.email || customer?.email || ''
   const customerPhone = record.phone || record.mobile || record.phoneNumber || customer?.phone || ''
 
   return {
-    id: record.id || record.uid || createAssistanceId([]),
+    id: record.id || record.uid || '',
     customerName,
     customerEmail,
     customerPhone,
     customerId: customer?.id || record.customerId || record.uid || null,
-    service: record.service || record.profession || record.issue || 'Assistance',
+    service: record.service || record.profession || record.issue || '',
     location,
-    workers: [],
-    channels: ['Call'],
-    status: solved ? 'Completed' : 'Active',
+    workers: Array.isArray(record.workers) ? record.workers : [],
+    channels: Array.isArray(record.channels) ? record.channels : [],
+    status: record.status || (solved ? 'Completed' : ''),
     createdAt: timestamp,
-    timeline: [
-      {
-        id: `${record.id || record.uid || Date.now()}-request`,
-        time: timestamp === 'Not recorded' ? '' : timestamp.slice(11),
-        title: solved ? 'Assistance solved' : 'Assistance request received',
-        note: `${customerName} requested assistance from ${location.area}.`,
-      },
-    ],
+    timeline: normaliseTimeline(record, timestamp),
     raw: record,
   }
-}
-
-function createAssistanceId(currentSessions) {
-  const next = currentSessions
-    .map((session) => Number(session.id.replace('AST-', '')))
-    .reduce((max, value) => Math.max(max, value), 100) + 1
-  return `AST-${String(next).padStart(3, '0')}`
 }
 
 function normaliseWorker(worker, requestedService, customerLocation) {
@@ -131,7 +118,7 @@ function normaliseWorker(worker, requestedService, customerLocation) {
     distanceKm,
     available,
     serviceMatch,
-    minCharge: BASE_WORKER_RATES[profession] || 250,
+    minCharge: worker.minCharge || worker.hourlyRate || worker.basePrice || worker.price || '',
     priorityScore: proximityScore + availabilityScore + ratingScore + serviceScore,
   }
 }
@@ -143,7 +130,7 @@ export default function AssistancePanel() {
   const [form, setForm] = useState({
     customerName: '',
     phone: '',
-    service: 'Plumber',
+    service: '',
     area: '',
     customerLocation: null,
   })
@@ -167,6 +154,15 @@ export default function AssistancePanel() {
   const activeCount = sessions.filter((session) => session.status === 'Active').length
   const sanitisedPhone = form.phone.replace(/\D/g, '').slice(0, 10)
   const canSearch = sanitisedPhone.length === 10 && Boolean(form.customerLocation || form.area)
+  const serviceOptions = useMemo(() => Array.from(new Set([
+    ...workers.map((worker) => worker.profession || worker.service || worker.category || '').filter(Boolean),
+    ...sessions.map((session) => session.service || '').filter(Boolean),
+  ])).sort(), [sessions, workers])
+  const areaOptions = useMemo(() => Array.from(new Set([
+    ...workers.map((worker) => worker.area || worker.location?.area || worker.city || '').filter(Boolean),
+    ...customers.map((customer) => customer.area || customer.city || '').filter(Boolean),
+    ...sessions.map((session) => session.location?.area || session.location?.city || '').filter(Boolean),
+  ])).sort(), [customers, sessions, workers])
 
   useEffect(() => {
     let cancelled = false
@@ -303,10 +299,8 @@ export default function AssistancePanel() {
 
     const selectedWorkers = searchResults.filter((worker) => selectedIds.includes(worker.id)).slice(0, 5)
     const status = selectedWorkers.some((worker) => worker.available) ? 'Active' : 'No Response'
-    const sessionId = createAssistanceId(sessions)
     const timestamp = formatNow()
     const newSession = {
-      id: sessionId,
       customerName: form.customerName,
       customerPhone: form.phone,
       customerId: findCustomerId(form.customerName, form.phone),
@@ -318,33 +312,28 @@ export default function AssistancePanel() {
         profession: worker.profession,
         phone: worker.phone,
         distanceKm: worker.distanceKm,
-        responseStatus: worker.available ? 'Notified' : 'Not responded',
+        responseStatus: '',
       })),
       channels: notificationChannels,
       status,
       createdAt: timestamp,
       timeline: [
         {
-          id: `${sessionId}-1`,
+          id: `${Date.now()}-notification`,
           time: timestamp.slice(11),
-          title: 'Notification sent',
-          note: `${selectedWorkers.length} workers were notified with the message "New customer nearby. Call now to get the job."`,
+          title: '',
+          note: '',
         },
-      ],
+      ].filter((item) => item.title || item.note),
     }
 
-    if (!selectedWorkers.length) {
-      newSession.timeline.push({
-        id: `${sessionId}-2`,
-        time: timestamp.slice(11),
-        title: 'No worker alert',
-        note: 'No workers were selected, so the assistance request stayed unresolved.',
-      })
-    }
-
-    setSessions((current) => [newSession, ...current])
+    assistanceApi.createAssistance(newSession).then((saved) => {
+      const normalized = normaliseAssistanceSession(saved, customers)
+      setSessions((current) => [normalized, ...current])
+      setSelectedSessionId(normalized.id)
+    }).catch(() => {})
     notificationsApi.sendCampaign({
-      title: `Assistance request ${sessionId}`,
+      title: 'Assistance request',
       body: `New ${form.service} request near ${form.customerLocation?.area || form.area}.`,
       audience: 'workers',
       channels: {
@@ -353,8 +342,7 @@ export default function AssistancePanel() {
         whatsapp: channels.whatsapp,
       },
     }).catch(() => {})
-    setSelectedSessionId(sessionId)
-    setIntakeFeedback({ tone: 'success', message: `Assistance session ${sessionId} created and ${selectedWorkers.length} workers were notified.` })
+    setIntakeFeedback({ tone: 'success', message: `${selectedWorkers.length} workers were notified.` })
     pushNotification(`Workers notified for ${form.service} request`, '#0F5C37')
   }
 
@@ -365,15 +353,7 @@ export default function AssistancePanel() {
         : {
             ...session,
             status: session.workers.length ? 'Active' : 'No Response',
-            timeline: [
-              {
-                id: `${session.id}-${session.timeline.length + 1}`,
-                time: formatNow().slice(11),
-                title: 'Follow-up reminder',
-                note: `Workers were re-notified by ${session.channels.join(', ')}.`,
-              },
-              ...session.timeline,
-            ],
+            timeline: session.timeline,
           }
     )))
     pushNotification(`Follow-up reminder sent for ${sessionId}`, '#F59E0B')
@@ -386,17 +366,10 @@ export default function AssistancePanel() {
         : {
             ...session,
             status: 'Completed',
-            timeline: [
-              {
-                id: `${session.id}-${session.timeline.length + 1}`,
-                time: formatNow().slice(11),
-                title: 'Session completed',
-                note: 'Telecaller closed the assistance session after worker response.',
-              },
-              ...session.timeline,
-            ],
+            timeline: session.timeline,
           }
     )))
+    assistanceApi.updateAssistance(sessionId, { status: 'Completed', solved: true }).catch(() => {})
     pushNotification(`Session ${sessionId} marked completed`, '#16A34A')
   }
 
@@ -463,7 +436,8 @@ export default function AssistancePanel() {
                 onChange={e => handleFormChange('service', e.target.value)}
                 className="w-full h-11 px-4 rounded-xl border border-[var(--border-main)] bg-dark-50/50 dark:bg-dark-900/50 text-sm focus:ring-2 focus:ring-brand-500/20 outline-none"
               >
-                {SERVICE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  <option value="">Select Service</option>
+                  {serviceOptions.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
               <div className="flex gap-2">
                 <select
@@ -472,7 +446,7 @@ export default function AssistancePanel() {
                   className="flex-1 h-11 px-4 rounded-xl border border-[var(--border-main)] bg-dark-50/50 dark:bg-dark-900/50 text-sm focus:ring-2 focus:ring-brand-500/20 outline-none"
                 >
                   <option value="">Select Area</option>
-                  {VIZAG_AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                  {areaOptions.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
                 <Btn v="outline" onClick={handleAutoDetect} className="h-11 px-4 shrink-0">GPS</Btn>
               </div>
@@ -509,23 +483,6 @@ export default function AssistancePanel() {
         </div>
 
         <div className="space-y-6">
-          <Card className="p-6">
-            <h4 className="text-sm font-bold text-[var(--text-main)] mb-4 uppercase tracking-widest">Speed Guide</h4>
-            <ul className="space-y-4">
-              {[
-                'Enter phone, service, and area.',
-                'Select the best 3 to 5 nearby workers.',
-                'Notify instantly by Push, SMS, and WhatsApp.',
-                'Track the session until completed.'
-              ].map((step, i) => (
-                <li key={i} className="flex gap-3">
-                  <span className="w-5 h-5 rounded-full bg-brand-50 dark:bg-brand-900 text-brand-600 text-[10px] font-bold flex items-center justify-center shrink-0 border border-brand-100 dark:border-brand-800">{i+1}</span>
-                  <p className="text-sm text-[var(--text-muted)] leading-relaxed">{step}</p>
-                </li>
-              ))}
-            </ul>
-          </Card>
-
           <Card className="p-6 bg-brand-50/50 dark:bg-brand-900/10 border-brand-100 dark:border-brand-900/30">
             <h4 className="text-[10px] text-brand-700 dark:text-brand-400 font-bold uppercase tracking-widest mb-4">Live Notifications</h4>
             <div className="space-y-3">

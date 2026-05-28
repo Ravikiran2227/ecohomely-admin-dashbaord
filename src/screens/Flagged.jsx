@@ -24,7 +24,7 @@ function asBoolean(value) {
 }
 
 function dateLabel(value) {
-  if (!value) return 'Not recorded'
+  if (!value) return ''
   if (typeof value === 'string') return value.slice(0, 10)
   if (value instanceof Date) return value.toISOString().slice(0, 10)
   if (typeof value.toDate === 'function') return value.toDate().toISOString().slice(0, 10)
@@ -112,14 +112,14 @@ function flaggedFromComplaint(complaint = {}) {
     id: `complaint:${complaint.id}`,
     source: 'complaint',
     sourceId: complaint.id,
-    name: firstText(complaint.customer, complaint.customerName, complaint.worker, complaint.workerName, complaint.id),
+    name: firstText(complaint.customer, complaint.customerName, complaint.worker, complaint.workerName, complaint.id, ''),
     customerId: complaint.customerId || complaint.userId,
     workerId: complaint.workerId || complaint.servicemanId,
     sourceComplaintId: complaint.id,
     sourceBookingId: complaint.bookingId || complaint.booking,
     type: complaint.workerId || complaint.servicemanId ? 'Worker' : 'Customer',
-    reason: firstText(complaint.issue, complaint.reason, complaint.description, complaint.message, 'Flagged complaint needs review'),
-    flaggedBy: firstText(complaint.flaggedBy, complaint.assignedTo, complaint.telecaller, 'System'),
+    reason: firstText(complaint.issue, complaint.reason, complaint.description, complaint.message, ''),
+    flaggedBy: firstText(complaint.flaggedBy, complaint.assignedTo, complaint.telecaller, ''),
     date: dateLabel(firstText(complaint.flaggedAt, complaint.createdAt, complaint.updatedAt, complaint.date)),
     status: complaint.status === 'Resolved' || isResolved(complaint) ? 'Resolved' : 'Under Review',
   }
@@ -130,11 +130,11 @@ function flaggedFromCustomer(customer = {}) {
     id: `customer:${customer.id}`,
     source: 'customer',
     sourceId: customer.id,
-    name: firstText(customer.name, customer.fullName, customer.displayName, customer.email, customer.phone, 'Unnamed Customer'),
+    name: firstText(customer.name, customer.fullName, customer.displayName, customer.email, customer.phone, ''),
     customerId: customer.id,
     type: 'Customer',
-    reason: firstText(customer.flagReason, customer.moderationReason, customer.reviewNote, customer.blockReason, 'Customer account flagged for review'),
-    flaggedBy: firstText(customer.flaggedBy, customer.moderatedBy, 'System'),
+    reason: firstText(customer.flagReason, customer.moderationReason, customer.reviewNote, customer.blockReason, ''),
+    flaggedBy: firstText(customer.flaggedBy, customer.moderatedBy, ''),
     date: dateLabel(firstText(customer.flaggedAt, customer.updatedAt, customer.createdAt, customer.dateJoined)),
     status: isResolved(customer) ? 'Resolved' : 'Under Review',
   }
@@ -145,11 +145,11 @@ function flaggedFromWorker(worker = {}) {
     id: `worker:${worker.id}`,
     source: 'worker',
     sourceId: worker.id,
-    name: firstText(worker.name, worker.fullName, worker.displayName, worker.phone, 'Unnamed Worker'),
+    name: firstText(worker.name, worker.fullName, worker.displayName, worker.phone, ''),
     workerId: worker.id,
     type: 'Worker',
-    reason: firstText(worker.flagReason, worker.moderationReason, worker.reviewNote, worker.rejectionReason, 'Worker account flagged for review'),
-    flaggedBy: firstText(worker.flaggedBy, worker.moderatedBy, 'System'),
+    reason: firstText(worker.flagReason, worker.moderationReason, worker.reviewNote, worker.rejectionReason, ''),
+    flaggedBy: firstText(worker.flaggedBy, worker.moderatedBy, ''),
     date: dateLabel(firstText(worker.flaggedAt, worker.updatedAt, worker.createdAt)),
     status: isResolved(worker) ? 'Resolved' : 'Under Review',
   }
@@ -333,10 +333,14 @@ export default function Flagged() {
                     <Badge label={f.type} color={f.type === 'Worker' ? C.teal : C.primary} />
                     <Badge label={f.status} color={f.status === 'Resolved' ? C.success : C.danger} />
                   </div>
-                  <div style={{ fontSize: 13, color: C.text, marginBottom: 6 }}>{f.reason}</div>
-                  <div style={{ fontSize: 11, color: C.muted }}>
-                    Flagged by: <strong style={{ color: C.text }}>{f.flaggedBy}</strong> - {f.date}
-                  </div>
+                  {f.reason ? <div style={{ fontSize: 13, color: C.text, marginBottom: 6 }}>{f.reason}</div> : null}
+                  {(f.flaggedBy || f.date) ? (
+                    <div style={{ fontSize: 11, color: C.muted }}>
+                      {f.flaggedBy ? <>Flagged by: <strong style={{ color: C.text }}>{f.flaggedBy}</strong></> : null}
+                      {f.flaggedBy && f.date ? ' - ' : ''}
+                      {f.date}
+                    </div>
+                  ) : null}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
                     <Btn v="outline" size="sm" onClick={() => navigate(linkedRoute.path)}>{linkedRoute.label}</Btn>
                     {sourceRoute ? <Btn v="ghost" size="sm" onClick={() => navigate(sourceRoute.path)}>{sourceRoute.label}</Btn> : null}
@@ -358,7 +362,7 @@ export default function Flagged() {
           })}
           <Card className="flex flex-wrap items-center justify-between gap-3 p-3">
             <div className="text-xs font-bold text-[var(--text-muted)]">
-              Page {safePage} of {pageCount} · Showing {pagedRecords.length} records
+              Page {safePage} of {pageCount} - Showing {pagedRecords.length} records
             </div>
             <div className="flex items-center gap-1.5">
               <Btn v="outline" size="sm" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(current - 1, 1))}>Previous</Btn>

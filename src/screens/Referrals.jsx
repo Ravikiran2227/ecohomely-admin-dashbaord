@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Copy, Gift, Link2, Share2, Sparkles, UserPlus } from 'lucide-react'
+import { Gift, Link2, Sparkles, UserPlus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import Badge from '../components/Badge'
@@ -9,7 +9,6 @@ import { Card } from '../components/Card'
 import ListToolbar from '../components/ListToolbar'
 import EmptyState from '../components/EmptyState'
 import { DataTable, TableRow, TD } from '../components/Table'
-import { referralSettings } from '../data/growthIncentives'
 import bookingsApi from '../services/bookingsApi'
 import customersApi from '../services/customersApi'
 import referralsApi from '../services/referralsApi'
@@ -52,7 +51,7 @@ function normalizeStatus(status = '') {
   const value = String(status || '').toLowerCase()
   if (['approved', 'rewarded', 'paid', 'completed'].includes(value)) return 'Rewarded'
   if (['rejected', 'failed', 'blocked'].includes(value)) return 'Rejected'
-  return 'Waiting for first booking'
+  return status || ''
 }
 
 function normalizeReferral(record = {}, customers = [], bookings = []) {
@@ -61,23 +60,38 @@ function normalizeReferral(record = {}, customers = [], bookings = []) {
   const bookingId = record.firstBookingId || record.bookingId || record.triggerBookingId || ''
   const booking = bookings.find((item) => [item.id, item.bookingId].filter(Boolean).includes(bookingId)) || null
   const status = normalizeStatus(record.status)
+  const hasReferrerReward = record.reward !== undefined || record.referrerReward !== undefined
+  const hasNewUserReward = record.newUserReward !== undefined
   const reward = Number(record.reward || record.referrerReward || 0)
 
   return {
     ...record,
     id: record.id || record.referralId,
-    referrer: record.referrerName || referrer?.name || record.referrerAuthId || 'Unknown referrer',
+    referrer: record.referrerName || referrer?.name || record.referrerAuthId || '',
     referrerId: referrer?.id || record.referrerAuthId || '',
-    referrerCode: record.referrerCode || record.code || record.referralCode || `REF-${String(record.referrerAuthId || record.id || '').slice(0, 6).toUpperCase()}`,
-    referredUser: record.newUserName || newUser?.name || record.newUserPhone || record.newAuthId || 'New user',
+    referrerCode: record.referrerCode || record.code || record.referralCode || '',
+    referredUser: record.newUserName || newUser?.name || record.newUserPhone || record.newAuthId || '',
     referredUserId: newUser?.id || record.newAuthId || '',
     signupDate: parseDate(record.createdAt || record.date),
-    firstBookingId: bookingId || '-',
-    bookingStatus: booking?.status || record.bookingStatus || (status === 'Rewarded' ? 'Completed' : 'Pending'),
-    referrerReward: reward,
-    newUserReward: Number(record.newUserReward || 0),
+    firstBookingId: bookingId,
+    bookingStatus: booking?.status || record.bookingStatus || '',
+    referrerReward: hasReferrerReward ? reward : null,
+    newUserReward: hasNewUserReward ? Number(record.newUserReward || 0) : null,
     status,
   }
+}
+
+function rewardTotal(item = {}) {
+  return [item.referrerReward, item.newUserReward]
+    .filter((value) => value !== null && value !== undefined && value !== '')
+    .reduce((sum, value) => sum + Number(value || 0), 0)
+}
+
+function rewardSplit(item = {}) {
+  return [
+    item.referrerReward !== null && item.referrerReward !== undefined ? `Referrer Rs.${item.referrerReward}` : '',
+    item.newUserReward !== null && item.newUserReward !== undefined ? `New User Rs.${item.newUserReward}` : '',
+  ].filter(Boolean).join(' + ')
 }
 
 function StatCard({ label, value, sub, tone }) {
@@ -98,6 +112,7 @@ function StatCard({ label, value, sub, tone }) {
 }
 
 function StatusPill({ status }) {
+  if (!status) return null
   const color = status === 'Rewarded' ? '#16A34A' : status === 'Rejected' ? '#DC2626' : '#F59E0B'
   return <Badge label={status} color={color} />
 }
@@ -118,8 +133,6 @@ export default function Referrals() {
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [profileTab, setProfileTab] = useState('profile')
   const [search, setSearch] = useState('')
-  const [isRulesOpen, setIsRulesOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [bookings, setBookings] = useState([])
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -163,10 +176,10 @@ export default function Referrals() {
   const metrics = useMemo(() => ({
     totalReferrals: records.length,
     rewardedReferrals: records.filter((item) => item.status === 'Rewarded').length,
-    waitingReferrals: records.filter((item) => item.status === 'Waiting for first booking').length,
+    waitingReferrals: records.filter((item) => item.status && item.status !== 'Rewarded' && item.status !== 'Rejected').length,
     totalRewards: records
       .filter((item) => item.status === 'Rewarded')
-      .reduce((sum, item) => sum + item.referrerReward + item.newUserReward, 0),
+      .reduce((sum, item) => sum + rewardTotal(item), 0),
   }), [records])
 
   const filteredRecords = useMemo(() => {
@@ -192,24 +205,12 @@ export default function Referrals() {
   const matchedBooking = selectedReferral ? bookings.find((item) => [item.id, item.bookingId].filter(Boolean).includes(selectedReferral.firstBookingId)) || null : null
   const matchedReferrer = selectedReferral ? findCustomerByIdentity(customers, [selectedReferral.referrerId, selectedReferral.referrerAuthId]) : null
   const matchedNewUser = selectedReferral ? findCustomerByIdentity(customers, [selectedReferral.referredUserId, selectedReferral.newAuthId, selectedReferral.newUserPhone]) : null
-  const shareText = `Ecohomely Referral Rules\n\nReferrer reward: Rs.${referralSettings.referrerReward}\nNew user reward: Rs.${referralSettings.newUserReward}\nTrigger: ${referralSettings.rewardTrigger}\nFraud prevention: rewards unlock only after the referred booking is completed successfully.`
-
-  async function handleCopyRules() {
-    try {
-      if (navigator?.clipboard?.writeText) await navigator.clipboard.writeText(shareText)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1800)
-    } catch {
-      setCopied(false)
-    }
-  }
 
   return (
     <div className="grid gap-5">
       <PageHeader
         title="Referral System"
         sub="Track referral conversion, protect reward logic, and inspect each referrer journey from one place"
-        action={<Btn v="primary" onClick={() => setIsRulesOpen(true)}><Share2 className="h-4 w-4" /> Share Rules</Btn>}
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -251,16 +252,16 @@ export default function Referrals() {
                   </TD>
                   <TD>
                     <div className="font-semibold text-[var(--text-main)]">{item.referredUser}</div>
-                    <div className="mt-1 text-xs text-[var(--text-muted)]">{item.signupDate || item.newUserPhone || '-'}</div>
+                    <div className="mt-1 text-xs text-[var(--text-muted)]">{item.signupDate || item.newUserPhone || ''}</div>
                   </TD>
-                  <TD className="font-black">Rs.{item.referrerReward + item.newUserReward}</TD>
+                  <TD className="font-black">{rewardTotal(item) ? `Rs.${rewardTotal(item)}` : ''}</TD>
                   <TD><StatusPill status={item.status} /></TD>
                 </TableRow>
               ))}
             </DataTable>
             <Card className="flex flex-wrap items-center justify-between gap-3 p-3">
               <div className="text-xs font-bold text-[var(--text-muted)]">
-                Page {safePage} of {pageCount} · Showing {pagedRecords.length} records
+                Page {safePage} of {pageCount} - Showing {pagedRecords.length} records
               </div>
               <div className="flex items-center gap-1.5">
                 <Btn v="outline" size="sm" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(current - 1, 1))}>Previous</Btn>
@@ -341,11 +342,11 @@ export default function Referrals() {
               </div>
 
               <div className="grid gap-3">
-                <DetailBlock label="Referrer Auth ID" value={selectedReferral.referrerAuthId || selectedReferral.referrerId || '-'} />
+                <DetailBlock label="Referrer Auth ID" value={selectedReferral.referrerAuthId || selectedReferral.referrerId || ''} />
                 <DetailBlock label="New User" value={selectedReferral.referredUser} />
-                <DetailBlock label="Sign-up Date" value={selectedReferral.signupDate || '-'} />
-                <DetailBlock label="Trigger Booking" value={`${selectedReferral.firstBookingId} / ${selectedReferral.bookingStatus}`} />
-                <DetailBlock label="Reward Split" value={`Referrer Rs.${selectedReferral.referrerReward} + New User Rs.${selectedReferral.newUserReward}`} />
+                <DetailBlock label="Sign-up Date" value={selectedReferral.signupDate || ''} />
+                <DetailBlock label="Trigger Booking" value={[selectedReferral.firstBookingId, selectedReferral.bookingStatus].filter(Boolean).join(' / ')} />
+                <DetailBlock label="Reward Split" value={rewardSplit(selectedReferral)} />
               </div>
             </div>
             ) : (
@@ -356,10 +357,10 @@ export default function Referrals() {
               </div>
               <div className="mt-4 space-y-3">
                 {[
-                  { icon: UserPlus, title: 'Referral created', body: `${selectedReferral.referredUser} joined from this referral.` },
-                  { icon: Link2, title: 'Booking tracked', body: `Booking ${selectedReferral.firstBookingId} is currently ${selectedReferral.bookingStatus}.` },
-                  { icon: Gift, title: 'Reward state', body: selectedReferral.status === 'Rewarded' ? 'Reward released successfully.' : 'Reward is still waiting for the qualified booking rule.' },
-                ].map((step) => {
+                  selectedReferral.createdAt || selectedReferral.date ? { icon: UserPlus, title: 'Referral created', body: parseDate(selectedReferral.createdAt || selectedReferral.date) } : null,
+                  selectedReferral.firstBookingId || selectedReferral.bookingStatus ? { icon: Link2, title: 'Booking tracked', body: [selectedReferral.firstBookingId, selectedReferral.bookingStatus].filter(Boolean).join(' - ') } : null,
+                  selectedReferral.status ? { icon: Gift, title: 'Reward state', body: selectedReferral.status } : null,
+                ].filter(Boolean).map((step) => {
                   const StepIcon = step.icon
                   return (
                     <div key={step.title} className="flex gap-3 rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/92 p-4">
@@ -378,31 +379,6 @@ export default function Referrals() {
             )}
           </div>
         ) : null}
-      </Modal>
-
-      <Modal
-        isOpen={isRulesOpen}
-        title="Share Referral Rules"
-        onClose={() => setIsRulesOpen(false)}
-        size="md"
-        footer={(
-          <>
-            <Btn v="outline" onClick={() => setIsRulesOpen(false)}>Close</Btn>
-            <Btn v="primary" onClick={handleCopyRules}><Copy className="h-4 w-4" /> {copied ? 'Copied' : 'Copy Rules'}</Btn>
-          </>
-        )}
-      >
-        <div className="grid gap-4">
-          <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4 text-sm leading-6 text-[var(--text-main)] whitespace-pre-line">
-            {shareText}
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <DetailBlock label="Referrer Reward" value={`Rs.${referralSettings.referrerReward}`} />
-            <DetailBlock label="New User Reward" value={`Rs.${referralSettings.newUserReward}`} />
-            <DetailBlock label="Reward Trigger" value={referralSettings.rewardTrigger} />
-            <DetailBlock label="Fraud Shield" value="Completion-first reward unlock" subtle />
-          </div>
-        </div>
       </Modal>
     </div>
   )

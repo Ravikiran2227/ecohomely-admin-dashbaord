@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Percent, Plus, ShieldCheck, TicketPercent, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import Badge from '../components/Badge'
@@ -372,31 +372,6 @@ export default function Coupons() {
                   </div>
                 </div>
 
-                <div className="rounded-[24px] border border-brand-500/18 bg-gradient-to-br from-brand-500/14 via-brand-500/6 to-transparent p-5">
-                  <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300">
-                    <TicketPercent className="h-4 w-4" /> Campaign Guardrails
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    {[
-                      { icon: Percent, title: 'Single-discount model', body: 'Coupons apply as a standalone discount and do not stack with cashback.' },
-                      { icon: ShieldCheck, title: 'Usage throttling', body: selectedCoupon.usageLimit > 0 ? `The campaign stops after ${selectedCoupon.usageLimit} allowed redemptions.` : 'This campaign is unlimited until it expires or is removed.' },
-                      { icon: TicketPercent, title: 'Targeted exposure', body: `${selectedCoupon.target} are eligible for this coupon audience rule.` },
-                    ].map((step) => {
-                      const StepIcon = step.icon
-                      return (
-                        <div key={step.title} className="flex gap-3 rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/92 p-4">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-brand-500/15 bg-brand-500/10 text-brand-700 dark:text-brand-300">
-                            <StepIcon className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-bold text-[var(--text-main)]">{step.title}</div>
-                            <div className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{step.body}</div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
               </div>
             ) : (
               <EmptyState title="No coupon selected" description="Select a coupon to inspect its campaign profile." />

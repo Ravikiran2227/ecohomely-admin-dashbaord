@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/Card'
 import PageHeader from '../components/PageHeader'
@@ -94,7 +94,7 @@ export default function CustomerProfile() {
       return accumulator
     }, {})
 
-    return Object.entries(serviceCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'None yet'
+    return Object.entries(serviceCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || ''
   }, [customerBookings])
   const recentActivity = useMemo(
     () => (data ? buildCustomerActivity({ customer: data, referrer, bookings: customerBookings, complaints: customerComplaints, toLetProfile: customerToLetProfile }) : []),
@@ -113,8 +113,8 @@ export default function CustomerProfile() {
       color: listing.status === 'Live' ? C.success : listing.status === 'Rejected' ? C.danger : C.primary,
       title: listing.id,
       date: formatTimelineStamp(listing.postedAt),
-      description: `${listing.title} · ${listing.area} · Rent ₹${listing.rent.toLocaleString('en-IN')}`,
-      meta: `Status: ${listing.status} · Enquiries: ${toLetEnquiryRecords.filter((enquiry) => enquiry.listingId === listing.id).length}`,
+      description: `${listing.title} - ${listing.area} - Rent Rs ${listing.rent.toLocaleString('en-IN')}`,
+      meta: `Status: ${listing.status} - Enquiries: ${toLetEnquiryRecords.filter((enquiry) => enquiry.listingId === listing.id).length}`,
       badges: [
         { label: 'ToLet Owner', color: C.primary },
         { label: listing.status, color: STATUS_COLOR.Active || C.muted, dot: false },
@@ -134,8 +134,8 @@ export default function CustomerProfile() {
         color: enquiry.status === 'Closed' ? C.success : enquiry.status === 'Contacted' ? C.info : C.warning,
         title: enquiry.id,
         date: formatTimelineStamp(enquiry.date),
-        description: `Enquired on ${matchedListing?.title || enquiry.listingId}${matchedListing ? ` · Owner: ${matchedListing.ownerName}` : ''}`,
-        meta: `Status: ${enquiry.status} · Phone: ${enquiry.phone}`,
+        description: `Enquired on ${matchedListing?.title || enquiry.listingId}${matchedListing ? ` - Owner: ${matchedListing.ownerName}` : ''}`,
+        meta: `Status: ${enquiry.status} - Phone: ${enquiry.phone}`,
         badges: [
           { label: 'ToLet Enquiry', color: C.info },
           { label: enquiry.status, color: C.warning, dot: false },
@@ -155,7 +155,7 @@ export default function CustomerProfile() {
       title: enquiry.id,
       date: formatTimelineStamp(enquiry.date),
       description: `${enquiry.customerName} enquired for ${enquiry.listingId}`,
-      meta: `Status: ${enquiry.status} · Phone: ${enquiry.phone}`,
+      meta: `Status: ${enquiry.status} - Phone: ${enquiry.phone}`,
       badges: [
         { label: 'Received Enquiry', color: C.warning },
         { label: enquiry.status, color: C.info, dot: false },
@@ -182,8 +182,8 @@ export default function CustomerProfile() {
       color: booking.status === 'Completed' ? C.success : booking.status === 'Cancelled' ? C.danger : C.primary,
       title: booking.id,
       date: formatTimelineStamp(booking.completedAt || booking.startedAt || booking.requestedAt),
-      description: `${booking.service} in ${booking.area}${booking.worker ? ` · Worker: ${booking.worker}` : ''}`,
-      meta: `Status: ${booking.status}${booking.amount ? ` · Value: ₹${booking.amount}` : ''}`,
+      description: `${booking.service} in ${booking.area}${booking.worker ? ` - Worker: ${booking.worker}` : ''}`,
+      meta: `Status: ${booking.status}${booking.amount ? ` - Value: Rs ${booking.amount}` : ''}`,
       badges: [
         { label: 'Booking', color: C.primary },
         { label: booking.status, color: BOOKING_STATUS_COLOR[booking.status] || C.muted, dot: false },
@@ -201,7 +201,7 @@ export default function CustomerProfile() {
       title: complaint.id,
       date: formatTimelineStamp(complaint.date),
       description: complaint.issue,
-      meta: `${complaint.booking ? `Booking: ${complaint.booking}` : 'No booking linked'}${complaint.assignedTo ? ` · Assigned to ${complaint.assignedTo}` : ''}`,
+      meta: `${complaint.booking ? `Booking: ${complaint.booking}` : 'No booking linked'}${complaint.assignedTo ? ` - Assigned to ${complaint.assignedTo}` : ''}`,
       badges: [
         { label: 'Complaint', color: C.danger },
         { label: complaint.status, color: COMPLAINT_STATUS_COLOR[complaint.status] || C.muted, dot: false },
@@ -282,10 +282,10 @@ export default function CustomerProfile() {
     <div className="w-full space-y-5">
       <PageHeader
         title="Customer Profile"
-        sub={`${data.id} · Joined ${data.dateJoined}`}
+        sub={data.dateJoined ? `Joined ${data.dateJoined}` : ''}
         action={
           <div className="flex flex-wrap gap-2.5">
-            <Btn v="outline" onClick={() => navigate('/customers')}>← Back</Btn>
+            <Btn v="outline" onClick={() => navigate('/customers')}>Back</Btn>
             {editMode ? (
               <>
                 <Btn v="outline" onClick={cancelEdit}>Cancel</Btn>
@@ -306,7 +306,7 @@ export default function CustomerProfile() {
         <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-50 px-4 py-3 text-emerald-700">
           <Icon n="edit" sz={16} cl={C.primary} />
           <div className="text-sm font-semibold">
-            Edit mode — modifying profile for {data.name}
+            Edit mode - modifying profile for {data.name}
           </div>
         </div>
       )}
@@ -323,7 +323,7 @@ export default function CustomerProfile() {
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.35fr)_320px]">
           <div className="flex min-w-0 flex-col gap-6 sm:flex-row sm:items-start">
             <div className="flex shrink-0 flex-col items-start gap-3">
-              <CustomerAvatar name={data.name} size={88} />
+              <CustomerAvatar name={data.name} photoUrl={data.photoUrl} size={88} />
               <Badge label={data.status} color={STATUS_COLOR[data.status] || C.muted} />
               <div className="text-[13px] font-medium text-[var(--text-muted)]">{data.device}</div>
             </div>
@@ -345,14 +345,14 @@ export default function CustomerProfile() {
                     <CustomerProfileField label="Phone" value={cur.phone} editMode onChange={set('phone')} />
                     <CustomerProfileField label="Email" value={cur.email} editMode onChange={set('email')} type="email" />
                     <CustomerProfileField label="Area" value={cur.area} editMode onChange={set('area')} />
-                    <InfoRow label="Last Booking" value={data.lastBooking || '—'} icon="calendar" />
+                    <InfoRow label="Last Booking" value={data.lastBooking || ''} icon="calendar" />
                   </>
                 ) : (
                   <>
                     <InfoRow label="Phone" value={cur.phone} icon="phone" />
                     <InfoRow label="Email" value={cur.email} icon="message" />
                     <InfoRow label="Area" value={cur.area} icon="mappin" />
-                    <InfoRow label="Last Booking" value={data.lastBooking || '—'} icon="calendar" />
+                    <InfoRow label="Last Booking" value={data.lastBooking || ''} icon="calendar" />
                   </>
                 )}
               </div>
@@ -371,10 +371,6 @@ export default function CustomerProfile() {
                 </div>
               )}
             </div>
-            <Btn v="outline" className="w-full justify-center"><Icon n="send" sz={13} cl={C.muted} /> Send Message</Btn>
-            <Btn v={data.status === 'Active' ? 'danger' : 'success'} className="w-full justify-center">
-              {data.status === 'Active' ? 'Block Customer' : 'Unblock'}
-            </Btn>
           </div>
         </div>
       </Card>
@@ -393,7 +389,7 @@ export default function CustomerProfile() {
         onChange={setTab}
       />
 
-      {/* ── OVERVIEW TAB ── */}
+      {/* OVERVIEW TAB */}
       {tab === 'overview' && (
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <SectionCard title="Personal Details" subtitle="Identity, contact information, and device context" className="h-full">
@@ -423,9 +419,9 @@ export default function CustomerProfile() {
               <InfoRow label="Completed Services" value={completedBookings.length} icon="check" />
               <InfoRow label="Active Requests" value={activeBookings.length} icon="clock" />
               <InfoRow label="Complaints Filed" value={data.complaints} icon="alert" />
-              <InfoRow label="Total Spend" value={totalSpend > 0 ? `₹${totalSpend}` : '₹0'} icon="dollar" />
-              <InfoRow label="Last Booking" value={data.lastBooking || '—'} icon="calendar" />
-              <InfoRow label="Referred By" value={referrer?.name || 'None'} icon="referral" />
+              <InfoRow label="Total Spend" value={totalSpend > 0 ? `Rs ${totalSpend}` : ''} icon="dollar" />
+              <InfoRow label="Last Booking" value={data.lastBooking || ''} icon="calendar" />
+              <InfoRow label="Referred By" value={referrer?.name || ''} icon="referral" />
             </div>
           </SectionCard>
 
@@ -435,7 +431,7 @@ export default function CustomerProfile() {
                 { label: 'Total Bookings', value: data.bookings, color: C.primary },
                 { label: 'Complaints', value: data.complaints, color: data.complaints > 0 ? C.danger : C.success },
                 { label: 'Status', value: data.status, color: STATUS_COLOR[data.status] || C.muted },
-                { label: 'Last Activity', value: data.lastBooking || '—', color: C.teal },
+                { label: 'Last Activity', value: data.lastBooking || '', color: C.teal },
                 { label: 'Paid Jobs', value: paidBookings, color: C.success },
                 { label: 'Favorite Service', value: favoriteService, color: C.info },
               ].map((item) => (
@@ -562,8 +558,8 @@ export default function CustomerProfile() {
             <SectionCard title="History Snapshot" subtitle="Key profile-level history at a glance" className="h-full">
               <div className="grid gap-4">
                 <InfoRow label="Joined" value={data.dateJoined} icon="calendar" />
-                <InfoRow label="Latest Booking" value={data.lastBooking || '—'} icon="clock" />
-                <InfoRow label="Total Spend" value={`₹${totalSpend}`} icon="dollar" />
+                <InfoRow label="Latest Booking" value={data.lastBooking || ''} icon="clock" />
+                <InfoRow label="Total Spend" value={totalSpend > 0 ? `Rs ${totalSpend}` : ''} icon="dollar" />
                 <InfoRow label="Different Workers Used" value={uniqueWorkers} icon="worker" />
                 <InfoRow label="Preferred Service" value={favoriteService} icon="star" />
                 <InfoRow label="Support Notes" value={customerComplaints.reduce((count, complaint) => count + (complaint.notes?.length || 0), 0)} icon="message" />
@@ -591,12 +587,12 @@ export default function CustomerProfile() {
                 <div key={payment.id} className="grid gap-4 rounded-2xl border border-[var(--border-main)] p-4 md:grid-cols-[96px_minmax(0,1fr)_140px_auto] md:items-center">
                   <div className="text-[12px] font-bold uppercase tracking-[0.08em] text-emerald-600">{payment.id}</div>
                   <div className="min-w-0">
-                    <div className="text-[15px] font-semibold text-[var(--text-main)] break-words">{payment.bookingId || payment.booking || 'Direct payment'}</div>
-                    <div className="mt-1 text-[13px] text-[var(--text-muted)] break-words">{payment.method || payment.mode || 'Payment method not recorded'}</div>
+                    <div className="text-[15px] font-semibold text-[var(--text-main)] break-words">{payment.bookingId || payment.booking || ''}</div>
+                    {(payment.method || payment.mode) && <div className="mt-1 text-[13px] text-[var(--text-muted)] break-words">{payment.method || payment.mode}</div>}
                   </div>
-                  <div className="text-[13px] font-medium text-[var(--text-muted)]">{payment.paidAt || payment.createdAt || payment.date || 'Not recorded'}</div>
+                  <div className="text-[13px] font-medium text-[var(--text-muted)]">{payment.paidAt || payment.createdAt || payment.date || ''}</div>
                   <div className="flex items-center gap-3">
-                    <Badge label={payment.status || 'Recorded'} color={PAYMENT_STATUS_COLOR[payment.status] || C.muted} />
+                    {payment.status && <Badge label={payment.status} color={PAYMENT_STATUS_COLOR[payment.status] || C.muted} />}
                     <div className="text-[15px] font-bold" style={{ color: PAYMENT_STATUS_COLOR[payment.status] || C.success }}>
                       Rs {Number(payment.amount || payment.total || 0).toLocaleString('en-IN')}
                     </div>
@@ -608,7 +604,7 @@ export default function CustomerProfile() {
         </SectionCard>
       )}
 
-      {/* ── LOCATION TAB ── */}
+      {/* LOCATION TAB */}
       {tab === 'location' && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
           <Card className="min-h-[360px] overflow-hidden">
@@ -616,30 +612,29 @@ export default function CustomerProfile() {
               <PinMap
                 lat={data.location.lat}
                 lng={data.location.lng}
-                label={`${data.name} — ${data.area}`}
+                label={`${data.name} - ${data.area}`}
                 height={340}
               />
             ) : (
               <div className="flex h-[360px] flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, #10B981 10%, var(--card-bg)) 0%, color-mix(in srgb, #0EA5E9 10%, var(--bg-main)) 100%)' }}>
                 <Icon n="mappin" sz={40} cl={C.primary} />
                 <div className="text-[16px] font-bold text-[var(--text-main)]">
-                  Last Known Location — {data.area}
+                  Last Known Location - {data.area}
                 </div>
-                <div className="text-[13px] text-[var(--text-muted)]">GPS location not recorded</div>
               </div>
             )}
           </Card>
           <SectionCard title="Location Details" subtitle="Stored service area and coordinate summary" className="h-full">
             <div className="grid gap-4">
               <InfoRow label="Area" value={data.area} icon="mappin" />
-              <InfoRow label="Coordinates" value={data.location ? `${data.location.lat.toFixed(5)}, ${data.location.lng.toFixed(5)}` : 'Not recorded'} icon="map" />
-              <InfoRow label="Last Booking" value={data.lastBooking || '—'} icon="clock" />
+              <InfoRow label="Coordinates" value={data.location ? `${data.location.lat.toFixed(5)}, ${data.location.lng.toFixed(5)}` : ''} icon="map" />
+              <InfoRow label="Last Booking" value={data.lastBooking || ''} icon="clock" />
             </div>
           </SectionCard>
         </div>
       )}
 
-      {/* ── BOOKINGS TAB ── */}
+      {/* BOOKINGS TAB */}
       {tab === 'bookings' && (
         <SectionCard title="Booking History" subtitle="Service requests, assignment status, and collected revenue" action={<Badge label={`${customerBookings.length} total`} color={C.primary} size="xs" />}>
           {customerBookings.length === 0 ? (
@@ -652,17 +647,17 @@ export default function CustomerProfile() {
                   <div className="min-w-0">
                     <div className="text-[15px] font-semibold text-[var(--text-main)] break-words">{b.service}</div>
                     <div className="mt-1 text-[13px] text-[var(--text-muted)] break-words">
-                      {b.worker ? `Worker: ${b.worker}` : 'No worker assigned'} · {b.area}
+                      {[b.worker ? `Worker: ${b.worker}` : '', b.area].filter(Boolean).join(' - ')}
                     </div>
                   </div>
                   <div className="text-[13px] font-medium text-[var(--text-muted)]">{b.requestedAt}</div>
                   <Badge label={b.status} color={BOOKING_STATUS_COLOR[b.status] || C.muted} />
                   {b.amount > 0 ? (
                     <div className="text-[15px] font-bold" style={{ color: b.paid ? C.success : C.warning }}>
-                      ₹{b.amount}
+                      Rs {b.amount}
                     </div>
                   ) : (
-                    <div className="text-[13px] font-medium text-[var(--text-muted)]">—</div>
+                    <div className="text-[13px] font-medium text-[var(--text-muted)]" />
                   )}
                 </div>
               ))}
@@ -671,7 +666,7 @@ export default function CustomerProfile() {
         </SectionCard>
       )}
 
-      {/* ── COMPLAINTS TAB ── */}
+      {/* COMPLAINTS TAB */}
       {tab === 'complaints' && (
         <SectionCard title="Complaints Filed" subtitle="Open issues, assigned owners, and booking references" action={<Badge label={`${customerComplaints.length} total`} color={customerComplaints.length > 0 ? C.danger : C.success} size="xs" />}>
           {customerComplaints.length === 0 ? (
@@ -691,8 +686,8 @@ export default function CustomerProfile() {
                   <div className="mb-2 text-[15px] font-semibold leading-6 text-[var(--text-main)] break-words">{cp.issue}</div>
                   <div className="text-[13px] leading-6 text-[var(--text-muted)] break-words">
                     Against: <span className="font-semibold text-[var(--text-main)]">{cp.worker}</span>
-                    {cp.assignedTo && <> · Assigned to: <span className="font-semibold text-[var(--text-main)]">{cp.assignedTo}</span></>}
-                    {' · '}Booking: {cp.booking}
+                    {cp.assignedTo && <> - Assigned to: <span className="font-semibold text-[var(--text-main)]">{cp.assignedTo}</span></>}
+                    {' - '}Booking: {cp.booking}
                   </div>
                 </div>
               ))}
@@ -703,3 +698,4 @@ export default function CustomerProfile() {
     </div>
   )
 }
+

@@ -6,11 +6,7 @@ import {
   MessageCircle,
   PencilLine,
   Phone,
-  ShieldCheck,
-  TrendingUp,
   Trash2,
-  Users,
-  Wallet,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import Btn from '../components/Btn'
@@ -26,7 +22,6 @@ import {
   getLocationLabel,
   getPrimaryProfession,
   getSecondaryProfession,
-  getSmartBadges,
 } from '../data/workerSystem'
 import {
   getWorkerUiState,
@@ -37,7 +32,7 @@ import bookingsApi from '../services/bookingsApi'
 import customersApi from '../services/customersApi'
 import reviewsApi from '../services/reviewsApi'
 import { resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerStorageFiles } from '../services/firebaseClient'
-import { buildBookings, buildLeadRows, buildReviewRows, formatCurrency, formatDate, getLeadBadge, percentage } from '../utils/workerProfileDetail'
+import { buildBookings, buildLeadRows, buildReviewRows, formatCurrency, formatDate, getLeadBadge } from '../utils/workerProfileDetail'
 
 const TAB_ITEMS = [
   { id: 'overview', label: 'Profile Overview' },
@@ -51,8 +46,7 @@ const TAB_ITEMS = [
   { id: 'settings', label: 'Settings / Edit Profile' },
 ]
 
-const DEFAULT_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const DEFAULT_TIME_BLOCKS = ['07:00 - 11:00', '11:30 - 15:30', '16:30 - 20:00']
+const WORKING_DAY_OPTIONS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const TODAY_MS = new Date().getTime()
 const MEMBERSHIP_BADGES = {
   gold: {
@@ -415,8 +409,8 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const [isSuspended, setIsSuspended] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
-  const [workingDays, setWorkingDays] = useState(DEFAULT_DAYS)
-  const [workingSlots, setWorkingSlots] = useState(DEFAULT_TIME_BLOCKS)
+  const [workingDays, setWorkingDays] = useState([])
+  const [workingSlots, setWorkingSlots] = useState([])
   const [notice, setNotice] = useState(null)
   const [correctionModal, setCorrectionModal] = useState({ isOpen: false, items: [], message: '' })
 
@@ -435,8 +429,8 @@ function WorkerProfileDetailViewContent({ workerId }) {
       setWorkerBookings([])
       setWorkerReviews(Array.isArray(reviews) ? reviews : Array.isArray(reviews?.reviews) ? reviews.reviews : [])
       setIsSuspended(data.status === 'Suspended')
-      setWorkingDays(Array.isArray(data.workingDays) && data.workingDays.length > 0 ? data.workingDays : DEFAULT_DAYS)
-      setWorkingSlots(Array.isArray(data.workingSlots) && data.workingSlots.length > 0 ? data.workingSlots : DEFAULT_TIME_BLOCKS)
+      setWorkingDays(Array.isArray(data.workingDays) ? data.workingDays : [])
+      setWorkingSlots(Array.isArray(data.workingSlots) ? data.workingSlots : [])
       setLoading(false)
 
       const customerMap = new Map((Array.isArray(customers) ? customers : []).flatMap((customer) => (
@@ -547,54 +541,38 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const totalReviews = reviewCards.length
   const isVerified = documentCards.some((doc) => doc.key === 'aadhaar' && doc.status === 'Verified')
   const workerStatus = isSuspended ? 'Suspended' : (worker.availability === 'Available' ? 'Active' : worker.availability)
-  const activePlan = worker.planType || 'Free'
-  const planExpiryLabel = worker.planExpiry ? formatDate(worker.planExpiry) : 'No expiry scheduled'
-  const planValue = activePlan === 'Pro' ? 499 : activePlan === 'Free' ? 0 : 199
+  const activePlan = worker.planType || worker.planName || worker.subscriptionPlan || ''
+  const planExpiryLabel = worker.planExpiry ? formatDate(worker.planExpiry) : ''
+  const rawPlanValue = worker.planValue ?? worker.planPrice ?? worker.subscriptionAmount ?? worker.subscription?.amount ?? ''
+  const planValue = rawPlanValue === '' || rawPlanValue === null || rawPlanValue === undefined ? null : Number(rawPlanValue)
   const planExpiryDays = worker.planExpiry ? Math.ceil((new Date(worker.planExpiry).getTime() - TODAY_MS) / (1000 * 60 * 60 * 24)) : null
-  const planHealth = planExpiryDays == null ? 'No paid renewal on file' : planExpiryDays < 0 ? 'Expired' : planExpiryDays <= 7 ? `${planExpiryDays} days left` : `Valid for ${planExpiryDays} days`
-  const teamSize = worker.planType === 'Pro' ? '2 Members' : '1 Member'
-  const readiness = `${percentage(
-    [
-      Boolean(worker.profilePhoto || workerPhotoUrl),
-      Boolean(worker.phone),
-      Boolean(primaryProfession?.description),
-      (primaryProfession?.services || []).length > 0,
-      isVerified,
-    ].filter(Boolean).length,
-    5,
-  )}%`
-  const totalLeads = `${Math.max((worker.performance?.totalBookings || 0) - 3, 0)} This Month`
-  const conversion = `${percentage(worker.performance?.completedJobs || 0, worker.performance?.totalBookings || 1)}%`
+  const planHealth = planExpiryDays == null ? '' : planExpiryDays < 0 ? 'Expired' : planExpiryDays <= 7 ? `${planExpiryDays} days left` : `Valid for ${planExpiryDays} days`
   const totalEarnings = bookingCards.reduce((sum, booking) => sum + Number(booking.earnings || 0), 0) || worker.performance?.earnings || 0
-  const dailyEarnings = Math.round(totalEarnings / 20)
-  const weeklyEarnings = Math.round(totalEarnings / 4)
-  const monthlyEarnings = Math.round(totalEarnings / 1.3)
   const completedJobs = bookingCards.filter((booking) => String(booking.status || '').toLowerCase() === 'completed').length || worker.performance?.completedJobs || 0
   const ratingValue = reviewCards.length > 0
     ? reviewCards.reduce((sum, review) => sum + Number(review.rating || 0), 0) / reviewCards.length
     : Number(worker.performance?.rating || worker.rating || 0)
-  const profileOverviewDescription = worker.about || primaryProfession?.description || 'This worker profile is configured for responsive service delivery, quality verification, and structured lead handling.'
+  const profileOverviewDescription = worker.about || primaryProfession?.description || ''
   const profileLanguages = normalizeProfileLanguages(worker)
   const experienceYears = extractExperienceYears(primaryProfession, worker) || getExperienceYears(worker, primaryProfession)
   const experienceLabel = extractExperienceLabel(primaryProfession, worker) || String(experienceYears || 0)
   const experienceDisplay = /year|yr/i.test(experienceLabel) ? experienceLabel : `${experienceLabel} ${experienceLabel === '1' ? 'year' : 'years'}`
   const profileSkills = Array.isArray(worker.skills) ? worker.skills : []
-  const profileBadges = Array.isArray(worker.profileBadges) && worker.profileBadges.length > 0 ? worker.profileBadges : getSmartBadges(worker)
+  const profileBadges = Array.isArray(worker.profileBadges) ? worker.profileBadges : []
   const membershipBadge = getMembershipBadge(worker)
-  const profileHighlights = Array.isArray(worker.profileHighlights) && worker.profileHighlights.length > 0
-    ? worker.profileHighlights
-    : [
-        `${experienceDisplay} experience`,
-        profileLanguages.length > 0 ? `${profileLanguages.join(', ')} languages` : null,
-        worker.availability === 'Available' ? 'Open for quick booking' : `${worker.availability} schedule`,
-        isVerified ? 'Verification documents ready' : 'Verification in progress',
-      ].filter(Boolean)
+  const profileHighlights = Array.isArray(worker.profileHighlights) ? worker.profileHighlights : []
+  const hasProfileStrengthData = Boolean(profileOverviewDescription)
+    || profileHighlights.length > 0
+    || profileLanguages.length > 0
+    || profileSkills.length > 0
+    || profileBadges.length > 0
+  const metricSource = worker.performance || {}
+  const getMetricValue = (...values) => values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
   const metrics = [
-    { label: 'Team Size', value: teamSize, hint: 'Lead plus support coverage', icon: Users },
-    { label: 'Readiness', value: readiness, hint: 'Profile and verification health', icon: ShieldCheck },
-    { label: 'Total Leads', value: totalLeads, hint: 'Monthly inbound opportunities', icon: TrendingUp },
-    { label: 'Conversion', value: conversion, hint: 'Won from qualified leads', icon: Wallet },
-  ]
+    { label: 'Team Size', value: getMetricValue(worker.teamSize, worker.teamMembers, worker.teamMemberCount, metricSource.teamSize), hint: 'Firebase worker field', icon: Medal },
+    { label: 'Total Leads', value: getMetricValue(metricSource.totalLeads, worker.totalLeads, worker.leadsThisMonth), hint: 'Firebase worker field', icon: Medal },
+    { label: 'Conversion', value: getMetricValue(metricSource.conversion, metricSource.conversionRate, worker.conversionRate), hint: 'Firebase worker field', icon: Medal },
+  ].filter((metric) => metric.value !== undefined && metric.value !== null && String(metric.value).trim() !== '')
 
   const handleSaveProfession = async (payload) => {
     if (!editTarget) return
@@ -727,6 +705,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
       onChat={() => window.open(`https://wa.me/91${worker.phone}`, '_blank', 'noopener,noreferrer')}
       onBook={() => navigate('/bookings')}
       onNotify={setNotice}
+      reviews={reviewCards}
     />
   )
 
@@ -774,19 +753,27 @@ function WorkerProfileDetailViewContent({ workerId }) {
         </div>
       </section>
 
-      <WorkerDetailSection title="Profile Overview" subtitle="Performance, pricing, and operational health for this worker">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {metrics.map((metric) => (
-            <MetricCard key={metric.label} {...metric} />
-          ))}
-        </div>
-      </WorkerDetailSection>
+      {metrics.length > 0 && (
+        <WorkerDetailSection title="Profile Overview" subtitle="Performance, pricing, and operational health for this worker">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {metrics.map((metric) => (
+              <MetricCard key={metric.label} {...metric} />
+            ))}
+          </div>
+        </WorkerDetailSection>
+      )}
 
+      {hasProfileStrengthData && (
       <WorkerDetailSection title="Profile Strength" subtitle="Credibility, communication, and positioning details for a stronger worker profile">
         <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+          {(profileOverviewDescription || profileHighlights.length > 0) && (
           <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/50 p-5">
-            <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">About</div>
-            <p className="mt-3 text-sm leading-7 text-[var(--text-main)]">{profileOverviewDescription}</p>
+            {profileOverviewDescription && (
+              <>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">About</div>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-main)]">{profileOverviewDescription}</p>
+              </>
+            )}
 
             {profileHighlights.length > 0 && (
               <div className="mt-5 space-y-2.5">
@@ -799,68 +786,65 @@ function WorkerProfileDetailViewContent({ workerId }) {
               </div>
             )}
           </div>
+          )}
 
           <div className="space-y-4">
+            {profileLanguages.length > 0 && (
             <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/50 p-5">
               <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Languages</div>
               <div className="mt-3 flex flex-wrap gap-2">
-                {profileLanguages.length > 0 ? profileLanguages.map((language) => (
+                {profileLanguages.map((language) => (
                   <Badge key={language} label={language} color="#2563EB" />
-                )) : <span className="text-sm text-[var(--text-muted)]">No languages added yet.</span>}
+                ))}
               </div>
             </div>
+            )}
 
+            {profileSkills.length > 0 && (
             <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/50 p-5">
               <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Skills</div>
               <div className="mt-3 flex flex-wrap gap-2">
-                {profileSkills.length > 0 ? profileSkills.map((skill) => (
+                {profileSkills.map((skill) => (
                   <Badge key={skill} label={skill} color="#0F766E" />
-                )) : <span className="text-sm text-[var(--text-muted)]">No skills added yet.</span>}
+                ))}
               </div>
             </div>
+            )}
 
+            {profileBadges.length > 0 && (
             <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/50 p-5">
               <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Trust Badges</div>
               <div className="mt-3 flex flex-wrap gap-2">
-                {profileBadges.length > 0 ? profileBadges.map((badge) => (
+                {profileBadges.map((badge) => (
                   <Badge key={badge} label={badge} color="#0F5C37" />
-                )) : <span className="text-sm text-[var(--text-muted)]">No badges added yet.</span>}
+                ))}
               </div>
             </div>
+            )}
           </div>
         </div>
       </WorkerDetailSection>
+      )}
 
+      {(activePlan || planValue !== null || planExpiryLabel || planHealth) && (
       <WorkerDetailSection title="Subscription Status" subtitle="Current plan visibility, renewal timing, and ranking impact for this worker">
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="grid gap-4">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              { label: 'Current Plan', value: activePlan },
-              { label: 'Plan Value', value: formatCurrency(planValue) },
-              { label: 'Expiry', value: planExpiryLabel },
-              { label: 'Plan Health', value: planHealth },
-            ].map((item) => (
+              activePlan ? { label: 'Current Plan', value: activePlan } : null,
+              planValue !== null ? { label: 'Plan Value', value: formatCurrency(planValue) } : null,
+              planExpiryLabel ? { label: 'Expiry', value: planExpiryLabel } : null,
+              planHealth ? { label: 'Plan Health', value: planHealth } : null,
+            ].filter(Boolean).map((item) => (
               <div key={item.label} className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-4">
                 <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">{item.label}</div>
                 <div className="mt-2 text-lg font-black text-[var(--text-main)]">{item.value}</div>
               </div>
             ))}
           </div>
-
-          <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/55 p-5">
-            <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Plan Advantage</div>
-            <p className="mt-3 text-sm leading-7 text-[var(--text-main)]">
-              {activePlan === 'Pro'
-                ? 'This worker is on Pro visibility, which supports stronger ranking weight, secondary-profession readiness, and wider team support.'
-                : 'This worker is on the base plan. Upgrading improves discovery priority, support coverage, and premium profession options.'}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Btn v="outline" size="sm" onClick={() => navigate('/plans')}>Open Plans</Btn>
-              <Badge label={activePlan === 'Pro' ? 'Priority visibility enabled' : 'Base visibility only'} color={activePlan === 'Pro' ? '#16A34A' : '#F59E0B'} />
-            </div>
-          </div>
         </div>
       </WorkerDetailSection>
+      )}
 
       <WorkerDetailSection title="Profession Snapshot" subtitle="Both professions share one premium workspace model">
         <div className="grid gap-4 xl:grid-cols-2">
@@ -879,10 +863,6 @@ function WorkerProfileDetailViewContent({ workerId }) {
             onEdit={() => setEditTarget('secondary')}
           />
         </div>
-      </WorkerDetailSection>
-
-      <WorkerDetailSection title="Revenue Pulse" subtitle="Daily, weekly, and monthly revenue estimates directly in the overview dashboard">
-        <EarningsBreakdown total={totalEarnings} daily={dailyEarnings} weekly={weeklyEarnings} monthly={monthlyEarnings} />
       </WorkerDetailSection>
 
       <WorkerDetailSection title="Recent Leads" subtitle="Latest lead outcomes for this worker">
@@ -949,7 +929,11 @@ function WorkerProfileDetailViewContent({ workerId }) {
             <div className="mt-6 space-y-6">
               <section>
                 <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">About Worker</div>
-                <p className="text-sm leading-6 text-[var(--text-main)]">{profileOverviewDescription}</p>
+                {profileOverviewDescription ? (
+                  <p className="text-sm leading-6 text-[var(--text-main)]">{profileOverviewDescription}</p>
+                ) : (
+                  <p className="text-sm text-[var(--text-muted)]">No about information added yet.</p>
+                )}
                 {profileLanguages.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {profileLanguages.map((language) => <Badge key={language} label={language} color="#2563EB" size="xs" />)}
@@ -1041,7 +1025,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
 
           {activeTab === 'earnings' && (
             <WorkerDetailSection title="Earnings / Revenue" subtitle="Clear income visibility with simple daily, weekly, and monthly breakdowns">
-              <EarningsBreakdown total={totalEarnings} daily={dailyEarnings} weekly={weeklyEarnings} monthly={monthlyEarnings} />
+              <EarningsBreakdown total={totalEarnings} />
             </WorkerDetailSection>
           )}
 
@@ -1076,7 +1060,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
                   onAddSlot={handleAddSlot}
                   onRemoveSlot={handleRemoveSlot}
                   onSave={handleSaveAvailability}
-                  dayOptions={DEFAULT_DAYS}
+                  dayOptions={WORKING_DAY_OPTIONS}
                 />
               </div>
             </WorkerDetailSection>
@@ -1181,5 +1165,14 @@ function WorkerProfileDetailViewContent({ workerId }) {
 export default function WorkerProfileDetailView() {
   const { id } = useParams()
 
-  return <WorkerProfileDetailViewContent key={id || 'W001'} workerId={id || 'W001'} />
+  if (!id) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-main)]">
+        <PageHeader title="Worker Profile" sub="Select a worker from the servicemen list to open the profile." />
+        <EmptyState title="Worker not selected" description="No worker id was provided in the page URL." />
+      </div>
+    )
+  }
+
+  return <WorkerProfileDetailViewContent key={id} workerId={id} />
 }

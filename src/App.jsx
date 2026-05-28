@@ -32,6 +32,8 @@ const Referrals = lazy(() => import('./screens/Referrals'))
 const Cashbacks = lazy(() => import('./screens/Cashbacks'))
 const Coupons = lazy(() => import('./screens/Coupons'))
 const ActivityLogs = lazy(() => import('./screens/ActivityLogs'))
+const AccountDeletions = lazy(() => import('./screens/AccountDeletions'))
+const ControlVersions = lazy(() => import('./screens/ControlVersions'))
 const AreaManagement = lazy(() => import('./screens/AreaManagement'))
 const Announcements = lazy(() => import('./screens/Announcements'))
 const Notifications = lazy(() => import('./screens/Notifications'))
@@ -114,6 +116,8 @@ export default function App() {
               <Route path="/cashbacks"         element={<Cashbacks />} />
               <Route path="/coupons"           element={<Coupons />} />
               <Route path="/logs"              element={<ProtectedRoute requiredPermission={PERMISSIONS.viewActivityLogs}><ActivityLogs /></ProtectedRoute>} />
+              <Route path="/account-deletions"  element={<ProtectedRoute requiredRoles={[ROLES.SUPER_ADMIN, ROLES.ADMIN]}><AccountDeletions /></ProtectedRoute>} />
+              <Route path="/control-versions"  element={<ProtectedRoute requiredRoles={[ROLES.SUPER_ADMIN, ROLES.ADMIN]}><ControlVersions /></ProtectedRoute>} />
               <Route path="/areas"             element={<AreaManagement />} />
               <Route path="/settings"          element={<ProtectedRoute requiredPermission={PERMISSIONS.viewSettings}><Settings /></ProtectedRoute>} />
               <Route path="*"                  element={<Navigate to="/dashboard" replace />} />

@@ -37,6 +37,7 @@ export const storage = getStorage(app)
 const COLLECTION_ALIASES = {
   activityLogs: ['logs', 'activityLogs'],
   adminUsers: ['admins', 'managers', 'sub_managers', 'adminUsers'],
+  accountDeletions: ['accountDeletions', 'accountDeletionRequests', 'account_deletions', 'account_deletion_requests', 'deleteAccountRequests', 'deleteRequests', 'deletionRequests'],
   assistance: ['assistance'],
   areaNames: ['areaNames', 'areanames'],
   bookings: ['Bookings', 'bookings'],
@@ -51,6 +52,7 @@ const COLLECTION_ALIASES = {
   referrals: ['referrals', 'Referrals'],
   reviews: ['reviews', 'ratings', 'Ratings', 'Reviews'],
   settings: ['settings', 'app_config', 'appConfig'],
+  controlVersions: ['app_config', 'controlVersions', 'controlVersion', 'versionControl', 'appVersions', 'app_versions', 'appVersionControl', 'app_version_control'],
   subscriptions: ['subscriptions'],
   toletCategories: ['toletCategories', 'toLetCategories'],
   toletEnquiries: ['toletEnquiries', 'toLetEnquiries'],
@@ -64,12 +66,16 @@ function aliasesFor(name) {
 
 const COLLECTION_ROUTES = {
   bookings: 'bookings',
+  'account-deletions': 'accountDeletions',
+  'account-deletion': 'accountDeletions',
   assistance: 'assistance',
   cashback: 'cashbacks',
   cashbacks: 'cashbacks',
   complaints: 'complaints',
   coupons: 'coupons',
   customers: 'customers',
+  'control-versions': 'controlVersions',
+  'control-version': 'controlVersions',
   notifications: 'notifications',
   payments: 'payments',
   plans: 'plans',
@@ -865,6 +871,8 @@ function buildHeatmapZones(workers = [], bookings = []) {
 async function listCollection(name, filters = {}) {
   if (name === 'bookings') return listBookings(filters)
   if (name === 'adminUsers') return sortByDate(applyQueryFilters(await listAdminUsers(), filters), 'createdDate')
+  if (name === 'controlVersions') return listVersionControlDocuments()
+  if (name === 'accountDeletions') return listAccountDeletionRequests(filters)
 
   const topLevelRows = await Promise.all(aliasesFor(name).map((alias) => getDocs(collection(db, alias))))
     .then((snapshots) => snapshots.flatMap((snapshot) => snapshot.docs.map(docToJson)))
@@ -879,6 +887,24 @@ async function listCollection(name, filters = {}) {
   return sortByDate(applyQueryFilters(rows, filters))
 }
 
+async function listAccountDeletionRequests(filters = {}) {
+  const snapshots = await Promise.all(aliasesFor('accountDeletions').map((alias) =>
+    getDocs(collection(db, alias))
+      .then((snapshot) => ({ alias, docs: snapshot.docs }))
+      .catch(() => ({ alias, docs: [] })),
+  ))
+
+  const byKey = new Map()
+  snapshots.forEach(({ alias, docs }) => {
+    docs.forEach((snapshot) => {
+      const row = { id: snapshot.id, ...snapshot.data(), sourceCollection: alias }
+      byKey.set(`${alias}:${snapshot.id}`, row)
+    })
+  })
+
+  return sortByDate(applyQueryFilters([...byKey.values()], filters), 'requestDate')
+}
+
 async function safeCollectionGroup(name) {
   try {
     const snapshot = await getDocs(collectionGroup(db, name))
@@ -886,6 +912,16 @@ async function safeCollectionGroup(name) {
   } catch {
     return []
   }
+}
+
+async function listVersionControlDocuments() {
+  const ids = ['version_control_user', 'version_control_partner']
+  const snapshots = await Promise.all(ids.map((id) =>
+    getDoc(doc(db, 'app_config', id)).then((snapshot) => (
+      snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null
+    )).catch(() => null),
+  ))
+  return snapshots.filter(Boolean)
 }
 
 async function listBookings(filters = {}) {
@@ -938,6 +974,14 @@ async function updateRecord(name, id, payload = {}) {
   const updates = withTimestamps(payload)
   await setDoc(current.ref, updates, { merge: true })
   return { ...current.data, ...updates, id }
+}
+
+async function upsertRecord(name, id, payload = {}) {
+  const updates = withTimestamps(payload)
+  const recordRef = doc(db, aliasesFor(name)[0], id)
+  await setDoc(recordRef, updates, { merge: true })
+  const snapshot = await getDoc(recordRef)
+  return snapshot.exists() ? docToJson(snapshot) : { id, ...updates }
 }
 
 async function deleteRecord(name, id) {
@@ -1250,6 +1294,7 @@ export async function firebaseRequest(path, options = {}) {
   if (collectionName) {
     const id = parts[1]
     if (!id) return method === 'POST' ? createRecord(collectionName, body) : listCollection(collectionName, queryOptions)
+    if (collectionName === 'controlVersions' && (method === 'PATCH' || method === 'PUT')) return upsertRecord(collectionName, id, body)
     if (method === 'PATCH' || method === 'PUT') return updateRecord(collectionName, id, body)
     if (method === 'DELETE') return deleteRecord(collectionName, id)
     return getRecord(collectionName, id, parts[0])

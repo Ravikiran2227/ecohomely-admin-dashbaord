@@ -43,7 +43,7 @@ export function PinMap({ lat, lng, label, height = 320 }) {
         return
       }
 
-      const map = L.map(ref.current, { zoomControl: true, scrollWheelZoom: false })
+      const map = L.map(ref.current, { zoomControl: true, scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false })
       mapRef.current = map
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -79,7 +79,10 @@ export function PinMap({ lat, lng, label, height = 320 }) {
 
     return () => {
       if (mapRef.current) {
-        mapRef.current.remove()
+        try {
+          mapRef.current.off()
+          mapRef.current.remove()
+        } catch {}
         mapRef.current = null
       }
     }
@@ -99,7 +102,7 @@ export function HeatMap({ zones, onZoneClick, height = 420 }) {
 
     loadLeaflet().then(L => {
       if (!mapRef.current) {
-        const map = L.map(ref.current, { scrollWheelZoom: true })
+        const map = L.map(ref.current, { scrollWheelZoom: true, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false })
         mapRef.current = map
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -108,7 +111,11 @@ export function HeatMap({ zones, onZoneClick, height = 420 }) {
         }).addTo(map)
       }
 
-      if (layerRef.current) layerRef.current.remove()
+      if (layerRef.current) {
+        try {
+          layerRef.current.remove()
+        } catch {}
+      }
       const layer = L.layerGroup().addTo(mapRef.current)
       layerRef.current = layer
       mapRef.current.setView(zones[0] ? [zones[0].lat, zones[0].lng] : [17.7231, 83.3012], 12)
@@ -183,7 +190,9 @@ export function HeatMap({ zones, onZoneClick, height = 420 }) {
 
     return () => {
       if (layerRef.current) {
-        layerRef.current.remove()
+        try {
+          layerRef.current.remove()
+        } catch {}
         layerRef.current = null
       }
     }
@@ -191,7 +200,10 @@ export function HeatMap({ zones, onZoneClick, height = 420 }) {
 
   useEffect(() => () => {
     if (mapRef.current) {
-      mapRef.current.remove()
+      try {
+        mapRef.current.off()
+        mapRef.current.remove()
+      } catch {}
       mapRef.current = null
     }
   }, [])
@@ -210,11 +222,14 @@ export function AssistanceMap({ area, workers: nearbyWorkers = [], height = 320 
 
     loadLeaflet().then(L => {
       if (mapRef.current) {
-        mapRef.current.remove()
+        try {
+          mapRef.current.off()
+          mapRef.current.remove()
+        } catch {}
         mapRef.current = null
       }
 
-      const map = L.map(ref.current, { scrollWheelZoom: false })
+      const map = L.map(ref.current, { scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false })
       mapRef.current = map
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -292,7 +307,10 @@ export function AssistanceMap({ area, workers: nearbyWorkers = [], height = 320 
 
     return () => {
       if (mapRef.current) {
-        mapRef.current.remove()
+        try {
+          mapRef.current.off()
+          mapRef.current.remove()
+        } catch {}
         mapRef.current = null
       }
     }

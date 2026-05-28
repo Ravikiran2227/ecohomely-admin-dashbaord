@@ -81,6 +81,23 @@ function buildCorrectionFieldValues(profile, worker, fields) {
   return Object.fromEntries(fields.map((key) => [key, correctionValue(values[key])]))
 }
 
+function isPdfDocument(document = {}) {
+  const value = `${document.url || ''} ${document.path || ''} ${document.fileName || ''} ${document.name || ''}`
+  return /\.pdf(\?|#|$)/i.test(value) || /application\/pdf/i.test(document.type || document.mimeType || '')
+}
+
+function SmallDocumentThumb({ doc }) {
+  if (doc.isImage && doc.url) {
+    return <img src={doc.url} alt={doc.name} className="h-12 w-12 shrink-0 rounded-xl border border-[var(--border-main)] object-cover" />
+  }
+
+  return (
+    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-brand-500/20 bg-brand-500/10 text-brand-600">
+      <Icon name="file-text" size={18} />
+    </div>
+  )
+}
+
 export default function WorkerVerificationProfile() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -425,10 +442,14 @@ export default function WorkerVerificationProfile() {
               <div>
                 <p className="text-label mb-3">Work Portfolio</p>
                 <div className="grid grid-cols-3 gap-3">
-                  {profile.workPhotos.slice(0, 3).map((photo, index) => (
-                    <div key={index} className="aspect-video rounded-xl bg-brand-500/5 border border-brand-500/10 flex items-center justify-center text-[10px] font-bold text-brand-600 text-center px-2">
-                      {photo.title}
-                    </div>
+              {profile.workPhotos.slice(0, 3).map((photo, index) => (
+                    <button key={index} type="button" className="group aspect-video overflow-hidden rounded-xl border border-brand-500/10 bg-brand-500/5 text-center text-[10px] font-bold text-brand-600">
+                      {photo.src || photo.url ? (
+                        <img src={photo.src || photo.url} alt={photo.title || `Portfolio ${index + 1}`} className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]" />
+                      ) : (
+                        <span className="flex h-full items-center justify-center px-2">{photo.title}</span>
+                      )}
+                    </button>
                   ))}
                 </div>
                 {profile.workPhotos.length > 3 && (
@@ -468,9 +489,12 @@ export default function WorkerVerificationProfile() {
             <div className="grid gap-3">
               {profile.documents.map((doc, index) => (
                 <div key={index} className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-main)] border border-[var(--border-main)] hover:border-brand-500/30 transition-colors">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-[var(--text-main)] truncate">{doc.name}</p>
-                    <p className="text-[10px] text-[var(--text-muted)] font-bold uppercase mt-0.5">{doc.status}</p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <SmallDocumentThumb doc={doc} />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-[var(--text-main)]">{doc.name}</p>
+                      <p className="mt-0.5 text-[10px] font-bold uppercase text-[var(--text-muted)]">Preview before opening</p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge label={doc.status} color={doc.status === 'Verified' || doc.status === 'Uploaded' || doc.status === 'Added' ? C.success : C.danger} size="xs" />
@@ -506,10 +530,16 @@ export default function WorkerVerificationProfile() {
             {docModal.doc.url ? (
               docModal.doc.isImage ? (
                 <img src={docModal.doc.url} alt={docModal.doc.name} className="max-h-[520px] w-full rounded-2xl border border-[var(--border-main)] object-contain bg-slate-50 dark:bg-slate-900/50" />
+              ) : isPdfDocument(docModal.doc) ? (
+                <iframe title={docModal.doc.name || 'Document preview'} src={docModal.doc.url} className="h-[520px] w-full rounded-2xl border border-[var(--border-main)] bg-white" />
               ) : (
-                <a href={docModal.doc.url} target="_blank" rel="noreferrer" className="w-full min-h-[220px] bg-slate-50 dark:bg-slate-900/50 rounded-2xl flex items-center justify-center text-brand-600 font-bold border border-dashed border-[var(--border-main)]">
-                  Open {docModal.doc.name}
-                </a>
+                <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--border-main)] bg-slate-50 text-center dark:bg-slate-900/50">
+                  <Icon name="file-text" size={36} />
+                  <div className="mt-3 text-sm font-bold text-[var(--text-main)]">{docModal.doc.name}</div>
+                  <a href={docModal.doc.url} target="_blank" rel="noreferrer" className="mt-4 rounded-xl border border-brand-500/30 bg-brand-500/10 px-4 py-2 text-sm font-bold text-brand-600">
+                    Open Original
+                  </a>
+                </div>
               )
             ) : (
               <div className="w-full min-h-[320px] bg-slate-50 dark:bg-slate-900/50 rounded-2xl flex items-center justify-center text-[var(--text-muted)] font-bold border border-dashed border-[var(--border-main)]">

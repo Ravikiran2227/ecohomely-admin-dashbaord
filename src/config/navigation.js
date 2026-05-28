@@ -67,6 +67,8 @@ export const NAV_SECTIONS = [
     label: 'System',
     items: [
       { path: '/logs', icon: 'activity', label: 'Activity Logs', summary: 'Inspect admin activity and trace changes.' },
+      { path: '/account-deletions', icon: 'users', label: 'Account Deletion', summary: 'Review account deletion requests from Firebase.' },
+      { path: '/control-versions', icon: 'settings', label: 'Control Version', summary: 'Inspect Firebase app version control records.' },
       { path: '/areas', icon: 'mappin', label: 'Area Names', summary: 'Control serviceable area definitions.' },
       { path: '/settings', icon: 'settings', label: 'Settings', summary: 'Update system preferences and platform defaults.' },
     ],

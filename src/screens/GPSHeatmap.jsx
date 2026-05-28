@@ -99,7 +99,6 @@ function ZoneDetail({ zone, onClose }) {
 export default function GPSHeatmap() {
   const [selected, setSelected] = useState(null)
   const [filter, setFilter] = useState('All')
-  const [layer, setLayer] = useState('workers')
   const [zones, setZones] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -109,7 +108,7 @@ export default function GPSHeatmap() {
     setLoading(true)
     setError('')
     try {
-      const response = await locationsApi.getHeatmap({ layer })
+      const response = await locationsApi.getHeatmap()
       setZones(Array.isArray(response) ? response : [])
       setSelected(null)
     } catch (err) {
@@ -117,7 +116,7 @@ export default function GPSHeatmap() {
     } finally {
       setLoading(false)
     }
-  }, [layer])
+  }, [])
 
   useEffect(() => {
     loadHeatmap()
@@ -125,7 +124,7 @@ export default function GPSHeatmap() {
 
   useEffect(() => {
     setZonePage(1)
-  }, [filter, layer])
+  }, [filter])
 
   const visibleZones = useMemo(() => zones.filter((zone) => filter === 'All' || zone.demand === filter), [filter, zones])
   const sortedZones = useMemo(() => visibleZones.slice().sort((a, b) => b.bookings - a.bookings), [visibleZones])
@@ -151,27 +150,15 @@ export default function GPSHeatmap() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Map Controls</div>
-            <div className="mt-2 text-xl font-black text-[var(--text-main)]">Demand filters and layer controls</div>
+            <div className="mt-2 text-xl font-black text-[var(--text-main)]">Demand filters</div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <FilterPills options={['All', 'High', 'Medium', 'Low', 'Gap']} active={filter} onChange={setFilter} />
-            <div className="flex flex-wrap gap-2">
-              {['workers', 'demand', 'bookings'].map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setLayer(item)}
-                  className={`rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] transition-colors ${layer === item ? 'border-brand-500/25 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-[var(--border-main)] bg-[var(--card-bg)] text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
-                >
-                  {item} layer
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       </Card>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_360px]">
+      <div className="grid gap-5">
         <div className="space-y-5">
           <Card className="overflow-hidden p-0">
             {loading && <div className="p-5 text-sm text-[var(--text-muted)]">Loading heatmap data...</div>}
@@ -213,8 +200,7 @@ export default function GPSHeatmap() {
             ) : null}
           </Card>
         </div>
-
-        {selected ? <ZoneDetail zone={selected} onClose={() => setSelected(null)} /> : <Card className="p-5 xl:sticky xl:top-6 xl:self-start"><EmptyState title="Select a zone" description="Click any map zone or overview row to inspect local demand and coverage." className="py-10" /></Card>}
+        {selected ? <ZoneDetail zone={selected} onClose={() => setSelected(null)} /> : null}
       </div>
     </div>
   )

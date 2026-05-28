@@ -1,4 +1,5 @@
-import { AlertTriangle, FileText, PencilLine, Plus, Trash2, Users } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, Eye, FileText, Image, PencilLine, Plus, Trash2, Users } from 'lucide-react'
 import Btn from '../Btn'
 import { Stars } from './ProfessionWorkspace'
 import { formatCurrency, getBookingBadge, getDocumentBadge } from '../../utils/workerProfileDetail'
@@ -70,25 +71,91 @@ export function WorkerDetailSection({ title, subtitle, action, children }) {
   )
 }
 
+function isPdfDocument(document = {}) {
+  const value = `${document.url || ''} ${document.path || ''} ${document.fileName || ''} ${document.name || ''}`
+  return /\.pdf(\?|#|$)/i.test(value) || /application\/pdf/i.test(document.type || document.mimeType || '')
+}
+
+function DocumentThumbnail({ document }) {
+  if (document.isImage && document.url) {
+    return <img src={document.url} alt={document.name} className="h-36 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
+  }
+
+  return (
+    <div className="flex h-36 flex-col items-center justify-center gap-3 bg-[var(--bg-main)] text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-500/20 bg-brand-500/10 text-brand-600 dark:text-brand-300">
+        <FileText className="h-6 w-6" />
+      </div>
+      <div>
+        <div className="text-sm font-black text-[var(--text-main)]">Document preview</div>
+        <div className="mt-1 text-xs font-semibold text-[var(--text-muted)]">Click to inspect before opening</div>
+      </div>
+    </div>
+  )
+}
+
+function DocumentPreviewModal({ document, onClose }) {
+  if (!document?.url) return null
+  const pdf = isPdfDocument(document)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-5xl overflow-hidden rounded-[28px] border border-white/10 bg-slate-950 shadow-[0_24px_80px_rgba(15,23,42,0.45)]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-xs font-bold uppercase tracking-[0.08em] text-slate-400">Preview</div>
+            <div className="mt-1 truncate text-lg font-black">{document.name || document.fileName || 'Document'}</div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <a href={document.url} target="_blank" rel="noreferrer" className="rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/25">
+              Open Original
+            </a>
+            <button type="button" onClick={onClose} className="rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-white/90 hover:bg-white/10">
+              Close
+            </button>
+          </div>
+        </div>
+        <div className="p-5">
+          {document.isImage ? (
+            <img src={document.url} alt={document.name} className="max-h-[70vh] w-full rounded-[24px] object-contain bg-black/25" />
+          ) : pdf ? (
+            <iframe title={document.name || 'Document preview'} src={document.url} className="h-[70vh] w-full rounded-[24px] border border-white/10 bg-white" />
+          ) : (
+            <div className="flex h-[48vh] flex-col items-center justify-center rounded-[24px] border border-white/10 bg-white/5 text-center text-white">
+              <div className="flex h-20 w-20 items-center justify-center rounded-[24px] border border-white/10 bg-white/10">
+                <FileText className="h-10 w-10" />
+              </div>
+              <div className="mt-5 text-2xl font-black">Preview not available</div>
+              <div className="mt-2 max-w-md text-sm leading-6 text-white/70">This file type can be opened in a new tab after checking the file name and status here.</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function DocumentCard({ document, onStatusChange, onReset }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+
   return (
     <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
       <div className="flex items-start justify-between gap-3">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-brand-500/15 bg-brand-500/10 text-brand-700 dark:text-brand-300">
-          <FileText className="h-5 w-5" />
+          {document.isImage ? <Image className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
         </div>
         <StatusChip label={document.status} className={getDocumentBadge(document.status)} />
       </div>
       <div className="mt-4 text-base font-bold text-[var(--text-main)]">{document.name}</div>
       <div className="mt-1 text-sm text-[var(--text-muted)]">Upload status and verification summary for this document.</div>
       {document.url ? (
-        <a href={document.url} target="_blank" rel="noreferrer" className="mt-4 block overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)]">
-          {document.isImage ? (
-            <img src={document.url} alt={document.name} className="h-36 w-full object-cover" />
-          ) : (
-            <div className="flex h-24 items-center justify-center text-sm font-bold text-brand-500">Open document</div>
-          )}
-        </a>
+        <button type="button" onClick={() => setPreviewOpen(true)} className="group mt-4 block w-full overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] text-left">
+          <DocumentThumbnail document={document} />
+          <div className="flex items-center justify-between gap-3 border-t border-[var(--border-main)] px-3 py-2 text-xs font-bold text-brand-600 dark:text-brand-300">
+            <span>Preview before opening</span>
+            <Eye className="h-4 w-4" />
+          </div>
+        </button>
       ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <select
@@ -106,6 +173,7 @@ export function DocumentCard({ document, onStatusChange, onReset }) {
           Reset
         </button>
       </div>
+      {previewOpen && <DocumentPreviewModal document={document} onClose={() => setPreviewOpen(false)} />}
     </div>
   )
 }

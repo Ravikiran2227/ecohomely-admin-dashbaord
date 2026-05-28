@@ -15,7 +15,6 @@ import {
   formatDashboardDate,
   getCompletedInRange,
   getDashboardRecords,
-  getLatestTrackedDate,
   getRecentDashboardBookings,
   getSelectedDayBookings,
 } from '../services/dashboardPerformance'
@@ -158,12 +157,13 @@ function DashboardStateCard({ title, message, actionLabel, onAction }) {
 
 export default function DashboardControlCenter() {
   const navigate = useNavigate()
+  const todayValue = useMemo(() => toDateInputValue(new Date()), [])
   const [dashboardData, setDashboardData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('bookings')
   const [activeRange, setActiveRange] = useState('week')
-  const [selectedDate, setSelectedDate] = useState('')
+  const [selectedDate, setSelectedDate] = useState(todayValue)
 
   const loadDashboard = async () => {
     setLoading(true)
@@ -172,7 +172,7 @@ export default function DashboardControlCenter() {
     try {
       const overview = await dashboardApi.getOverview()
       setDashboardData(overview)
-      setSelectedDate((current) => current || getLatestTrackedDate(overview))
+      setSelectedDate((current) => current || todayValue)
     } catch (requestError) {
       setError(requestError.message || 'Dashboard data could not be loaded.')
     } finally {
@@ -186,8 +186,7 @@ export default function DashboardControlCenter() {
 
   const records = useMemo(() => getDashboardRecords(dashboardData || {}), [dashboardData])
   const performance = useMemo(() => buildDashboardPerformanceSnapshot(dashboardData || {}), [dashboardData])
-  const latestTrackedDate = useMemo(() => getLatestTrackedDate(dashboardData || {}), [dashboardData])
-  const activeDate = selectedDate || latestTrackedDate
+  const activeDate = selectedDate || todayValue
   const selectedDayBookings = useMemo(() => getSelectedDayBookings(dashboardData || {}, activeDate), [activeDate, dashboardData])
   const completedInRange = useMemo(() => getCompletedInRange(dashboardData || {}, activeDate, activeRange), [activeDate, activeRange, dashboardData])
   const chartConfig = useMemo(() => buildChartConfig(dashboardData || {}, activeTab, activeRange, activeDate), [activeDate, activeRange, activeTab, dashboardData])

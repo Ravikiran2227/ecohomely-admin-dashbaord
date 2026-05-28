@@ -98,6 +98,13 @@ function uniqueDocuments(documents = []) {
   return [...bySignature.values()]
 }
 
+function sameDocument(left = {}, right = {}) {
+  const leftIdentity = String(left.url || left.path || left.filePath || left.fileName || left.name || left.key || '')
+  const rightIdentity = String(right.url || right.path || right.filePath || right.fileName || right.name || right.key || '')
+  if (leftIdentity && rightIdentity && leftIdentity === rightIdentity) return true
+  return documentSignature(left) === documentSignature(right)
+}
+
 function firstText(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
 }
@@ -595,9 +602,9 @@ function WorkerProfileDetailViewContent({ workerId }) {
     setIsProfileEditing(false)
   }
 
-  const handleDocumentStatusChange = async (documentKey, nextStatus) => {
+  const handleDocumentStatusChange = async (targetDocument, nextStatus) => {
     const nextDocuments = (worker.documents || []).map((document) => (
-      document.key === documentKey
+      sameDocument(document, targetDocument)
         ? { ...document, status: nextStatus }
         : document
     ))
@@ -606,18 +613,24 @@ function WorkerProfileDetailViewContent({ workerId }) {
     setNotice({
       tone: nextStatus === 'Verified' ? 'success' : 'info',
       title: 'Document status updated',
-      message: `${documentKey.toUpperCase()} is now marked as ${nextStatus}.`,
+      message: `${targetDocument.name || targetDocument.key || 'Document'} is now marked as ${nextStatus}.`,
     })
   }
 
-  const handleDocumentReset = (documentKey) => {
+  const handleDocumentReset = async (targetDocument) => {
+    const resetStatus = targetDocument.url ? 'Uploaded' : 'Missing'
     const nextDocuments = (worker.documents || []).map((document) => (
-      document.key === documentKey
-        ? { ...document, status: 'Missing' }
+      sameDocument(document, targetDocument)
+        ? { ...document, status: resetStatus }
         : document
     ))
 
-    workersApi.updateWorker(worker.id, { documents: nextDocuments }).then(setWorker)
+    setWorker(await workersApi.updateWorker(worker.id, { documents: nextDocuments }))
+    setNotice({
+      tone: 'info',
+      title: 'Document reset',
+      message: `${targetDocument.name || targetDocument.key || 'Document'} was reset to ${resetStatus}.`,
+    })
   }
 
   const handleSaveAvailability = async () => {
@@ -1000,8 +1013,8 @@ function WorkerProfileDetailViewContent({ workerId }) {
                     <DocumentCard
                       key={document.url || document.path || document.key}
                       document={document}
-                      onStatusChange={(nextStatus) => handleDocumentStatusChange(document.key, nextStatus)}
-                      onReset={() => handleDocumentReset(document.key)}
+                      onStatusChange={(nextStatus) => handleDocumentStatusChange(document, nextStatus)}
+                      onReset={() => handleDocumentReset(document)}
                     />
                   ))}
                 </div>

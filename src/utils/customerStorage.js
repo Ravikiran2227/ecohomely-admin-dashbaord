@@ -137,7 +137,20 @@ function normalizedStatus(record = {}) {
 }
 
 function normalizedDevice(record = {}) {
-  const device = pickFirst(record, ['device', 'deviceName', 'deviceType', 'platform', 'os', 'source', 'appVersion'], '')
+  const device = pickNestedFirst(record, [
+    'device',
+    'deviceName',
+    'deviceType',
+    'device_type',
+    'platform',
+    'os',
+    'operatingSystem',
+    'operating_system',
+    'phoneType',
+    'phone_type',
+    'source',
+    'appVersion',
+  ])
   if (device) return device
   return ''
 }
@@ -173,6 +186,16 @@ function isRelatedToCustomer(item = {}, customerKeys = []) {
   ].filter(Boolean).map((value) => String(value).trim().toLowerCase())
 
   return itemKeys.some((key) => customerKeys.includes(key))
+}
+
+function uniqueById(records = []) {
+  const seen = new Set()
+  return records.filter((record, index) => {
+    const key = String(record?.id || record?.bookingId || record?.complaintId || index).trim()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export function normalizeCustomerRecord(record = {}, related = {}) {
@@ -240,16 +263,29 @@ export async function loadCustomers(filters = {}, options = {}) {
 }
 
 export async function loadCustomerProfile(customerId, options = {}) {
-  const [customer, related] = await Promise.all([
+  const [customer, relatedResult, bookingsResult, complaintsResult] = await Promise.all([
     customersApi.getCustomer(customerId, options),
-    customersApi.getCustomerRelated(customerId, options),
+    customersApi.getCustomerRelated(customerId, options).catch(() => ({})),
+    bookingsApi.listBookings({}, options).catch(() => []),
+    complaintsApi.listComplaints({}, options).catch(() => []),
   ])
 
+  const customerKeys = getIdentityKeys(customer)
+  const related = relatedResult || {}
+  const matchedBookings = Array.isArray(bookingsResult)
+    ? bookingsResult.filter((booking) => isRelatedToCustomer(booking, customerKeys))
+    : []
+  const matchedComplaints = Array.isArray(complaintsResult)
+    ? complaintsResult.filter((complaint) => isRelatedToCustomer(complaint, customerKeys))
+    : []
+  const bookings = uniqueById([...(related.bookings || []), ...matchedBookings])
+  const complaints = uniqueById([...(related.complaints || []), ...matchedComplaints])
+
   return {
-    customer: await hydrateCustomerPhoto(normalizeCustomerRecord(customer, related)),
+    customer: await hydrateCustomerPhoto(normalizeCustomerRecord(customer, { ...related, bookings, complaints })),
     related: {
-      bookings: related?.bookings || [],
-      complaints: related?.complaints || [],
+      bookings,
+      complaints,
       payments: related?.payments || [],
       toLetListings: related?.toLetListings || [],
       toLetEnquiries: related?.toLetEnquiries || [],

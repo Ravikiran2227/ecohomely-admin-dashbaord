@@ -146,19 +146,19 @@ async function findAdminRecord(id) {
 function normalizeAdminPayload(payload = {}, { create = false } = {}) {
   const now = new Date()
   const body = {
-    username: payload.username || payload.email || '',
-    name: payload.name || '',
-    email: payload.email || '',
-    role: storedAdminRole(payload.role),
-    isActive: payload.isActive ?? true,
-    status: payload.status || 'Active',
     updatedDate: now,
     updatedAt: now.toISOString(),
   }
 
+  if (create || payload.username !== undefined || payload.email !== undefined) body.username = payload.username || payload.email || ''
+  if (create || payload.name !== undefined) body.name = payload.name || ''
+  if (create || payload.email !== undefined) body.email = payload.email || ''
+  if (create || payload.role !== undefined) body.role = storedAdminRole(payload.role)
+  if (create || payload.isActive !== undefined) body.isActive = payload.isActive ?? true
+  if (create || payload.status !== undefined) body.status = payload.status || 'Active'
   if (payload.password) body.password = payload.password
-  if (payload.city) body.city = payload.city
-  if (payload.area) body.area = payload.area
+  if (payload.city !== undefined) body.city = payload.city
+  if (payload.area !== undefined) body.area = payload.area
   if (create) {
     body.createdDate = now
     body.createdAt = now.toISOString()

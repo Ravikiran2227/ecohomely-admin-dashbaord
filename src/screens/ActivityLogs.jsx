@@ -23,7 +23,10 @@ function Select({ value, onChange, options, placeholder }) {
   return (
     <select value={value} onChange={(event) => onChange(event.target.value)} className="h-11 min-w-0 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 text-sm font-semibold text-[var(--text-main)] outline-none">
       <option value="">{placeholder}</option>
-      {options.map((item) => <option key={item} value={item}>{item}</option>)}
+      {options.map((item) => {
+        const option = typeof item === 'object' ? item : { value: item, label: item }
+        return <option key={option.value} value={option.value}>{option.label}</option>
+      })}
     </select>
   )
 }
@@ -190,6 +193,22 @@ function DescriptionCell({ item }) {
   )
 }
 
+function actorLabel(item = {}) {
+  return item.details?.username
+    || item.details?.userName
+    || item.details?.name
+    || item.details?.displayName
+    || item.userName
+    || item.username
+    || item.name
+    || item.user_type
+    || 'User'
+}
+
+function actorValue(item = {}) {
+  return `${item.user_type || ''}::${item.user_id || ''}`
+}
+
 function inferLogRoute(item) {
   const description = item.description || ''
   const details = item.details || {}
@@ -232,9 +251,19 @@ export default function ActivityLogs() {
   const filtered = useMemo(() => activityLogs.filter((item) => {
     if (filters.date && !String(item.timestamp || '').startsWith(filters.date)) return false
     if (filters.module && item.module !== filters.module) return false
-    if (filters.user && `${item.user_type} ${item.user_id}` !== filters.user) return false
+    if (filters.user && actorValue(item) !== filters.user) return false
     return true
   }), [activityLogs, filters])
+
+  const actorOptions = useMemo(() => {
+    const seen = new Map()
+    activityLogs.forEach((item) => {
+      const value = actorValue(item)
+      if (!value.trim() || seen.has(value)) return
+      seen.set(value, { value, label: actorLabel(item) })
+    })
+    return [...seen.values()]
+  }, [activityLogs])
 
   const pageCount = Math.max(Math.ceil(filtered.length / PAGE_SIZE), 1)
   const safePage = Math.min(page, pageCount)
@@ -299,7 +328,7 @@ export default function ActivityLogs() {
               <Select value={filters.user} onChange={(value) => {
                 setFilters((current) => ({ ...current, user: value }))
                 setPage(1)
-              }} options={[...new Set(activityLogs.map((item) => `${item.user_type} ${item.user_id}`))]} placeholder="User" />
+              }} options={actorOptions} placeholder="User" />
               <button
                 type="button"
                 onClick={() => selectedLog && setDetailOpen(true)}

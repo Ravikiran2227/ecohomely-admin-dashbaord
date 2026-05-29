@@ -128,7 +128,7 @@ function ThemedSelect({ id, label, value, options, open, onToggle, onChange }) {
         <span className={`text-brand-400 transition-transform ${open ? 'rotate-180' : ''}`}>v</span>
       </button>
       {open ? (
-        <div className="absolute left-0 top-[76px] z-50 w-full min-w-max overflow-hidden rounded-xl border border-brand-500/40 bg-[#07111f] p-1 shadow-2xl shadow-black/50">
+        <div className="absolute left-0 top-[76px] z-50 w-full min-w-max overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] p-1 shadow-2xl shadow-dark-900/15 dark:shadow-black/50">
           {options.map((option) => (
             <button
               key={option.value}
@@ -137,7 +137,7 @@ function ThemedSelect({ id, label, value, options, open, onToggle, onChange }) {
                 onChange(option.value)
                 onToggle('')
               }}
-              className={`block w-full rounded-lg px-3 py-2.5 text-left text-sm font-black transition-colors ${option.value === value ? 'bg-brand-500 text-white' : 'text-[var(--text-main)] hover:bg-brand-500/15 hover:text-brand-300'}`}
+              className={`block w-full rounded-lg px-3 py-2.5 text-left text-sm font-black transition-colors ${option.value === value ? 'bg-brand-500 text-white' : 'text-[var(--text-main)] hover:bg-brand-500/10 hover:text-brand-700 dark:hover:text-brand-300'}`}
             >
               {option.label}
             </button>

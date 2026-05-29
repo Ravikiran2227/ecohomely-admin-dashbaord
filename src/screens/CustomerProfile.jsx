@@ -83,9 +83,9 @@ export default function CustomerProfile() {
     name: customerName,
   }), [customerBookings, customerComplaints, customerId, customerRecords, customerName, customerPhone, toLetEnquiryRecords, toLetListingRecords])
   const referrer           = customerRecords.find(c => c.id === data?.referredBy)
-  const completedBookings = customerBookings.filter((booking) => booking.status === 'Completed')
-  const activeBookings = customerBookings.filter((booking) => ['Pending', 'In Progress'].includes(booking.status))
-  const totalSpend = completedBookings.reduce((sum, booking) => sum + (booking.amount || 0), 0)
+  const completedBookings = customerBookings.filter((booking) => String(booking.status || '').toLowerCase() === 'completed')
+  const activeBookings = customerBookings.filter((booking) => ['pending', 'in progress', 'assigned', 'accepted', 'ongoing'].includes(String(booking.status || '').toLowerCase()))
+  const totalSpend = completedBookings.reduce((sum, booking) => sum + Number(booking.amount || booking.total || booking.finalPrice || booking.price || 0), 0)
   const paidBookings = completedBookings.filter((booking) => booking.paid).length
   const uniqueWorkers = new Set(customerBookings.map((booking) => booking.worker).filter(Boolean)).size
   const favoriteService = useMemo(() => {

@@ -266,7 +266,7 @@ export default function CustomerList() {
                   {c.complaints}
                 </span>
               </TD>
-              <TD className="text-xs font-medium text-[var(--text-muted)]">{c.device}</TD>
+              <TD className="text-xs font-medium text-[var(--text-muted)]">{c.device || '-'}</TD>
               <TD className="text-[11px] font-bold text-[var(--text-muted)] whitespace-nowrap">{c.dateJoined}</TD>
               <TD>
                 <Badge label={c.status} color={STATUS_COLOR[c.status] || C.muted} size="xs" />

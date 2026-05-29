@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import { Card } from '../components/Card'
@@ -54,7 +55,16 @@ function isSubAdminUser(user = {}) {
   return user.role === ROLES.ADMIN || user.role === ROLES.SUB_ADMIN || ['manager', 'sub_manager'].includes(String(user.rawRole || user.role).toLowerCase())
 }
 
+function visibleUsername(user = {}) {
+  return user.username || user.userName || user.email || 'Not set'
+}
+
+function visibleName(user = {}) {
+  return user.name || user.displayName || user.username || user.userName || user.email || 'Not set'
+}
+
 function AdminForm({ value, onChange, editing }) {
+  const [showPassword, setShowPassword] = useState(false)
   const setField = (key, nextValue) => onChange({ ...value, [key]: nextValue })
 
   return (
@@ -67,7 +77,23 @@ function AdminForm({ value, onChange, editing }) {
       <label className="grid gap-2">
         <span className="text-sm font-bold text-[var(--text-main)]">Password {editing ? '(leave blank to keep current)' : ''}</span>
         <div className="flex gap-2">
-          <input type="password" value={value.password} onChange={(event) => setField('password', event.target.value)} className="min-w-0 flex-1 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm text-[var(--text-main)]" required={!editing} />
+          <div className="flex min-w-0 flex-1 items-center rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] pr-2">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={value.password}
+              onChange={(event) => setField('password', event.target.value)}
+              className="min-w-0 flex-1 rounded-xl bg-transparent px-4 py-3 text-sm text-[var(--text-main)] outline-none"
+              required={!editing}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((current) => !current)}
+              className="grid h-9 w-9 place-items-center rounded-lg text-[var(--text-muted)] transition hover:bg-brand-500/10 hover:text-brand-600"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
           {!editing ? <Btn type="button" v="success" size="sm" onClick={() => setField('password', generatePassword())}>Generate</Btn> : null}
         </div>
       </label>
@@ -131,7 +157,7 @@ export default function AdminManagement() {
   const subAdminUsers = useMemo(() => users.filter(isSubAdminUser), [users])
   const filteredUsers = useMemo(() => subAdminUsers.filter((user) => {
     if (filters.role && user.role !== filters.role) return false
-    if (query && !`${user.username} ${user.name} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase())) return false
+    if (query && !`${visibleUsername(user)} ${visibleName(user)} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase())) return false
     return true
   }), [filters.role, query, subAdminUsers])
 
@@ -157,9 +183,9 @@ export default function AdminManagement() {
 
   const openEdit = (user) => {
     setForm({
-      username: user.username || '',
+      username: user.username || user.userName || '',
       password: '',
-      name: user.name || '',
+      name: user.name || user.displayName || '',
       email: user.email || '',
       role: storedRole(user.rawRole || user.role),
     })
@@ -264,8 +290,8 @@ export default function AdminManagement() {
           <DataTable cols={COLS}>
             {filteredUsers.map((user) => (
               <TableRow key={user.id}>
-                <TD><span className="font-bold text-[var(--text-main)]">{user.username || 'No username'}</span></TD>
-                <TD>{user.name}</TD>
+                <TD><span className="font-bold text-[var(--text-main)]">{visibleUsername(user)}</span></TD>
+                <TD>{visibleName(user)}</TD>
                 <TD>{user.email}</TD>
                 <TD><Badge label={displayRole(user.role)} color={user.role === ROLES.ADMIN ? '#2563EB' : '#F59E0B'} /></TD>
                 <TD>{formatDate(user.createdDate || user.createdAt)}</TD>

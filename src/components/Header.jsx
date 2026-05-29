@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide-react'
 import Icon from './Icon'
 import Btn from './Btn'
 import Modal from './Modal'
@@ -19,6 +20,7 @@ export default function Header() {
   const [passwordSuccess, setPasswordSuccess] = useState('')
   const [savingPassword, setSavingPassword] = useState(false)
   const [logoutModalOpen, setLogoutModalOpen] = useState(false)
+  const [visiblePasswordFields, setVisiblePasswordFields] = useState({})
 
   const label = Object.entries(ROUTE_LABELS).find(([path]) =>
     location.pathname === path || location.pathname.startsWith(path + '/')
@@ -32,13 +34,12 @@ export default function Header() {
       item.summary.toLowerCase().includes(query)
     )).slice(0, 6)
     : []
-  const isSuperAdmin = currentUser?.role === ROLES.SUPER_ADMIN
-
   const closePasswordModal = () => {
     setPasswordModalOpen(false)
     setPasswordForm({ current: '', next: '', confirm: '' })
     setPasswordError('')
     setPasswordSuccess('')
+    setVisiblePasswordFields({})
   }
 
   const changePassword = async () => {
@@ -63,8 +64,16 @@ export default function Header() {
 
     setSavingPassword(true)
     try {
-      await adminApi.updateCurrentUser({ password: passwordForm.next })
-      const nextUser = { ...currentUser, password: passwordForm.next }
+      const identityPatch = {
+        password: passwordForm.next,
+      }
+      if (currentUser?.username || currentUser?.userName) identityPatch.username = currentUser.username || currentUser.userName
+      if (currentUser?.name || currentUser?.displayName) identityPatch.name = currentUser.name || currentUser.displayName
+      if (currentUser?.email) identityPatch.email = currentUser.email
+      if (currentUser?.rawRole || currentUser?.role) identityPatch.role = currentUser.rawRole || currentUser.role
+
+      const updatedUser = await adminApi.updateCurrentUser(identityPatch)
+      const nextUser = { ...currentUser, ...updatedUser, password: passwordForm.next }
       window.localStorage.setItem('adminUser', JSON.stringify(nextUser))
       setPasswordSuccess('Password changed successfully.')
       setPasswordForm({ current: '', next: '', confirm: '' })
@@ -153,15 +162,13 @@ export default function Header() {
            
             <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">{currentUser?.role || 'Super Admin'}</p>
           </div>
-          {isSuperAdmin ? (
-            <button
-              type="button"
-              onClick={() => setPasswordModalOpen(true)}
-              className="h-10 rounded-2xl border border-[var(--border-main)] px-3 text-xs font-bold text-[var(--text-main)] transition hover:bg-dark-50 dark:hover:bg-dark-900"
-            >
-              Change Password
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => setPasswordModalOpen(true)}
+            className="h-10 rounded-2xl border border-[var(--border-main)] px-3 text-xs font-bold text-[var(--text-main)] transition hover:bg-dark-50 dark:hover:bg-dark-900"
+          >
+            Change Password
+          </button>
           <button
             type="button"
             onClick={() => setLogoutModalOpen(true)}
@@ -196,12 +203,22 @@ export default function Header() {
         ].map(([key, label]) => (
           <label key={key} className="grid gap-2">
             <span className="text-sm font-bold text-[var(--text-main)]">{label}</span>
-            <input
-              type="password"
-              value={passwordForm[key]}
-              onChange={(event) => setPasswordForm((current) => ({ ...current, [key]: event.target.value }))}
-              className="rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none"
-            />
+            <div className="flex items-center rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] pr-2">
+              <input
+                type={visiblePasswordFields[key] ? 'text' : 'password'}
+                value={passwordForm[key]}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, [key]: event.target.value }))}
+                className="min-w-0 flex-1 rounded-xl bg-transparent px-4 py-3 text-sm text-[var(--text-main)] outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setVisiblePasswordFields((current) => ({ ...current, [key]: !current[key] }))}
+                className="grid h-9 w-9 place-items-center rounded-lg text-[var(--text-muted)] transition hover:bg-brand-500/10 hover:text-brand-600"
+                aria-label={visiblePasswordFields[key] ? `Hide ${label}` : `Show ${label}`}
+              >
+                {visiblePasswordFields[key] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </label>
         ))}
       </div>

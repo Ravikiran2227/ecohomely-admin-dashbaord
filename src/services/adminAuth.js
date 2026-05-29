@@ -23,8 +23,8 @@ function normalizeAdmin(docSnapshot, data, collectionName, fallbackRole) {
   return {
     ...data,
     id: docSnapshot.id,
-    username: data.username || data.email || '',
-    name: data.name || data.displayName || data.username || data.email || 'Admin',
+    username: data.username || data.userName || data.email || '',
+    name: data.name || data.displayName || data.username || data.userName || data.email || 'Admin',
     email: data.email || '',
     role,
     status: data.status || 'Active',
@@ -36,8 +36,17 @@ function normalizeAdmin(docSnapshot, data, collectionName, fallbackRole) {
   }
 }
 
-async function findAdmin(username, password) {
-  for (const source of ADMIN_COLLECTIONS) {
+function credentialsMatch(data = {}, username = '', password = '') {
+  const login = String(username || '').trim().toLowerCase()
+  const storedId = String(data.id || data.uid || data.authId || '').trim().toLowerCase()
+  const storedUsername = String(data.username || '').trim().toLowerCase()
+  const storedUserName = String(data.userName || '').trim().toLowerCase()
+  const storedEmail = String(data.email || '').trim().toLowerCase()
+  return (storedUsername === login || storedUserName === login || storedEmail === login || storedId === login) && String(data.password || '') === String(password || '')
+}
+
+async function findAdminInCollection(source, username, password) {
+  try {
     const credentialsQuery = query(
       collection(db, source.name),
       where('username', '==', username),
@@ -63,6 +72,24 @@ async function findAdmin(username, password) {
         return normalizeAdmin(docSnapshot, docSnapshot.data(), source.name, source.role)
       }
     }
+  } catch {
+    // Firestore can occasionally fail indexed query metadata locally; fall back to a small collection scan.
+  }
+
+  try {
+    const snapshot = await getDocs(collection(db, source.name))
+    const docSnapshot = snapshot.docs.find((item) => credentialsMatch({ id: item.id, ...item.data() }, username, password))
+    return docSnapshot ? normalizeAdmin(docSnapshot, docSnapshot.data(), source.name, source.role) : null
+  } catch {
+    return null
+  }
+}
+
+async function findAdmin(username, password) {
+  const normalizedUsername = String(username || '').trim()
+  for (const source of ADMIN_COLLECTIONS) {
+    const admin = await findAdminInCollection(source, normalizedUsername, password)
+    if (admin) return admin
   }
 
   return null

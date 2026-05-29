@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, Timestamp, updateDoc } from 'firebase/firestore'
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
-import { ArrowLeft, Edit3, Megaphone, Plus, RefreshCw, Search, Trash2, UploadCloud } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, Edit3, Megaphone, Plus, RefreshCw, Search, Trash2, UploadCloud } from 'lucide-react'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import { Card } from '../components/Card'
@@ -61,11 +61,11 @@ function formatDate(value) {
 function normalizeAnnouncement(record = {}) {
   return {
     ...record,
-    title: record.title || 'Untitled',
-    description: record.description || '',
-    targetAudience: record.targetAudience || 'user',
+    title: record.title || record.name || record.heading || 'Untitled',
+    description: record.description || record.body || record.message || record.content || '',
+    targetAudience: record.targetAudience || record.audience || 'user',
     priority: record.priority || 'medium',
-    isActive: record.isActive === undefined ? true : record.isActive,
+    isActive: record.isActive === undefined ? record.active !== false : record.isActive,
   }
 }
 
@@ -81,18 +81,54 @@ function Metric({ label, value, sub, color }) {
   )
 }
 
-function FilterSelect({ label, value, onChange, children }) {
+function ThemedSelect({ label, value, onChange, options = [], help = '' }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const selected = options.find((option) => option.value === value) || options[0]
+
+  useEffect(() => {
+    if (!open) return undefined
+    const close = (event) => {
+      if (ref.current && !ref.current.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
   return (
-    <label className="grid gap-2">
+    <div ref={ref} className={`relative grid content-start gap-2 ${open ? 'z-50' : 'z-0'}`}>
       <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-11 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-3 text-sm font-semibold text-[var(--text-main)] outline-none"
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className={`flex h-11 w-full items-center justify-between gap-3 rounded-xl border px-4 text-left text-sm font-bold text-[var(--text-main)] outline-none transition ${open ? 'border-brand-500 bg-brand-500/10 ring-4 ring-brand-500/10' : 'border-[var(--border-main)] bg-[var(--card-bg)] hover:border-brand-500/40'}`}
       >
-        {children}
-      </select>
-    </label>
+        <span className="truncate">{selected?.label || ''}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-brand-500 transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-[999] overflow-hidden rounded-xl border border-brand-500/30 bg-[var(--card-bg)] p-1 shadow-2xl shadow-black/30">
+          {options.map((option) => {
+            const active = option.value === value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onChange(option.value)
+                  setOpen(false)
+                }}
+                className={`flex h-10 w-full items-center justify-between gap-2 rounded-lg px-3 text-left text-sm font-bold transition ${active ? 'bg-brand-500 text-white' : 'text-[var(--text-main)] hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-300'}`}
+              >
+                <span className="truncate">{option.label}</span>
+                {active ? <Check className="h-4 w-4" /> : null}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+      {help ? <span className="text-xs text-[var(--text-muted)]">{help}</span> : null}
+    </div>
   )
 }
 
@@ -130,9 +166,14 @@ function AnnouncementList() {
 
     return announcements
       .filter((announcement) => {
-        const matchesSearch = !search
-          || announcement.title.toLowerCase().includes(search)
-          || announcement.description.toLowerCase().includes(search)
+        const searchableText = [
+          announcement.title,
+          announcement.description,
+          announcement.targetAudience,
+          announcement.priority,
+          announcement.version,
+        ].filter(Boolean).join(' ').toLowerCase()
+        const matchesSearch = !search || searchableText.includes(search)
         const matchesStatus = statusFilter === 'all'
           || (statusFilter === 'active' ? announcement.isActive === true : announcement.isActive !== true)
         const matchesAudience = audienceFilter === 'all' || announcement.targetAudience === audienceFilter
@@ -161,10 +202,14 @@ function AnnouncementList() {
   }, [])
 
   const handleToggleStatus = useCallback(async (announcement) => {
+    const nextStatus = !announcement.isActive
     await updateDoc(doc(db, 'announcements', announcement.id), {
-      isActive: !announcement.isActive,
+      isActive: nextStatus,
       updatedAt: Timestamp.now(),
     })
+    setAnnouncements((current) => current.map((item) => (
+      item.id === announcement.id ? { ...item, isActive: nextStatus, updatedAt: Timestamp.now() } : item
+    )))
   }, [])
 
   return (
@@ -181,7 +226,7 @@ function AnnouncementList() {
         <Metric label="High Priority" value={highPriorityCount} sub="Important launch updates" color="#DC2626" />
       </div>
 
-      <Card className="p-5">
+      <Card className="relative z-20 overflow-visible p-5">
         <div className="grid gap-4 xl:grid-cols-[minmax(240px,1fr)_160px_170px_160px_170px]">
           <label className="grid gap-2">
             <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Search</span>
@@ -195,25 +240,25 @@ function AnnouncementList() {
               />
             </div>
           </label>
-          <FilterSelect label="Status" value={statusFilter} onChange={setStatusFilter}>
-            <option value="all">All</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </FilterSelect>
-          <FilterSelect label="Audience" value={audienceFilter} onChange={setAudienceFilter}>
-            <option value="all">All</option>
-            {AUDIENCE_OPTIONS.map((option) => <option key={option} value={option}>{labelize(option)}</option>)}
-          </FilterSelect>
-          <FilterSelect label="Priority" value={priorityFilter} onChange={setPriorityFilter}>
-            <option value="all">All</option>
-            {PRIORITY_OPTIONS.map((option) => <option key={option} value={option}>{labelize(option)}</option>)}
-          </FilterSelect>
-          <FilterSelect label="Sort By" value={sortBy} onChange={setSortBy}>
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
-            <option value="priority">Priority</option>
-            <option value="title">Title A-Z</option>
-          </FilterSelect>
+          <ThemedSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={[
+            { value: 'all', label: 'All' },
+            { value: 'active', label: 'Active' },
+            { value: 'inactive', label: 'Inactive' },
+          ]} />
+          <ThemedSelect label="Audience" value={audienceFilter} onChange={setAudienceFilter} options={[
+            { value: 'all', label: 'All' },
+            ...AUDIENCE_OPTIONS.map((option) => ({ value: option, label: labelize(option) })),
+          ]} />
+          <ThemedSelect label="Priority" value={priorityFilter} onChange={setPriorityFilter} options={[
+            { value: 'all', label: 'All' },
+            ...PRIORITY_OPTIONS.map((option) => ({ value: option, label: labelize(option) })),
+          ]} />
+          <ThemedSelect label="Sort By" value={sortBy} onChange={setSortBy} options={[
+            { value: 'newest', label: 'Newest First' },
+            { value: 'oldest', label: 'Oldest First' },
+            { value: 'priority', label: 'Priority' },
+            { value: 'title', label: 'Title A-Z' },
+          ]} />
         </div>
       </Card>
 
@@ -397,7 +442,9 @@ function AnnouncementEditor() {
         title: form.title.trim(),
         description: form.description.trim(),
         targetAudience: form.targetAudience,
+        audience: form.targetAudience,
         isActive: form.isActive,
+        active: form.isActive,
         priority: form.priority,
         updatedAt: Timestamp.now(),
         updatedBy: actorId,
@@ -451,7 +498,7 @@ function AnnouncementEditor() {
         <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-600">{error}</div>
       ) : null}
 
-      <Card className="p-5 md:p-6">
+      <Card className="overflow-visible p-5 md:p-6">
         <form onSubmit={handleSubmit} className="grid gap-8">
           <section className="grid gap-5">
             <div className="border-b border-[var(--border-main)] pb-3 text-lg font-black text-[var(--text-main)]">Required Information</div>
@@ -486,12 +533,12 @@ function AnnouncementEditor() {
               </span>
             </label>
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <div className="mb-3 text-sm font-bold text-[var(--text-main)]">Target Audience <span className="text-red-600">*</span></div>
+            <div className="grid items-start gap-4 md:grid-cols-[minmax(260px,1fr)_minmax(260px,1fr)_minmax(220px,1fr)]">
+              <div className="grid content-start gap-3">
+                <div className="text-sm font-bold text-[var(--text-main)]">Target Audience <span className="text-red-600">*</span></div>
                 <div className="flex flex-wrap gap-3">
                   {AUDIENCE_OPTIONS.map((option) => (
-                    <label key={option} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold ${form.targetAudience === option ? 'border-brand-500/30 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-[var(--border-main)] text-[var(--text-main)]'}`}>
+                    <label key={option} className={`flex h-11 cursor-pointer items-center gap-2 rounded-xl border px-4 text-sm font-bold ${form.targetAudience === option ? 'border-brand-500/30 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-[var(--border-main)] text-[var(--text-main)]'}`}>
                       <input type="radio" name="targetAudience" value={option} checked={form.targetAudience === option} onChange={(event) => updateField('targetAudience', event.target.value)} />
                       {labelize(option)}
                     </label>
@@ -501,16 +548,20 @@ function AnnouncementEditor() {
 
               <label className="grid content-start gap-3">
                 <span className="text-sm font-bold text-[var(--text-main)]">Status</span>
-                <span className="flex cursor-pointer items-center gap-3 rounded-xl border border-[var(--border-main)] px-4 py-3 text-sm font-bold text-[var(--text-main)]">
+                <span className="flex h-11 cursor-pointer items-center gap-3 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 text-sm font-bold text-[var(--text-main)]">
                   <input type="checkbox" checked={form.isActive} onChange={(event) => updateField('isActive', event.target.checked)} />
                   Active
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">Only active announcements are shown in the app.</span>
               </label>
 
-              <FilterSelect label="Priority" value={form.priority} onChange={(value) => updateField('priority', value)}>
-                {PRIORITY_OPTIONS.map((option) => <option key={option} value={option}>{labelize(option)}</option>)}
-              </FilterSelect>
+              <ThemedSelect
+                label="Priority"
+                value={form.priority}
+                onChange={(value) => updateField('priority', value)}
+                options={PRIORITY_OPTIONS.map((option) => ({ value: option, label: labelize(option) }))}
+                help="High priority announcements can be highlighted in the app."
+              />
             </div>
           </section>
 

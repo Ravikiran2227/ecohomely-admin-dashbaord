@@ -86,7 +86,7 @@ function normalizeUser(user = {}) {
     ...user,
     id: user.id || user.uid || user.email || makeId('ADM'),
     username: user.username || user.userName || user.email || '',
-    name: user.name || user.displayName || user.email || 'Admin',
+    name: user.name || user.displayName || user.username || user.userName || user.email || 'Admin',
     email: user.email || '',
     role,
     rawRole: user.role,

@@ -41,6 +41,7 @@
   }
 
   :root {
+    --dashboard-ui-scale: 0.8;
     --bg-main: #f8fafc;
     /* User Requirements for Typography & Colors */
     --text-title: #1A1A1A;
@@ -189,7 +190,17 @@
   .text-value { font-size: 0.9375rem; font-weight: 600; color: var(--text-value); } /* 15px */
 
   #root {
-    min-height: 100vh;
+    min-height: calc(100vh / var(--dashboard-ui-scale));
+    zoom: var(--dashboard-ui-scale);
+  }
+
+  @supports not (zoom: 1) {
+    #root {
+      width: calc(100% / var(--dashboard-ui-scale));
+      min-height: calc(100vh / var(--dashboard-ui-scale));
+      transform: scale(var(--dashboard-ui-scale));
+      transform-origin: top left;
+    }
   }
 
   /* Custom Scrollbar */

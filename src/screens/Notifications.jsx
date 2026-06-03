@@ -8,6 +8,8 @@ import Btn from '../components/Btn'
 import TabBar from '../components/TabBar'
 import EmptyState from '../components/EmptyState'
 import notificationsApi from '../services/notificationsApi'
+import customersApi from '../services/customersApi'
+import workersApi from '../services/workersApi'
 
 const PAGE_SIZE = 10
 
@@ -15,6 +17,112 @@ const CHANNELS = {
   push: { label: 'Push', color: '#2563EB', icon: Smartphone },
   sms: { label: 'SMS', color: '#0F766E', icon: MessageSquareMore },
   whatsapp: { label: 'WhatsApp', color: '#16A34A', icon: BellRing },
+}
+
+const AUDIENCE_DEFS = [
+  { id: 'all_users', label: 'All Users', sub: 'users' },
+  { id: 'all_customers', label: 'All Customers', sub: 'users' },
+  { id: 'all_servicemen', label: 'All Servicemen', sub: 'users' },
+  { id: 'paid_subscribers', label: 'Paid Subscribers', sub: 'users' },
+  { id: 'unpaid_workers', label: 'Unpaid Workers', sub: 'users' },
+  { id: 'expiring_soon', label: 'Expiring Soon', sub: 'users' },
+  { id: 'unverified_workers', label: 'Unverified Workers', sub: 'users' },
+  { id: 'by_area', label: 'By Area', sub: 'Geo-targeted selection' },
+]
+
+function phoneDigits(value = '') {
+  const digits = String(value || '').replace(/\D/g, '')
+  return digits.length > 10 ? digits.slice(-10) : digits
+}
+
+function getPhone(record = {}) {
+  return phoneDigits(record.phone || record.mobile || record.phoneNumber || record.whatsappNumber || record.contactNumber)
+}
+
+function dateFrom(value) {
+  if (!value) return null
+  if (typeof value?.toDate === 'function') return value.toDate()
+  if (typeof value?.toMillis === 'function') return new Date(value.toMillis())
+  if (typeof value?._seconds === 'number') return new Date(value._seconds * 1000)
+  if (typeof value?.seconds === 'number') return new Date(value.seconds * 1000)
+  const parsed = new Date(String(value).replace(' ', 'T'))
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function matchesArea(record = {}, area = '') {
+  if (!area) return true
+  const query = String(area).trim().toLowerCase()
+  return [
+    record.area,
+    record.areaName,
+    record.primaryArea,
+    record.serviceArea,
+    record.city,
+    record.cityName,
+    record.address,
+    record.location?.area,
+    record.location?.city,
+    record.location?.address,
+  ].filter(Boolean).join(' ').toLowerCase().includes(query)
+}
+
+function isPaidWorker(worker = {}) {
+  const membership = String(worker.membership || worker.plan || worker.subscriptionPlan || '').toLowerCase()
+  return Boolean(worker.havePaid || worker.isPaid || worker.payment?.paid || worker.subscription?.active || ['gold', 'silver', 'bronze', 'paid', 'premium'].includes(membership))
+}
+
+function isExpiringSoon(worker = {}) {
+  const expiry = dateFrom(worker.expiryDate || worker.planExpiry || worker.subscription?.expiryDate || worker.subscriptionEndsAt)
+  if (!expiry) return false
+  const days = (expiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+  return days >= 0 && days <= 7
+}
+
+function isVerifiedWorker(worker = {}) {
+  const status = String(worker.verification || worker.approvalStatus || worker.status || '').toLowerCase()
+  return worker.verified === true || worker.isVerified === true || worker.approved === true || ['verified', 'approved', 'active'].includes(status)
+}
+
+function buildAudienceCounts(customers, workers, area) {
+  const areaCustomers = customers.filter((customer) => matchesArea(customer, area))
+  const areaWorkers = workers.filter((worker) => matchesArea(worker, area))
+  return {
+    all_users: customers.length + workers.length,
+    all_customers: customers.length,
+    all_servicemen: workers.length,
+    paid_subscribers: workers.filter(isPaidWorker).length,
+    unpaid_workers: workers.filter((worker) => !isPaidWorker(worker)).length,
+    expiring_soon: workers.filter(isExpiringSoon).length,
+    unverified_workers: workers.filter((worker) => !isVerifiedWorker(worker)).length,
+    by_area: area ? areaCustomers.length + areaWorkers.length : 0,
+  }
+}
+
+function getAudienceRecipients(audience, customers, workers, area) {
+  if (audience === 'all_customers') return customers
+  if (audience === 'all_servicemen') return workers
+  if (audience === 'paid_subscribers') return workers.filter(isPaidWorker)
+  if (audience === 'unpaid_workers') return workers.filter((worker) => !isPaidWorker(worker))
+  if (audience === 'expiring_soon') return workers.filter(isExpiringSoon)
+  if (audience === 'unverified_workers') return workers.filter((worker) => !isVerifiedWorker(worker))
+  if (audience === 'by_area') return [...customers, ...workers].filter((record) => matchesArea(record, area))
+  return [...customers, ...workers]
+}
+
+function openDirectChannelLinks(recipients, body, channels) {
+  if (typeof window === 'undefined') return 0
+  const message = encodeURIComponent(body)
+  const urls = []
+  recipients.forEach((recipient) => {
+    const phone = getPhone(recipient)
+    if (!phone) return
+    if (channels.whatsapp) urls.push(`https://wa.me/91${phone}?text=${message}`)
+    if (channels.sms) urls.push(`sms:+91${phone}?body=${message}`)
+  })
+  urls.slice(0, 20).forEach((url, index) => {
+    window.setTimeout(() => window.open(url, '_blank', 'noopener,noreferrer'), index * 120)
+  })
+  return urls.length
 }
 
 function Metric({ label, value, sub, tone }) {
@@ -35,7 +143,7 @@ function Metric({ label, value, sub, tone }) {
 }
 
 function getCampaignRoute(item) {
-  if (item.workerId || item.servicemanId) return { label: 'Open Worker Profile', path: `/workers/approval/${item.workerId || item.servicemanId}` }
+  if (item.workerId || item.servicemanId) return { label: 'Open Worker Profile', path: `/workers/${item.workerId || item.servicemanId}` }
   const audience = String(item.audience || '').toLowerCase()
   const title = String(item.title || '').toLowerCase()
 
@@ -91,14 +199,33 @@ function normalizeCampaign(record = {}) {
 }
 
 function ComposeCampaign() {
-  const [form, setForm] = useState({ title: '', body: '', audience: '', channels: { push: true, sms: false, whatsapp: false } })
+  const [form, setForm] = useState({ title: '', body: '', audience: 'all_users', area: '', channels: { push: true, sms: false, whatsapp: false } })
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
   const [sendResult, setSendResult] = useState(null)
+  const [customers, setCustomers] = useState([])
+  const [workers, setWorkers] = useState([])
+  const [loadingAudience, setLoadingAudience] = useState(true)
 
   const activeChannels = Object.entries(form.channels).filter(([, active]) => active).map(([key]) => key)
-  const canSend = Boolean(form.title && form.body && form.audience && activeChannels.length > 0)
+  const audienceCounts = useMemo(() => buildAudienceCounts(customers, workers, form.area), [customers, workers, form.area])
+  const recipients = useMemo(() => getAudienceRecipients(form.audience, customers, workers, form.area), [form.audience, customers, workers, form.area])
+  const canSend = Boolean(form.title && form.body && form.audience && activeChannels.length > 0 && (!form.channels.sms && !form.channels.whatsapp ? true : recipients.some(getPhone)))
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      customersApi.listCustomers().catch(() => []),
+      workersApi.listWorkers().catch(() => []),
+    ]).then(([customerRows, workerRows]) => {
+      if (cancelled) return
+      setCustomers(Array.isArray(customerRows) ? customerRows : [])
+      setWorkers(Array.isArray(workerRows) ? workerRows : [])
+      setLoadingAudience(false)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   function updateChannel(channel) {
     setForm((current) => ({ ...current, channels: { ...current.channels, [channel]: !current.channels[channel] } }))
@@ -112,8 +239,15 @@ function ComposeCampaign() {
     setSendResult(null)
 
     try {
-      const result = await notificationsApi.sendCampaign(form)
-      setSendResult(result)
+      const directLinks = (form.channels.sms || form.channels.whatsapp)
+        ? openDirectChannelLinks(recipients, form.body, form.channels)
+        : 0
+      const result = await notificationsApi.sendCampaign({
+        ...form,
+        recipients: recipients.length,
+        channels: { ...form.channels, sms: false, whatsapp: false },
+      })
+      setSendResult({ ...result, recipients: recipients.length, directLinks })
       setSent(true)
     } catch (error) {
       setSendError(error.message || 'Unable to send campaign.')
@@ -130,9 +264,10 @@ function ComposeCampaign() {
         </div>
         <div className="mt-5 text-2xl font-black text-[var(--text-main)]">Campaign Sent</div>
         <div className="mt-2 text-sm text-[var(--text-muted)]">Queued for {sendResult?.recipients ?? 0} users across {activeChannels.length} active channels.</div>
+        {sendResult?.directLinks ? <div className="mt-2 text-sm text-[var(--text-muted)]">Direct SMS/WhatsApp links opened: {Math.min(sendResult.directLinks, 20)}{sendResult.directLinks > 20 ? ` of ${sendResult.directLinks}` : ''}</div> : null}
         {sendResult?.sms ? <div className="mt-2 text-sm text-[var(--text-muted)]">SMS sent: {sendResult.sms.sent} failed: {sendResult.sms.failed}</div> : null}
         <div className="mt-6 flex justify-center">
-          <Btn v="primary" onClick={() => { setSent(false); setForm({ title: '', body: '', audience: '', channels: { push: true, sms: false, whatsapp: false } }); setSendResult(null); setSendError('') }}>Create Another Campaign</Btn>
+          <Btn v="primary" onClick={() => { setSent(false); setForm({ title: '', body: '', audience: 'all_users', area: '', channels: { push: true, sms: false, whatsapp: false } }); setSendResult(null); setSendError('') }}>Create Another Campaign</Btn>
         </div>
       </Card>
     )
@@ -144,9 +279,33 @@ function ComposeCampaign() {
       <div className="mt-2 text-xl font-black text-[var(--text-main)]">Compose a targeted notification</div>
 
       <div className="mt-5 grid gap-5">
-        <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Target Audience</div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {AUDIENCE_DEFS.map((audience) => {
+              const active = form.audience === audience.id
+              const count = audience.id === 'by_area' && !form.area ? audience.sub : `${audienceCounts[audience.id] || 0} ${audience.sub}`
+              return (
+                <button
+                  key={audience.id}
+                  type="button"
+                  onClick={() => setForm((current) => ({ ...current, audience: audience.id }))}
+                  className="rounded-2xl border p-4 text-left transition-all"
+                  style={{ borderColor: active ? 'color-mix(in srgb, #14B8A6 55%, var(--border-main))' : 'var(--border-main)', background: active ? 'color-mix(in srgb, #14B8A6 10%, var(--card-bg))' : 'var(--bg-main)' }}
+                >
+                  <div className="text-sm font-black text-[var(--text-main)]">{audience.label}</div>
+                  <div className="mt-1 text-xs text-[var(--text-muted)]">{loadingAudience ? 'Loading...' : count}</div>
+                </button>
+              )
+            })}
+          </div>
+          {form.audience === 'by_area' ? (
+            <input value={form.area} onChange={(event) => setForm((current) => ({ ...current, area: event.target.value }))} placeholder="Enter area name for targeted delivery" className="mt-3 w-full rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none" />
+          ) : null}
+        </div>
+
+        <div className="grid gap-4">
           <input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} placeholder="Notification title" className="rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none" />
-          <input value={form.audience} onChange={(event) => setForm((current) => ({ ...current, audience: event.target.value }))} placeholder="Audience / target key" className="rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none" />
         </div>
 
         <div>
@@ -189,6 +348,14 @@ function HistoryCampaigns({ campaigns, loading, error, onRetry }) {
   const navigate = useNavigate()
   const [page, setPage] = useState(1)
 
+  async function openCampaign(item, route) {
+    const workerId = item.workerId || item.servicemanId || ''
+    if (item.id && (workerId || item.type === 'worker_profile_update')) {
+      await notificationsApi.markAsRead(item.id, workerId ? { workerId } : {}).catch(() => null)
+    }
+    navigate(route.path)
+  }
+
   useEffect(() => {
     setPage(1)
   }, [campaigns.length])
@@ -220,7 +387,7 @@ function HistoryCampaigns({ campaigns, loading, error, onRetry }) {
                   {item.sentAt ? <span>{item.sentAt}</span> : null}
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Btn size="sm" v="outline" onClick={() => navigate(campaignRoute.path)}>{campaignRoute.label}</Btn>
+                  <Btn size="sm" v="outline" onClick={() => openCampaign(item, campaignRoute)}>{campaignRoute.label}</Btn>
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[300px]">

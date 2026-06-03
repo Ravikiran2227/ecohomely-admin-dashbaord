@@ -63,6 +63,24 @@ function phoneDigits(value = '') {
   return digits.length > 10 ? digits.slice(-10) : digits
 }
 
+function openDirectWorkerNotifications(workers, body, channels) {
+  if (typeof window === 'undefined') return 0
+  const message = encodeURIComponent(body)
+  const urls = []
+  workers.forEach((worker) => {
+    const phone = phoneDigits(worker.phone || worker.phoneNumber || worker.mobile || worker.whatsappNumber)
+    if (!phone) return
+    if (channels.whatsapp) urls.push(`https://wa.me/91${phone}?text=${message}`)
+    if (channels.sms) urls.push(`sms:+91${phone}?body=${message}`)
+  })
+  urls.forEach((url, index) => {
+    window.setTimeout(() => {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }, index * 120)
+  })
+  return urls.length
+}
+
 function resolveAreaLocation(area = '') {
   const coords = getAreaCoords(area || 'Visakhapatnam')
   return { area: area || 'Visakhapatnam', ...coords }
@@ -494,7 +512,8 @@ export default function AssistancePanel() {
 
     setForm((current) => ({ ...current, phone: sanitisedPhone, customerLocation: location }))
     setSearchResults(nextResults)
-    setSelectedIds(nextResults.filter((worker) => worker.available).slice(0, 3).map((worker) => worker.id))
+    setSelectedIds([])
+    setSelectedSessionId(null)
     setFinderFilters({ sortBy: 'distance', availability: 'All', minRating: 0, serviceMatchOnly: false })
     setHasSearched(true)
     setIntakeFeedback(
@@ -526,7 +545,9 @@ export default function AssistancePanel() {
       setIntakeFeedback({ tone: 'warning', message: 'Enable at least one notification channel before sending worker alerts.' })
       return
     }
-    if (!selectedIds.length) {
+    const selectedSet = new Set(selectedIds.map(String))
+    const selectedWorkers = searchResults.filter((worker) => selectedSet.has(String(worker.id))).slice(0, 5)
+    if (!selectedWorkers.length) {
       setIntakeFeedback({ tone: 'warning', message: 'Select at least one worker before sending alerts.' })
       return
     }
@@ -536,7 +557,12 @@ export default function AssistancePanel() {
   function handleNotifySelected() {
     setNotifyConfirmOpen(false)
 
-    const selectedWorkers = searchResults.filter((worker) => selectedIds.includes(worker.id)).slice(0, 5)
+    const selectedSet = new Set(selectedIds.map(String))
+    const selectedWorkers = searchResults.filter((worker) => selectedSet.has(String(worker.id))).slice(0, 5)
+    if (!selectedWorkers.length) {
+      setIntakeFeedback({ tone: 'warning', message: 'Select at least one worker before sending alerts.' })
+      return
+    }
     const status = selectedWorkers.some((worker) => worker.available) ? 'Active' : 'No Response'
     const timestamp = formatNow()
     const newSession = {
@@ -569,36 +595,41 @@ export default function AssistancePanel() {
     assistanceApi.createAssistance(newSession).then((saved) => {
       const normalized = normaliseAssistanceSession(saved, customers)
       setSessions((current) => [normalized, ...current])
-      setSelectedSessionId(normalized.id)
     }).catch(() => {})
     const notificationBody = `New ${form.service} request near ${form.customerLocation?.area || form.area}.${form.phone ? ` Customer phone: ${form.phone}.` : ''}`
-    Promise.all(selectedWorkers.map((worker) => notificationsApi.createNotification({
-      title: 'New nearby assistance request',
-      body: notificationBody,
-      audience: 'worker',
-      workerId: worker.id,
-      targetId: worker.id,
-      type: 'assistance_request',
-      channel: 'push',
-      read: false,
-      delivered: 0,
-      opened: 0,
-      meta: {
-        service: form.service,
-        customerName: form.customerName,
-        customerPhone: form.phone,
-        area: form.customerLocation?.area || form.area,
-        distanceKm: Number(worker.distanceKm || 0),
-      },
-    }).catch(() => null))).catch(() => {})
-    notificationsApi.sendCampaign({
-      title: 'New nearby assistance request',
-      body: notificationBody,
-      audience: 'workers',
-      workerIds: selectedWorkers.map((worker) => worker.id),
-      channels: { push: channels.push, sms: channels.sms, whatsapp: channels.whatsapp },
-    }).catch(() => {})
-    setIntakeFeedback({ tone: 'success', message: `${selectedWorkers.length} workers were notified.` })
+    if (channels.push) {
+      Promise.all(selectedWorkers.map((worker) => notificationsApi.createNotification({
+        title: 'New nearby assistance request',
+        body: notificationBody,
+        audience: 'worker',
+        workerId: worker.id,
+        targetId: worker.id,
+        type: 'assistance_request',
+        channel: 'push',
+        read: false,
+        delivered: 0,
+        opened: 0,
+        meta: {
+          service: form.service,
+          customerName: form.customerName,
+          customerPhone: form.phone,
+          area: form.customerLocation?.area || form.area,
+          distanceKm: Number(worker.distanceKm || 0),
+        },
+      }).catch(() => null))).catch(() => {})
+      notificationsApi.sendCampaign({
+        title: 'New nearby assistance request',
+        body: notificationBody,
+        audience: 'workers',
+        workerIds: selectedWorkers.map((worker) => worker.id),
+        channels: { push: true, sms: false, whatsapp: false },
+      }).catch(() => {})
+    }
+    const directCount = openDirectWorkerNotifications(selectedWorkers, notificationBody, channels)
+    setIntakeFeedback({
+      tone: 'success',
+      message: `${selectedWorkers.length} selected worker${selectedWorkers.length === 1 ? '' : 's'} queued. ${directCount ? 'WhatsApp/SMS windows opened for direct sending.' : 'Push notification saved.'}`,
+    })
     pushNotification(`Workers notified for ${form.service} request`, '#0F5C37')
   }
 

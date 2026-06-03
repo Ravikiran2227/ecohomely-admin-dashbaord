@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Card } from '../components/Card'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
@@ -23,6 +24,9 @@ export default function WorkerFinder({
   filters,
   onFiltersChange,
 }) {
+  const PAGE_SIZE = 12
+  const [searchTerm, setSearchTerm] = useState('')
+  const [page, setPage] = useState(1)
   const maxReached = selectedIds.length >= 5
   const nearestFirst = [...workers].sort((a, b) => a.distanceKm - b.distanceKm)
   const highRatedFirst = [...workers].sort((a, b) => b.rating - a.rating)
@@ -36,6 +40,40 @@ export default function WorkerFinder({
     return matchesAvailability && matchesService && matchesRating
   })
   const visibleWorkers = filteredWorkers.length ? filteredWorkers : sortedWorkers
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
+  const orderedWorkers = useMemo(() => {
+    return [...visibleWorkers].sort((left, right) => {
+      const leftSelected = selectedIdSet.has(left.id) ? 0 : 1
+      const rightSelected = selectedIdSet.has(right.id) ? 0 : 1
+      if (leftSelected !== rightSelected) return leftSelected - rightSelected
+      return 0
+    })
+  }, [selectedIdSet, visibleWorkers])
+  const searchedWorkers = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase()
+    if (!query) return orderedWorkers
+    return orderedWorkers.filter((worker) => [
+      worker.name,
+      worker.phone,
+      worker.profession,
+      worker.area,
+      worker.areaName,
+      worker.primaryArea,
+      worker.serviceArea,
+      worker.city,
+      worker.cityName,
+      worker.location?.area,
+      worker.location?.address,
+    ].filter(Boolean).join(' ').toLowerCase().includes(query))
+  }, [searchTerm, orderedWorkers])
+  const totalPages = Math.max(1, Math.ceil(searchedWorkers.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pagedWorkers = searchedWorkers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const selectedWorkersForMap = searchedWorkers.filter((worker) => selectedIdSet.has(worker.id))
+
+  useEffect(() => {
+    setPage(1)
+  }, [searchTerm, filters.sortBy, filters.availability, filters.minRating, filters.serviceMatchOnly, workers.length])
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -60,6 +98,12 @@ export default function WorkerFinder({
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 14 }}>
+          <input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search worker name, phone, profession, or area..."
+            style={{ width: '100%', borderRadius: 12, border: '1px solid var(--border-main)', padding: '11px 12px', fontSize: 14, background: 'var(--card-bg)', color: 'var(--text-main)', gridColumn: 'span 2' }}
+          />
           <select
             value={filters.sortBy}
             onChange={(event) => onFiltersChange((current) => ({ ...current, sortBy: event.target.value }))}
@@ -113,11 +157,24 @@ export default function WorkerFinder({
               </div>
             )}
             <div style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-main)' }}>
-              <MapView customerLocation={customerLocation} workers={visibleWorkers} selectedIds={selectedIds} height={300} />
+              <MapView customerLocation={customerLocation} workers={selectedWorkersForMap} selectedIds={selectedIds} height={300} />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Showing {searchedWorkers.length ? ((currentPage - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(currentPage * PAGE_SIZE, searchedWorkers.length)} of {searchedWorkers.length} workers
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Btn v="outline" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage <= 1}>Previous</Btn>
+                <div style={{ minWidth: 88, textAlign: 'center', fontSize: 13, fontWeight: 800, color: 'var(--text-main)' }}>
+                  {currentPage} / {totalPages}
+                </div>
+                <Btn v="outline" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={currentPage >= totalPages}>Next</Btn>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-              {visibleWorkers.map((worker) => {
+              {pagedWorkers.map((worker) => {
                 const selected = selectedIds.includes(worker.id)
                 const disabled = !selected && maxReached
                 return (
@@ -195,6 +252,14 @@ export default function WorkerFinder({
                 )
               })}
             </div>
+            {searchedWorkers.length === 0 && (
+              <EmptyState
+                icon="search"
+                title="No workers match the search"
+                description="Clear the search text or adjust filters to show nearby workers."
+                className="py-8"
+              />
+            )}
           </div>
         )}
       </Card>

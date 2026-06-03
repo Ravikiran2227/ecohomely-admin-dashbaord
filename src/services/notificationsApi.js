@@ -8,7 +8,7 @@ export const notificationsApi = {
   createNotification: (payload, options = {}) => apiClient.post(NOTIFICATIONS_PATH, payload, options),
   updateNotification: (notificationId, payload, options = {}) => apiClient.patch(`${NOTIFICATIONS_PATH}/${notificationId}`, payload, options),
   deleteNotification: (notificationId, options = {}) => apiClient.delete(`${NOTIFICATIONS_PATH}/${notificationId}`, options),
-  markAsRead: (notificationId, options = {}) => apiClient.post(`${NOTIFICATIONS_PATH}/${notificationId}/read`, {}, options),
+  markAsRead: (notificationId, payload = {}, options = {}) => apiClient.post(`${NOTIFICATIONS_PATH}/${notificationId}/read`, payload, options),
   markAllAsRead: (options = {}) => apiClient.post(`${NOTIFICATIONS_PATH}/read-all`, {}, options),
   getUnreadCount: (options = {}) => apiClient.get(`${NOTIFICATIONS_PATH}/unread-count`, options),
   sendSMS: (payload, options = {}) => apiClient.post(`${NOTIFICATIONS_PATH}/send-sms`, payload, options),

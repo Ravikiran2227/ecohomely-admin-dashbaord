@@ -6,6 +6,7 @@ export const adminApi = {
   listUsers: (filters = {}, options = {}) => apiClient.get(`${ADMIN_PATH}/users`, { ...options, query: filters }),
   getUser: (userId, options = {}) => apiClient.get(`${ADMIN_PATH}/users/${userId}`, options),
   createUser: (payload, options = {}) => apiClient.post(`${ADMIN_PATH}/users`, payload, options),
+  sendCredentialsEmail: (payload, options = {}) => apiClient.post(`${ADMIN_PATH}/credential-email`, payload, options),
   updateUser: (userId, payload, options = {}) => apiClient.patch(`${ADMIN_PATH}/users/${userId}`, payload, options),
   deleteUser: (userId, options = {}) => apiClient.delete(`${ADMIN_PATH}/users/${userId}`, options),
   getActivityLogs: (params = {}, options = {}) => apiClient.get(`${ADMIN_PATH}/activity-logs`, { ...options, query: params }),

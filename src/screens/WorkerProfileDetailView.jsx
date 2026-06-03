@@ -8,7 +8,6 @@ import {
   Phone,
   Trash2,
 } from 'lucide-react'
-import PageHeader from '../components/PageHeader'
 import Btn from '../components/Btn'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
@@ -210,6 +209,136 @@ function withRequiredDocumentCards(documents = []) {
       { key: 'aadhaar', name: 'Aadhaar', status: 'Missing', url: '', isImage: false, description: 'Aadhaar is not uploaded.' },
       ...unique,
     ]
+}
+
+function titleCaseField(key = '') {
+  return String(key)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function displayScalar(value) {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value?.toDate === 'function') return formatDate(value.toDate())
+  if (typeof value === 'object') return ''
+  return String(value)
+}
+
+function getPathValue(source = {}, path = '') {
+  return String(path).split('.').reduce((current, key) => {
+    if (current === undefined || current === null) return undefined
+    return current[key]
+  }, source)
+}
+
+function firstFieldValue(source = {}, paths = []) {
+  for (const path of paths) {
+    const value = getPathValue(source, path)
+    if (value !== undefined && value !== null && String(displayScalar(value) || value).trim() !== '') return value
+  }
+  return undefined
+}
+
+function formatProfileFieldValue(value) {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value?.toDate === 'function') return formatDate(value.toDate())
+  if (value instanceof Date) return formatDate(value)
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (Array.isArray(value)) return value.map(formatProfileFieldValue).filter(Boolean).join(', ')
+  if (typeof value === 'object') {
+    const label = firstText(value.label, value.name, value.title, value.value, value.text, value.amount, value.price)
+    return label !== undefined ? formatProfileFieldValue(label) : ''
+  }
+  return String(value)
+}
+
+function buildProfileRows(source = {}, definitions = []) {
+  return definitions
+    .map((definition) => ({
+      label: definition.label,
+      value: definition.format
+        ? definition.format(firstFieldValue(source, definition.paths || []), source)
+        : formatProfileFieldValue(firstFieldValue(source, definition.paths || [])),
+    }))
+    .filter((item) => item.value !== undefined && item.value !== null && String(item.value).trim() !== '')
+}
+
+function DetailGrid({ rows, columns = 'xl:grid-cols-3' }) {
+  if (!rows.length) return null
+
+  return (
+    <div className={`grid gap-3 sm:grid-cols-2 ${columns}`}>
+      {rows.map((item) => (
+        <div key={`${item.label}-${item.value}`} className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-4">
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">{item.label}</div>
+          <div className="mt-2 break-words text-sm font-black text-[var(--text-main)]">{item.value}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function documentLooksHidden(document = {}) {
+  const text = [
+    document.key,
+    document.kind,
+    document.type,
+    document.category,
+    document.group,
+    document.name,
+    document.fileName,
+    document.path,
+    document.folder,
+    document.collection,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  return /hidden|private|secret|internal/.test(text)
+}
+
+function buildCallActionRows(worker = {}) {
+  const candidates = [
+    worker.callActionRecords,
+    worker.callActions,
+    worker.callRecords,
+    worker.callHistory,
+    worker.callNowRecords,
+    worker.calls,
+  ].find((value) => Array.isArray(value) && value.length)
+
+  return (candidates || []).map((record, index) => ({
+    id: record.id || record.callId || `call-${index}`,
+    timestamp: formatProfileFieldValue(firstText(record.timestamp, record.createdAt, record.date, record.calledAt, record.time)),
+    type: formatProfileFieldValue(firstText(record.type, record.action, record.event, record.callType)),
+    userName: formatProfileFieldValue(firstText(record.userName, record.customerName, record.name, record.actorName)),
+    userId: formatProfileFieldValue(firstText(record.userId, record.customerId, record.actorId, record.uid)),
+  }))
+}
+
+function collectAdditionalWorkerDetails(worker = {}) {
+  const hiddenKeys = new Set([
+    'id', 'uid', 'authId', 'workerId', 'servicemanId', 'name', 'fullName', 'phone', 'mobile',
+    'profilePhoto', 'profilePhotoUrl', 'profileImage', 'imageUrl', 'image', 'photoUrl', 'photo',
+    'documents', 'professions', 'performance', 'ranking', 'verificationVersions', 'reviews',
+    'bookings', 'workPhotos', 'professionMedia', 'about', 'languages', 'skills', 'profileBadges',
+    'profileHighlights', 'availability', 'approvalStatus', 'status', 'planType', 'membership',
+    'createdAt', 'createdDate', 'dateAdded', 'updatedAt', 'areaName', 'area', 'cityName', 'city',
+    'districtName', 'district', 'stateName', 'state', 'state_id', 'district_id', 'city_id', 'area_id',
+    'address', 'fullAddress', 'serviceAddress', 'locationAddress',
+    'email', 'emailId', 'mail', 'verified', 'isVerified', 'active', 'isActive', 'approved', 'Approved',
+    'deviceType', 'device', 'platform', 'os', 'appPlatform', 'referralCode', 'referCode', 'inviteCode',
+    'couponCode', 'couponDiscount', 'couponType', 'couponAppliedAt', 'profileComplete', 'isProfileComplete',
+    'profileCompleted', 'onlineNow', 'isOnline', 'online', 'bookingsCount', 'bookingCount', 'totalBookings',
+    'callNowCount', 'callCount', 'callsCount', 'impressions', 'impressionCount', 'views', 'profileViews',
+    'mpin', 'mPin', 'amountPaid', 'paidAmount', 'havePaid', 'hasPaid', 'isPaid',
+  ])
+  const usefulPattern = /(gender|email|experience|language|address|service|brand|certification|shop|business|bank|account|ifsc|upi|aadhaar|aadhar|pan|device|model|version|otp|verified|active|approved|created|updated|joined|coupon|discount|referral)/i
+
+  return Object.entries(worker)
+    .filter(([key, value]) => !hiddenKeys.has(key) && usefulPattern.test(key) && displayScalar(value))
+    .slice(0, 24)
+    .map(([key, value]) => ({ label: titleCaseField(key), value: displayScalar(value) }))
 }
 
 function firstProfilePhotoCandidate(worker = {}) {
@@ -732,6 +861,9 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const leadRows = buildLeadRows(worker, primaryProfession, workerBookings)
   const reviewCards = buildReviewRows(worker, primaryProfession, workerReviews)
   const totalReviews = reviewCards.length
+  const aadhaarDocument = documentCards.find((document) => canonicalDocumentKind(document) === 'aadhaar')
+  const hiddenDocumentCards = documentCards.filter(documentLooksHidden)
+  const visibleDocumentCards = documentCards.filter((document) => !documentLooksHidden(document))
   const isVerified = documentCards.some((doc) => doc.key === 'aadhaar' && doc.status === 'Verified')
   const workerStatus = isSuspended ? 'Suspended' : (worker.availability === 'Available' ? 'Active' : worker.availability)
   const activePlan = worker.planType || worker.planName || worker.subscriptionPlan || ''
@@ -766,6 +898,37 @@ function WorkerProfileDetailViewContent({ workerId }) {
     { label: 'Total Leads', value: getMetricValue(metricSource.totalLeads, worker.totalLeads, worker.leadsThisMonth), hint: 'Firebase worker field', icon: Medal },
     { label: 'Conversion', value: getMetricValue(metricSource.conversion, metricSource.conversionRate, worker.conversionRate), hint: 'Firebase worker field', icon: Medal },
   ].filter((metric) => metric.value !== undefined && metric.value !== null && String(metric.value).trim() !== '')
+  const basicInformationRows = buildProfileRows(worker, [
+    { label: 'Name', paths: ['name', 'fullName', 'profile.name', 'personalDetails.name'] },
+    { label: 'Email', paths: ['email', 'emailId', 'mail', 'profile.email', 'personalDetails.email'] },
+    { label: 'Phone', paths: ['phone', 'mobile', 'phoneNumber', 'mobileNumber', 'personalDetails.phone'] },
+    { label: 'Verified', paths: ['verified', 'isVerified', 'approvalStatus'], format: (value) => value === 'Approved' ? 'Yes' : formatProfileFieldValue(value) },
+    { label: 'Date of Birth', paths: ['dateOfBirth', 'dob', 'birthDate', 'profile.dateOfBirth', 'personalDetails.dateOfBirth'] },
+    { label: 'Location', paths: ['address', 'location.address', 'serviceLocation.address', 'fullAddress'], format: (value) => formatProfileFieldValue(value) || workerLocation },
+    { label: 'Primary Area', paths: ['areaName', 'mainArea', 'primaryArea', 'area', 'location.area'] },
+    { label: 'Device Type', paths: ['deviceType', 'device', 'platform', 'os', 'appPlatform'] },
+    { label: 'Last Seen', paths: ['lastSeen', 'lastActive', 'lastLoginAt', 'lastLogin', 'onlineStatus.lastSeen'] },
+    { label: 'Aadhaar Card', paths: [], format: () => aadhaarDocument?.url ? `${aadhaarDocument.name || 'Aadhaar'} (${aadhaarDocument.status || 'Uploaded'})` : aadhaarDocument?.status || '' },
+    { label: 'Amount Paid', paths: ['amountPaid', 'payment.amountPaid', 'subscription.amountPaid', 'paidAmount', 'planAmount'] },
+    { label: 'Have Paid', paths: ['havePaid', 'hasPaid', 'isPaid', 'payment.havePaid', 'payment.paid'] },
+  ])
+  const accountActivityRows = buildProfileRows(worker, [
+    { label: 'User ID', paths: ['userId', 'authId', 'uid', 'id'] },
+    { label: 'Referral Code', paths: ['referralCode', 'referCode', 'referral.code', 'inviteCode'] },
+    { label: 'Coupon Code', paths: ['couponCode', 'coupon.code', 'coupon.couponCode', 'couponCodeUsed', 'appliedCouponCode', 'appliedCoupon.code', 'couponDetails.code', 'couponDetails.couponCode', 'discountCoupon.code'] },
+    { label: 'Coupon Discount', paths: ['couponDiscount', 'coupon.discount', 'coupon.discountValue', 'coupon.amount', 'coupon.value', 'discountAmount', 'couponDiscountAmount', 'appliedCoupon.discount', 'couponDetails.discount', 'couponDetails.discountValue', 'discountCoupon.discount'] },
+    { label: 'Coupon Type', paths: ['couponType', 'coupon.type', 'coupon.discountType', 'appliedCoupon.type', 'couponDetails.type', 'couponDetails.discountType'] },
+    { label: 'Coupon Applied At', paths: ['couponAppliedAt', 'coupon.appliedAt', 'appliedCoupon.appliedAt', 'couponDetails.appliedAt'] },
+    { label: 'Profile Complete', paths: ['profileComplete', 'isProfileComplete', 'profileCompleted'] },
+    { label: 'Account Created', paths: ['accountCreated', 'createdAt', 'createdDate', 'dateAdded', 'joinedAt'] },
+    { label: 'Online Now', paths: ['onlineNow', 'isOnline', 'online', 'availability.isOnline'] },
+    { label: 'Bookings Count', paths: ['bookingsCount', 'bookingCount', 'totalBookings'], format: (value) => formatProfileFieldValue(value) || String(bookingCards.length) },
+    { label: 'Call Now Count', paths: ['callNowCount', 'callCount', 'callsCount'] },
+    { label: 'Impressions', paths: ['impressions', 'impressionCount', 'views', 'profileViews'] },
+    { label: 'MPIN', paths: ['mpin', 'mPin', 'security.mpin'] },
+  ])
+  const callActionRows = buildCallActionRows(worker)
+  const additionalDetails = collectAdditionalWorkerDetails(worker)
 
   const handleSaveProfession = async (payload) => {
     if (!editTarget) return
@@ -914,43 +1077,49 @@ function WorkerProfileDetailViewContent({ workerId }) {
 
   const renderOverview = () => (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-[30px] border border-[var(--border-main)] bg-gradient-to-br from-brand-500/16 via-brand-500/6 to-transparent shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
-        <div className="grid gap-5 p-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
+      <section className="overflow-hidden rounded-3xl border border-[var(--border-main)] bg-gradient-to-br from-brand-500/14 via-brand-500/5 to-transparent shadow-[0_14px_34px_rgba(15,23,42,0.07)]">
+        <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.62fr)] lg:items-center">
           <div>
             <div className="inline-flex rounded-full border border-brand-500/20 bg-brand-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300">
               Worker Command Center
             </div>
-            <h2 className="mt-4 text-3xl font-black text-[var(--text-main)] sm:text-4xl">{worker.name}</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-[var(--text-main)]">
+            <h2 className="mt-3 text-2xl font-black text-[var(--text-main)] sm:text-3xl">{worker.name}</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-main)]">
               Structured admin view for profession quality, booking health, revenue confidence, and document readiness across Ecohomely operations.
             </p>
-            <div className="mt-5 flex flex-wrap gap-3">
-              <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-4 py-3 backdrop-blur">
+            <div className="mt-4 flex flex-wrap gap-2.5">
+              <div className="min-w-[112px] rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-3.5 py-2.5 backdrop-blur">
                 <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Rating</div>
-                <div className="mt-1 text-2xl font-black text-[var(--text-main)]">{ratingValue.toFixed(1)}</div>
+                <div className="mt-1 text-xl font-black text-[var(--text-main)]">{ratingValue.toFixed(1)}</div>
               </div>
-              <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-4 py-3 backdrop-blur">
+              <div className="min-w-[132px] rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-3.5 py-2.5 backdrop-blur">
                 <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Completed Jobs</div>
-                <div className="mt-1 text-2xl font-black text-[var(--text-main)]">{completedJobs}</div>
+                <div className="mt-1 text-xl font-black text-[var(--text-main)]">{completedJobs}</div>
               </div>
-              <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-4 py-3 backdrop-blur">
+              <div className="min-w-[142px] rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-3.5 py-2.5 backdrop-blur">
                 <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Lifetime Revenue</div>
-                <div className="mt-1 text-2xl font-black text-[var(--text-main)]">{formatCurrency(totalEarnings)}</div>
+                <div className="mt-1 text-xl font-black text-[var(--text-main)]">{formatCurrency(totalEarnings)}</div>
               </div>
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-            <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 p-4 backdrop-blur">
-              <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Primary Profession</div>
-              <div className="mt-2 text-lg font-black text-[var(--text-main)]">{primaryProfession?.profession || 'Not set'}</div>
+          <div className="grid gap-2">
+            <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-4 py-3 backdrop-blur">
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Primary Profession</div>
+                <div className="max-w-[58%] truncate text-sm font-black text-[var(--text-main)]">{primaryProfession?.profession || 'Not set'}</div>
+              </div>
             </div>
-            <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 p-4 backdrop-blur">
-              <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Location</div>
-              <div className="mt-2 text-lg font-black text-[var(--text-main)]">{workerLocation}</div>
+            <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-4 py-3 backdrop-blur">
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Location</div>
+                <div className="max-w-[62%] truncate text-sm font-black text-[var(--text-main)]" title={workerLocation}>{workerLocation}</div>
+              </div>
             </div>
-            <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 p-4 backdrop-blur">
-              <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Verification</div>
-              <div className="mt-2 text-lg font-black text-[var(--text-main)]">{worker.approvalStatus}</div>
+            <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-4 py-3 backdrop-blur">
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Verification</div>
+                <Badge label={worker.approvalStatus || 'Pending'} color={worker.approvalStatus === 'Approved' ? '#10B981' : worker.approvalStatus === 'Rejected' ? '#EF4444' : '#F59E0B'} size="xs" />
+              </div>
             </div>
           </div>
         </div>
@@ -963,6 +1132,24 @@ function WorkerProfileDetailViewContent({ workerId }) {
               <MetricCard key={metric.label} {...metric} />
             ))}
           </div>
+        </WorkerDetailSection>
+      )}
+
+      {basicInformationRows.length > 0 && (
+        <WorkerDetailSection title="Basic Information" subtitle="Identity, contact, verification, device, and payment details synced from Firebase">
+          <DetailGrid rows={basicInformationRows} />
+        </WorkerDetailSection>
+      )}
+
+      {accountActivityRows.length > 0 && (
+        <WorkerDetailSection title="Account & Activity" subtitle="Account identifiers, referral, profile state, and usage counters">
+          <DetailGrid rows={accountActivityRows} />
+        </WorkerDetailSection>
+      )}
+
+      {additionalDetails.length > 0 && (
+        <WorkerDetailSection title="Additional Details" subtitle="Extra serviceman fields synced from Firebase">
+          <DetailGrid rows={additionalDetails} />
         </WorkerDetailSection>
       )}
 
@@ -1027,6 +1214,33 @@ function WorkerProfileDetailViewContent({ workerId }) {
           </div>
         </div>
       </WorkerDetailSection>
+      )}
+
+      {callActionRows.length > 0 && (
+        <WorkerDetailSection title="Call Action Records" subtitle="Call actions recorded for this serviceman">
+          <div className="overflow-hidden rounded-2xl border border-[var(--border-main)]">
+            <table className="min-w-full divide-y divide-[var(--border-main)] text-left text-sm">
+              <thead className="bg-[var(--bg-main)]/70 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                <tr>
+                  <th className="px-4 py-3">Timestamp</th>
+                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">User Name</th>
+                  <th className="px-4 py-3">User ID</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border-main)]">
+                {callActionRows.map((record) => (
+                  <tr key={record.id}>
+                    <td className="px-4 py-3 font-semibold text-[var(--text-main)]">{record.timestamp || '-'}</td>
+                    <td className="px-4 py-3 text-[var(--text-main)]">{record.type || '-'}</td>
+                    <td className="px-4 py-3 text-[var(--text-main)]">{record.userName || '-'}</td>
+                    <td className="px-4 py-3 text-[var(--text-main)]">{record.userId || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </WorkerDetailSection>
       )}
 
       {(activePlan || planValue !== null || planExpiryLabel || planHealth) && (
@@ -1099,14 +1313,26 @@ function WorkerProfileDetailViewContent({ workerId }) {
 
   return (
     <div className="min-h-screen bg-[var(--bg-main)]">
-      <PageHeader
-        title={`${worker.name} Profile`}
-        sub="Unified premium workspace for profile health, profession control, bookings, documents, revenue, and availability"
-        action={<Btn v="outline" onClick={() => navigate('/workers')}>Back to Workers</Btn>}
-      />
+      <div className="mb-4 rounded-[22px] border border-[var(--border-main)] bg-[var(--card-bg)] p-2 shadow-[0_14px_34px_rgba(15,23,42,0.05)]">
+        <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
+          {TAB_ITEMS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => handleTabChange(tab.id)}
+              className={`shrink-0 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-all ${activeTab === tab.id ? 'border-brand-500/30 bg-brand-500/10 text-brand-700 shadow-sm dark:text-brand-300' : 'border-transparent bg-[var(--bg-main)]/70 text-[var(--text-main)] hover:border-[var(--border-main)]'}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+          </div>
+          <Btn v="outline" onClick={() => navigate('/workers')}>Back to Workers</Btn>
+        </div>
+      </div>
 
-      <div className="grid gap-6 xl:h-[calc(100vh-9rem)] xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
-        <aside className="space-y-5 xl:sticky xl:top-6 xl:max-h-[calc(100vh-9rem)] xl:self-start xl:overflow-y-auto xl:pr-2">
+      <div className="grid gap-5 xl:h-[calc(100vh-7rem)] xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
+        <aside className="space-y-5 xl:sticky xl:top-5 xl:self-start xl:pr-2">
           <div className="rounded-[28px] border border-[var(--border-main)] bg-[var(--card-bg)] p-5 shadow-[0_18px_44px_rgba(15,23,42,0.06)]">
             <div className="text-center">
               {workerPhotoUrl ? (
@@ -1156,36 +1382,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
                 </div>
               </section>
 
-              <section>
-                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Worker Details</div>
-                <div className="space-y-2.5">
-                  <SidebarMetaRow label="ID" value={`#EH${worker.id.replace(/\D/g, '').padStart(4, '0')}`} />
-                  <SidebarMetaRow label="Joined" value={joinedDate} />
-                  <SidebarMetaRow label="Experience" value={/year|yr/i.test(experienceLabel) ? experienceLabel : `${experienceLabel} Yrs`} />
-                  <SidebarMetaRow label="Membership" value={membershipBadge.label.replace(' Member', '')} />
-                  <SidebarMetaRow label="Location" value={workerLocation} />
-                </div>
-              </section>
             </div>
           </div>
 
-          <div className="rounded-[28px] border border-[var(--border-main)] bg-[var(--card-bg)] p-4 shadow-[0_18px_44px_rgba(15,23,42,0.06)]">
-            <div className="grid gap-2">
-              {TAB_ITEMS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => handleTabChange(tab.id)}
-                  className={`rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition-all ${activeTab === tab.id ? 'border-brand-500/30 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-transparent bg-[var(--bg-main)]/70 text-[var(--text-main)] hover:border-[var(--border-main)]'}`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
         </aside>
 
-        <main className="min-w-0 space-y-6 xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto xl:pr-2">
+        <main className="min-w-0 space-y-6 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto xl:pr-2">
           {isTabPending && (
             <div className="rounded-xl border border-brand-500/20 bg-brand-500/10 px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">
               Opening tab...
@@ -1203,9 +1405,9 @@ function WorkerProfileDetailViewContent({ workerId }) {
                   Loading Firebase files...
                 </div>
               )}
-              {documentCards.length > 0 ? (
+              {visibleDocumentCards.length > 0 ? (
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {documentCards.map((document) => (
+                  {visibleDocumentCards.map((document) => (
                     <DocumentCard
                       key={document.url || document.path || document.key}
                       document={document}
@@ -1216,6 +1418,21 @@ function WorkerProfileDetailViewContent({ workerId }) {
                 </div>
               ) : (
                 <EmptyState title="No documents uploaded" description="Upload Aadhaar, PAN, photo, and certificates to complete the worker profile." />
+              )}
+              {hiddenDocumentCards.length > 0 && (
+                <div className="mt-6">
+                  <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Hidden Documents</div>
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {hiddenDocumentCards.map((document) => (
+                      <DocumentCard
+                        key={document.url || document.path || document.key}
+                        document={{ ...document, name: document.name || document.fileName || 'Hidden Document' }}
+                        onStatusChange={(nextStatus) => handleDocumentStatusChange(document, nextStatus)}
+                        onReset={() => handleDocumentReset(document)}
+                      />
+                    ))}
+                  </div>
+                </div>
               )}
             </WorkerDetailSection>
           )}

@@ -20,6 +20,7 @@ import {
   buildNearbyWorkers,
   buildProcessedBookings,
   formatDateTime,
+  getBookingCurrentStage,
   statusColor,
 } from '../utils/bookingTrackerData'
 
@@ -188,15 +189,7 @@ export default function BookingDetailScreen() {
       ],
     })),
   ]), [booking?.id, navigate, relatedCashbacks, relatedComplaints, relatedCouponUses, relatedReviews])
-  const currentStage = booking?.completedAt
-    ? 'Completed'
-    : booking?.startedAt
-      ? 'Started'
-      : booking?.acceptedAt
-        ? 'Accepted'
-        : booking?.assignedAt
-          ? 'Assigned'
-          : 'Booking Created'
+  const currentStage = getBookingCurrentStage(booking)
 
   const handleAssignWorker = async () => {
     if (!selectedWorkerId) return
@@ -209,7 +202,7 @@ export default function BookingDetailScreen() {
     setStatusDraft('')
   }
 
-  const handleCancel = () => handleStatusChange('Cancelled')
+  const handleCancel = () => handleStatusChange('Rejected')
   const handleComplete = () => handleStatusChange('Completed')
 
   const handleReminder = async () => {
@@ -267,7 +260,7 @@ export default function BookingDetailScreen() {
   return (
     <div className="w-full space-y-5 pb-24">
       <PageHeader
-        title={`Booking ${booking.id}`}
+        title={`${booking.service || 'Service'} Booking`}
         badge={booking.derivedStatus}
         sub={[formatDateTime(booking.requestedAt), booking.service, booking.area].filter(Boolean).join(' - ')}
         action={
@@ -287,11 +280,12 @@ export default function BookingDetailScreen() {
         </SectionCard>
       )}
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:items-start">
-        <SectionCard title="Customer Card" subtitle="Who requested the service" className="h-full" icon={<Icon name="users" size={18} />}>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:items-stretch">
+        <SectionCard title="Customer Card" subtitle="Who requested the service" className="h-full min-h-[270px]" icon={<Icon name="users" size={18} />}>
+          <div className="grid min-h-[170px] grid-cols-1 content-start gap-x-8 gap-y-4 sm:grid-cols-2">
             <InfoRow label="Name" value={booking.customerDetails?.name || booking.customerName} />
             <InfoRow label="Phone" value={booking.customerDetails?.phone || ''} />
+            <InfoRow label="Email" value={booking.customerDetails?.email || booking.customerEmail || ''} />
             <InfoRow label="Location" value={booking.customerDetails?.area || booking.area} className="sm:col-span-2" />
             <InfoRow label="Booking Count" value={booking.customerDetails?.bookings || 0} />
           </div>
@@ -303,14 +297,15 @@ export default function BookingDetailScreen() {
         <SectionCard
           title="Worker Card"
           subtitle="Assigned professional and quick actions"
-          className="h-full"
+          className="h-full min-h-[270px]"
           icon={<Icon name="worker" size={18} />}
           action={<Badge label={booking.workerDetails?.status || (booking.workerId ? 'Assigned' : 'Unassigned')} color={booking.workerDetails?.status === 'Active' ? '#10B981' : booking.workerId ? '#3B82F6' : '#F59E0B'} size="xs" dot />}
         >
-          <div className="grid gap-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid min-h-[170px] content-start gap-4">
+            <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
               <InfoRow label="Name" value={booking.workerDetails?.name || booking.workerName || ''} />
               <InfoRow label="Profession" value={booking.workerDetails?.profession || booking.service} />
+              <InfoRow label="Phone" value={booking.workerDetails?.phone || booking.workerPhone || ''} />
               <InfoRow label="Rating" value={booking.workerDetails?.rating ? `${booking.workerDetails.rating.toFixed(1)} / 5` : ''} />
               <InfoRow label="Status" value={booking.workerDetails?.status || ''} />
             </div>
@@ -323,120 +318,84 @@ export default function BookingDetailScreen() {
         </SectionCard>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] xl:items-start">
-        <div className="grid gap-6">
-          <SectionCard title="Service Details" subtitle="What needs to be delivered and where" icon={<Icon name="tag" size={18} />}>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <InfoRow label="Service" value={booking.service} />
-              <InfoRow label="Sub-service" value={booking.category || booking.service} />
-              <InfoRow label="Address" value={booking.address} className="sm:col-span-2" />
-              <InfoRow label="Landmark" value={booking.landmark} className="sm:col-span-2" />
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:items-start">
+        <SectionCard title="Service Details" subtitle="What needs to be delivered and where" className="h-full min-h-[230px]" icon={<Icon name="tag" size={18} />}>
+          <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
+            <InfoRow label="Service" value={booking.service} />
+            <InfoRow label="Sub-service" value={booking.category || booking.service} />
+            <InfoRow label="Address" value={booking.address} className="sm:col-span-2" />
+            <InfoRow label="Landmark" value={booking.landmark} className="sm:col-span-2" />
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Live Status" subtitle="Current stage and operational attention" className="h-full min-h-[230px]" icon={<Icon name="flag" size={18} />}>
+          <div className="grid gap-4">
+            <div
+              className="rounded-2xl border p-4"
+              style={{
+                borderColor: `${statusColor(booking.derivedStatus)}44`,
+                background: `${statusColor(booking.derivedStatus)}14`,
+              }}
+            >
+              <div className="text-label mb-2">Current Stage</div>
+              <div className="text-[24px] font-extrabold leading-tight" style={{ color: statusColor(booking.derivedStatus) }}>{currentStage}</div>
             </div>
-          </SectionCard>
-
-          {(booking.estimatedPrice || booking.finalPrice || booking.amount || booking.paymentMode || booking.paid) && (
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              {booking.estimatedPrice ? (
-                <PricingCard
-                  title="Estimated Price"
-                  amount={booking.estimatedPrice}
-                  unit="job"
-                  details={[booking.paymentMode ? `Payment mode: ${booking.paymentMode}` : '', booking.paid ? 'Payment state: Paid' : ''].filter(Boolean)}
-                />
-              ) : null}
-              {(booking.finalPrice || booking.amount || booking.paymentMode || booking.paid) ? (
-                <SectionCard title="Pricing" subtitle="Final settlement and payment mode" className="h-full">
-                  <div className="grid gap-4">
-                    {(booking.finalPrice || booking.amount) ? (
-                      <div>
-                        <div className="text-label mb-2">Final Price</div>
-                        <div className="text-[30px] font-extrabold leading-none text-emerald-600">Rs {Number(booking.finalPrice || booking.amount).toLocaleString('en-IN')}</div>
-                      </div>
-                    ) : null}
-                    {(booking.paymentMode || booking.paid) ? (
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        {booking.paymentMode ? <InfoRow label="Payment Mode" value={booking.paymentMode} /> : null}
-                        {booking.paid ? <InfoRow label="Payment State" value="Paid" /> : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </SectionCard>
-              ) : null}
+            <div className="flex gap-2 flex-wrap">
+              {['Booking Created', 'Assigned', 'Accepted', 'Started', booking.derivedStatus === 'Rejected' ? 'Rejected' : 'Completed'].map((item) => {
+                const order = ['Booking Created', 'Assigned', 'Accepted', 'Started', booking.derivedStatus === 'Rejected' ? 'Rejected' : 'Completed']
+                const done = order.indexOf(item) <= order.indexOf(currentStage)
+                return <Badge key={item} label={item} color={done ? statusColor(item === 'Started' ? 'In Progress' : item) : '#94A3B8'} size="xs" dot={done} />
+              })}
             </div>
-          )}
-
-          <SectionCard title="Timeline" subtitle="Booking stages with timestamps" icon={<Icon name="clock" size={18} />}>
-            <Timeline booking={booking} statusColor={statusColor} />
-          </SectionCard>
-
-          <SectionCard title="Related Records" subtitle="Quality issues, incentives, and customer feedback tied to this booking" icon={<Icon name="activity" size={18} />}>
-            <RelatedRecordsPanel
-              summaryItems={relatedRecordSummary}
-              records={relatedRecordItems}
-              emptyMessage="No connected quality, rewards, or feedback records were found for this booking yet."
-            />
-          </SectionCard>
-
-          <SectionCard title="Notes" subtitle="Internal and field communication context" icon={<Icon name="edit" size={18} />}>
-            <div className="grid gap-4">
-              <div>
-                <div className="text-label mb-2">Admin</div>
-                <textarea value={booking.adminNotes || ''} onChange={(event) => handleNotesChange('adminNotes', event.target.value)} rows={3} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm text-[var(--text-main)] resize-y focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" />
+            {booking.issues.length > 0 && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                <div className="text-label mb-2 text-red-600">Attention Needed</div>
+                <div className="grid gap-2">
+                  {booking.issues.map((issue) => (
+                    <div key={issue} className="text-[13px] font-medium text-red-700">{issue}</div>
+                  ))}
+                </div>
               </div>
-              <div>
-                <div className="text-label mb-2">Worker</div>
-                <textarea value={booking.workerNotes || ''} onChange={(event) => handleNotesChange('workerNotes', event.target.value)} rows={3} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm text-[var(--text-main)] resize-y focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" />
-              </div>
-              <div>
-                <div className="text-label mb-2">Customer</div>
-                <textarea value={booking.customerNotes || ''} onChange={(event) => handleNotesChange('customerNotes', event.target.value)} rows={3} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm text-[var(--text-main)] resize-y focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" />
-              </div>
-            </div>
-          </SectionCard>
+            )}
+          </div>
+        </SectionCard>
 
-          <SectionCard title="Activity Log" subtitle="Key booking events in order" icon={<Icon name="activity" size={18} />}>
-            <div className="grid gap-3">
-              {(booking.activityLog || []).map((entry) => (
-                <div key={entry.id} className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="text-[14px] font-semibold text-[var(--text-main)] break-words">{entry.title}</div>
-                      {entry.meta && <div className="mt-1 text-[13px] text-[var(--text-muted)] break-words">{entry.meta}</div>}
+        {(booking.estimatedPrice || booking.finalPrice || booking.amount || booking.paymentMode || booking.paid) && (
+          <div className="grid grid-cols-1 gap-5 xl:col-span-2 lg:grid-cols-2">
+            {booking.estimatedPrice ? (
+              <PricingCard
+                title="Estimated Price"
+                amount={booking.estimatedPrice}
+                unit="job"
+                details={[booking.paymentMode ? `Payment mode: ${booking.paymentMode}` : '', booking.paid ? 'Payment state: Paid' : ''].filter(Boolean)}
+              />
+            ) : null}
+            {(booking.finalPrice || booking.amount || booking.paymentMode || booking.paid) ? (
+              <SectionCard title="Pricing" subtitle="Final settlement and payment mode" className="h-full">
+                <div className="grid gap-4">
+                  {(booking.finalPrice || booking.amount) ? (
+                    <div>
+                      <div className="text-label mb-2">Final Price</div>
+                      <div className="text-[30px] font-extrabold leading-none text-emerald-600">Rs {Number(booking.finalPrice || booking.amount).toLocaleString('en-IN')}</div>
                     </div>
-                    <div className="shrink-0 text-[12px] font-medium text-[var(--text-muted)]">{entry.at}</div>
-                  </div>
+                  ) : null}
+                  {(booking.paymentMode || booking.paid) ? (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      {booking.paymentMode ? <InfoRow label="Payment Mode" value={booking.paymentMode} /> : null}
+                      {booking.paid ? <InfoRow label="Payment State" value="Paid" /> : null}
+                    </div>
+                  ) : null}
                 </div>
-              ))}
-            </div>
-          </SectionCard>
-        </div>
+              </SectionCard>
+            ) : null}
+          </div>
+        )}
 
-        <div className="grid gap-6 xl:sticky xl:top-6">
-          <SectionCard title="Live Status" subtitle="Current stage and operational attention" icon={<Icon name="flag" size={18} />}>
-            <div className="grid gap-4">
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="text-label mb-2">Current Stage</div>
-                <div className="text-[24px] font-extrabold leading-tight text-emerald-700">{currentStage}</div>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                {['Booking Created', 'Assigned', 'Accepted', 'Started', 'Completed'].map((item) => {
-                  const done = ['Booking Created', 'Assigned', 'Accepted', 'Started', 'Completed'].indexOf(item) <= ['Booking Created', 'Assigned', 'Accepted', 'Started', 'Completed'].indexOf(currentStage)
-                  return <Badge key={item} label={item} color={done ? '#059669' : '#94A3B8'} size="xs" dot={done} />
-                })}
-              </div>
-              {booking.issues.length > 0 && (
-                <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
-                  <div className="text-label mb-2 text-red-600">Attention Needed</div>
-                  <div className="grid gap-2">
-                    {booking.issues.map((issue) => (
-                      <div key={issue} className="text-[13px] font-medium text-red-700">{issue}</div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </SectionCard>
+        <SectionCard title="Timeline" subtitle="Booking stages with timestamps" className="h-full" icon={<Icon name="clock" size={18} />}>
+          <Timeline booking={booking} statusColor={statusColor} />
+        </SectionCard>
 
+        <div className="grid gap-5">
           <SectionCard title="Assign Worker" subtitle="Quick reassignment from nearby pool" icon={<Icon name="users" size={18} />}>
             <div className="grid gap-4">
               <select value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)} className="h-11 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-3 text-sm font-medium text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
@@ -448,7 +407,48 @@ export default function BookingDetailScreen() {
               <Btn v="outline" className="justify-center" onClick={handleAssignWorker} disabled={!selectedWorkerId || updating}>Assign Worker</Btn>
             </div>
           </SectionCard>
+
+          <SectionCard title="Related Records" subtitle="Quality issues, incentives, and customer feedback tied to this booking" icon={<Icon name="activity" size={18} />}>
+            <RelatedRecordsPanel
+              summaryItems={relatedRecordSummary}
+              records={relatedRecordItems}
+              emptyMessage="No connected quality, rewards, or feedback records were found for this booking yet."
+            />
+          </SectionCard>
         </div>
+
+        <SectionCard title="Notes" subtitle="Internal and field communication context" className="h-full" icon={<Icon name="edit" size={18} />}>
+          <div className="grid gap-4">
+            <div>
+              <div className="text-label mb-2">Admin</div>
+              <textarea value={booking.adminNotes || ''} onChange={(event) => handleNotesChange('adminNotes', event.target.value)} rows={3} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm text-[var(--text-main)] resize-y focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" />
+            </div>
+            <div>
+              <div className="text-label mb-2">Worker</div>
+              <textarea value={booking.workerNotes || ''} onChange={(event) => handleNotesChange('workerNotes', event.target.value)} rows={3} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm text-[var(--text-main)] resize-y focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" />
+            </div>
+            <div>
+              <div className="text-label mb-2">Customer</div>
+              <textarea value={booking.customerNotes || ''} onChange={(event) => handleNotesChange('customerNotes', event.target.value)} rows={3} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm text-[var(--text-main)] resize-y focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" />
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Activity Log" subtitle="Key booking events in order" className="h-full" icon={<Icon name="activity" size={18} />}>
+          <div className="grid gap-3">
+            {(booking.activityLog || []).map((entry) => (
+              <div key={entry.id} className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-[var(--text-main)] break-words">{entry.title}</div>
+                    {entry.meta && <div className="mt-1 text-[13px] text-[var(--text-muted)] break-words">{entry.meta}</div>}
+                  </div>
+                  <div className="shrink-0 text-[12px] font-medium text-[var(--text-muted)]">{entry.at}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--border-main)] bg-[var(--card-bg)]/95 backdrop-blur">
@@ -466,8 +466,8 @@ export default function BookingDetailScreen() {
                 ))}
               </select>
               <Btn v="outline" className="justify-center" onClick={() => statusDraft && handleStatusChange(statusDraft)} disabled={!statusDraft || updating}>Apply Status</Btn>
-              <Btn v="danger" className="justify-center" onClick={handleCancel} disabled={updating || booking.derivedStatus === 'Cancelled' || booking.derivedStatus === 'Completed'}>Cancel</Btn>
-              <Btn v="success" className="justify-center" onClick={handleComplete} disabled={updating || booking.derivedStatus === 'Completed' || booking.derivedStatus === 'Cancelled'}>Complete</Btn>
+              <Btn v="danger" className="justify-center" onClick={handleCancel} disabled={updating || booking.derivedStatus === 'Rejected' || booking.derivedStatus === 'Completed'}>Reject</Btn>
+              <Btn v="success" className="justify-center" onClick={handleComplete} disabled={updating || booking.derivedStatus === 'Completed' || booking.derivedStatus === 'Rejected'}>Complete</Btn>
             </div>
           </div>
         </div>

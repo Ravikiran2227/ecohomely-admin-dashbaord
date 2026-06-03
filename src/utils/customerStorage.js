@@ -155,6 +155,49 @@ function normalizedDevice(record = {}) {
   return ''
 }
 
+function locationFromValue(value = {}) {
+  if (!value || typeof value !== 'object') return null
+  const lat = Number(value.lat ?? value.latitude ?? value.Latitude ?? value._lat)
+  const lng = Number(value.lng ?? value.lon ?? value.long ?? value.longitude ?? value.Longitude ?? value._long)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  return {
+    lat,
+    lng,
+    address: pickFirst(value, ['address', 'fullAddress', 'formattedAddress', 'location'], ''),
+    area: pickFirst(value, ['area', 'areaName', 'city', 'cityName', 'mandal'], ''),
+  }
+}
+
+function normalizedLocation(record = {}, relatedBookings = []) {
+  const direct = locationFromValue(record)
+  if (direct) return direct
+
+  const locationKeys = [
+    'location',
+    'userLocation',
+    'customerLocation',
+    'currentLocation',
+    'geoLocation',
+    'coordinates',
+    'gps',
+    'lastKnownLocation',
+  ]
+
+  for (const key of locationKeys) {
+    const found = locationFromValue(record[key])
+    if (found) return found
+  }
+
+  for (const booking of relatedBookings) {
+    for (const key of ['userLocation', 'customerLocation', 'location', 'customerDetails']) {
+      const found = locationFromValue(booking?.[key])
+      if (found) return found
+    }
+  }
+
+  return null
+}
+
 function getIdentityKeys(record = {}) {
   return [
     record.id,
@@ -212,7 +255,9 @@ export function normalizeCustomerRecord(record = {}, related = {}) {
     phone: pickFirst(record, ['phone', 'phoneNumber', 'mobile'], ''),
     email: pickFirst(record, ['email'], ''),
     photoUrl: normalizePhotoValue(pickNestedFirst(record, CUSTOMER_PHOTO_FIELDS)),
-    area: pickFirst(record, ['area', 'areaName', 'city', 'cityName'], ''),
+    area: pickFirst(record, ['area', 'areaName', 'city', 'cityName'], normalizedLocation(record, bookings)?.area || ''),
+    address: pickFirst(record, ['address', 'fullAddress', 'formattedAddress'], normalizedLocation(record, bookings)?.address || ''),
+    location: normalizedLocation(record, bookings),
     dateJoined: formatDate(pickFirst(record, ['dateJoined', 'joinedAt', 'createdAt', 'registeredAt', 'updatedAt'], '')),
     status: normalizedStatus(record),
     bookings: bookings.length || Number(record.bookings ?? record.bookingCount ?? 0),

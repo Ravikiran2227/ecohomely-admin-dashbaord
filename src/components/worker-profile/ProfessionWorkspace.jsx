@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -79,8 +80,28 @@ function firstText(...values) {
 
 function numberFromValue(value) {
   if (value === undefined || value === null || value === '') return 0
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
   const parsed = Number(String(value).replace(/[^\d.-]/g, ''))
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function amountFromValue(value) {
+  if (value === undefined || value === null || value === '') return 0
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (Array.isArray(value)) return amountFromValue(value.find((item) => amountFromValue(item) > 0))
+  if (typeof value === 'object') {
+    return amountFromValue(firstText(
+      value.price,
+      value.amount,
+      value.value,
+      value.total,
+      value.packagePrice,
+      value.fullServicePackage,
+      value.charge,
+      value.cost,
+    ))
+  }
+  return numberFromValue(value)
 }
 
 function getExperienceYears(worker, profession) {
@@ -153,16 +174,19 @@ function mediaItemFromValue(value, index, prefix = 'media') {
       title: `Profession media ${index + 1}`,
       caption: 'Profession media from Firebase',
       src: value,
+      type: /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(value) ? 'video' : 'image',
     }
   }
   if (typeof value === 'object') {
-    const src = value.src || value.url || value.downloadUrl || value.downloadURL || value.fileUrl || value.imageUrl || value.image || value.photo || ''
+    const src = value.src || value.url || value.downloadUrl || value.downloadURL || value.fileUrl || value.videoUrl || value.videoURL || value.imageUrl || value.image || value.photo || ''
     if (!src) return null
+    const typeText = `${value.type || ''} ${value.mimeType || ''} ${value.contentType || ''} ${src}`.toLowerCase()
     return {
       id: value.id || `${prefix}-${index + 1}`,
       title: value.title || value.name || value.fileName || `Profession media ${index + 1}`,
       caption: value.caption || value.description || 'Profession media from Firebase',
       src,
+      type: /video|\.mp4|\.webm|\.ogg|\.mov|\.m4v/.test(typeText) ? 'video' : 'image',
     }
   }
   return null
@@ -176,7 +200,7 @@ function mediaListFromValue(value) {
     if (Array.isArray(value.images)) return value.images
     if (Array.isArray(value.photos)) return value.photos
     if (Array.isArray(value.files)) return value.files
-    if (!(value.src || value.url || value.downloadUrl || value.downloadURL || value.fileUrl || value.imageUrl || value.image || value.photo)) {
+    if (!(value.src || value.url || value.downloadUrl || value.downloadURL || value.fileUrl || value.videoUrl || value.videoURL || value.imageUrl || value.image || value.photo)) {
       return Object.values(value).flatMap(mediaListFromValue)
     }
   }
@@ -248,18 +272,57 @@ function buildGalleryItems(profession, worker, type) {
   return uniqueMediaItems(storageMedia)
 }
 
-function buildPackages(profession) {
+function buildPackages(profession = {}, worker = {}) {
+  profession = profession || {}
+  worker = worker || {}
   const packages = profession?.packages || profession?.pricingPackages || profession?.servicePackages || []
-  if (!Array.isArray(packages)) return []
+  if (Array.isArray(packages) && packages.length > 0) {
+    return packages.map((item, index) => ({
+      id: item.id || item.key || `package-${index}`,
+      label: item.label || item.name || item.title || `Package ${index + 1}`,
+      price: amountFromValue(firstText(item.price, item.amount, item.value, item.total, item.packagePrice)),
+      recommended: Boolean(item.recommended || item.isRecommended),
+      description: item.description || item.details || '',
+      features: Array.isArray(item.features) ? item.features : Array.isArray(item.includes) ? item.includes : [],
+    }))
+  }
 
-  return packages.map((item, index) => ({
-    id: item.id || item.key || `package-${index}`,
-    label: item.label || item.name || item.title || `Package ${index + 1}`,
-    price: Number(item.price || item.amount || item.value || 0),
-    recommended: Boolean(item.recommended || item.isRecommended),
-    description: item.description || item.details || '',
-    features: Array.isArray(item.features) ? item.features : Array.isArray(item.includes) ? item.includes : [],
-  }))
+  const minimalCharge = firstText(
+    profession.minimalVisitCharge,
+    profession.minimumVisitCharge,
+    profession.visitCharge,
+    profession.basePrice,
+    profession.price,
+    worker.minimalVisitCharge,
+    worker.minimumVisitCharge,
+    worker.visitCharge,
+  )
+  const minimalIncludes = profession.minimalVisitIncludes || profession.minimumVisitIncludes || profession.visitIncludes || profession.includes || worker.minimalVisitIncludes
+  const fullPackage = firstText(profession.fullServicePackage, profession.fullService, profession.packagePrice, worker.fullServicePackage)
+  const fullIncludes = profession.fullServiceIncludes || profession.packageIncludes || profession.fullServiceItems || []
+
+  return [
+    minimalCharge !== undefined && minimalCharge !== null && String(minimalCharge).trim() !== ''
+      ? {
+        id: 'minimal-visit',
+        label: 'Minimal Visit',
+        price: amountFromValue(minimalCharge),
+        recommended: false,
+        description: 'Minimal visit pricing from Firebase',
+        features: Array.isArray(minimalIncludes) ? minimalIncludes : String(minimalIncludes || '').split(/[,/|]+/).map((item) => item.trim()).filter(Boolean),
+      }
+      : null,
+    fullPackage !== undefined && fullPackage !== null && String(fullPackage).trim() !== ''
+      ? {
+        id: 'full-service',
+        label: 'Full Service Package',
+        price: amountFromValue(fullPackage),
+        recommended: true,
+        description: 'Full service package from Firebase',
+        features: Array.isArray(fullIncludes) ? fullIncludes : String(fullIncludes || '').split(/[,/|]+/).map((item) => item.trim()).filter(Boolean),
+      }
+      : null,
+  ].filter(Boolean)
 }
 
 function buildReviews(reviews = [], profession) {
@@ -277,6 +340,93 @@ function buildReviews(reviews = [], profession) {
       rating: Number(review.rating || 0),
       feedback: review.feedback || review.comment || review.review || '',
     }))
+}
+
+function formatFieldValue(value) {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value?.toDate === 'function') {
+    return value.toDate().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  }
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (Array.isArray(value)) return value.map(formatFieldValue).filter(Boolean).join(', ')
+  if (typeof value === 'object') {
+    const label = firstText(value.label, value.name, value.title, value.value, value.text, value.amount, value.price)
+    return label !== undefined ? formatFieldValue(label) : ''
+  }
+  return String(value)
+}
+
+function getProfessionField(profession = {}, worker = {}, paths = []) {
+  profession = profession || {}
+  worker = worker || {}
+  const read = (source, path) => String(path).split('.').reduce((current, key) => current?.[key], source)
+  for (const path of paths) {
+    const value = read(profession, path)
+    if (value !== undefined && value !== null && String(formatFieldValue(value)).trim() !== '') return value
+  }
+  for (const path of paths) {
+    const value = read(worker, path)
+    if (value !== undefined && value !== null && String(formatFieldValue(value)).trim() !== '') return value
+  }
+  return undefined
+}
+
+function buildProfessionInfoRows(profession = {}, worker = {}, reviewCards = []) {
+  profession = profession || {}
+  worker = worker || {}
+  const experienceYears = getExperienceYears(worker, profession)
+  const rows = [
+    { label: 'Profession', value: profession.profession },
+    { label: 'Availability Start', value: getProfessionField(profession, worker, ['availabilityStart', 'availableFrom', 'startTime', 'workingStart', 'availability.start']) },
+    { label: 'Availability End', value: getProfessionField(profession, worker, ['availabilityEnd', 'availableTo', 'endTime', 'workingEnd', 'availability.end']) },
+    { label: 'Sub Services', value: getProfessionField(profession, worker, ['subServices', 'subservices', 'sub_service', 'subService']) },
+    { label: 'Average Rating', value: getProfessionField(profession, worker, ['averageRating', 'avgRating', 'rating', 'performance.rating']) },
+    { label: 'Review Count', value: getProfessionField(profession, worker, ['reviewCount', 'reviewsCount']) ?? (reviewCards.length ? reviewCards.length : '') },
+    { label: 'Experience Range (Years)', value: getProfessionField(profession, worker, ['experienceRange', 'experienceYears', 'yearsOfExperience', 'experience']) || (experienceYears ? `${experienceYears}+` : '') },
+    { label: 'Team Size', value: getProfessionField(profession, worker, ['teamSize', 'teamMembers', 'teamMemberCount']) },
+    { label: 'Minimal Visit Charge', value: getProfessionField(profession, worker, ['minimalVisitCharge', 'minimumVisitCharge', 'visitCharge', 'price', 'basePrice']) },
+    { label: 'Minimal Visit Includes', value: getProfessionField(profession, worker, ['minimalVisitIncludes', 'minimumVisitIncludes', 'visitIncludes', 'includes']) },
+    { label: 'Full Service Package', value: getProfessionField(profession, worker, ['fullServicePackage', 'fullService', 'package', 'packages']) },
+    { label: 'Brand Certification', value: getProfessionField(profession, worker, ['brandCertification', 'brandCertificate', 'certification', 'brand.certification']) },
+  ]
+
+  return rows
+    .map((row) => ({ ...row, value: formatFieldValue(row.value) }))
+    .filter((row) => row.value !== undefined && row.value !== null && String(row.value).trim() !== '')
+}
+
+function buildProfessionMetaRows(profession = {}, worker = {}) {
+  profession = profession || {}
+  worker = worker || {}
+  const meta = profession.meta || profession.metadata || profession.metaData || profession.professionMetaData || {}
+  const rows = [
+    { label: 'Gender', value: firstText(meta.gender, profession.gender, worker.gender) },
+  ]
+
+  Object.entries(meta).forEach(([key, value]) => {
+    if (key === 'gender') return
+    const formatted = formatFieldValue(value)
+    if (formatted) rows.push({ label: key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()), value: formatted })
+  })
+
+  return rows
+    .map((row) => ({ ...row, value: formatFieldValue(row.value) }))
+    .filter((row) => row.value !== undefined && row.value !== null && String(row.value).trim() !== '')
+}
+
+function InfoGrid({ rows }) {
+  if (!rows.length) return null
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {rows.map((row) => (
+        <div key={`${row.label}-${row.value}`} className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-4">
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">{row.label}</div>
+          <div className="mt-2 break-words text-sm font-black text-[var(--text-main)]">{row.value}</div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function EmptyProfessionState({ type }) {
@@ -307,38 +457,81 @@ function SectionCard({ title, subtitle, action, children }) {
   )
 }
 
+function GalleryThumb({ item, index, visual }) {
+  const [failed, setFailed] = useState(false)
+  const Icon = visual.icon
+  const isVideo = item.type === 'video' || /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(String(item.src || ''))
+
+  if (item.src && isVideo && !failed) {
+    return (
+      <div className="relative h-44 overflow-hidden bg-black">
+        <video src={item.src} preload="metadata" muted playsInline onError={() => setFailed(true)} className="h-full w-full object-cover" />
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+          <div className="rounded-full bg-black/70 px-4 py-2 text-xs font-black uppercase tracking-[0.08em] text-white">Play Video</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (item.src && !failed) {
+    return (
+      <img
+        src={item.src}
+        alt={item.title}
+        loading={index < 4 ? 'eager' : 'lazy'}
+        fetchPriority={index < 4 ? 'high' : 'auto'}
+        decoding="async"
+        onError={() => setFailed(true)}
+        className="h-44 w-full object-cover"
+      />
+    )
+  }
+
+  return (
+    <div className={cn('flex h-44 items-center justify-center bg-gradient-to-br', item.gradientClass || visual.bannerClass)}>
+      <div className={cn('flex h-16 w-16 items-center justify-center rounded-2xl border', visual.mediaClass)}>
+        <Icon className="h-8 w-8" />
+      </div>
+    </div>
+  )
+}
+
 function LightboxPreview({ item, visual, onClose }) {
   if (!item) return null
 
   const Icon = visual.icon
+  const isVideo = item.type === 'video' || /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(String(item.src || ''))
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-4xl overflow-hidden rounded-[28px] border border-white/10 bg-slate-950 shadow-[0_24px_80px_rgba(15,23,42,0.45)]" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 text-white">
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-[var(--border-main)] bg-[var(--card-bg)] shadow-[0_24px_80px_rgba(15,23,42,0.35)]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-[var(--border-main)] px-5 py-4">
           <div>
-            <div className="text-xs font-bold uppercase tracking-[0.08em] text-slate-400">Work Reference Preview</div>
-            <div className="mt-1 text-lg font-black">{item.title}</div>
+            <div className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Work Reference Preview</div>
+            <div className="mt-1 text-lg font-black text-[var(--text-main)]">{item.title}</div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-white/90 hover:bg-white/10">
+          <button type="button" onClick={onClose} className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-semibold text-[var(--text-main)] hover:bg-[var(--card-hover)]">
             Close
           </button>
         </div>
-        <div className="p-5">
-          {item.src ? (
-            <img src={item.src} alt={item.title} loading="eager" decoding="async" className="h-[60vh] w-full rounded-[24px] object-cover" />
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          {item.src && isVideo ? (
+            <video src={item.src} controls autoPlay className="mx-auto max-h-[78vh] w-full rounded-[24px] bg-black object-contain" />
+          ) : item.src ? (
+            <img src={item.src} alt={item.title} loading="eager" decoding="async" className="mx-auto max-h-[78vh] w-full rounded-[24px] object-contain bg-[var(--bg-main)]" />
           ) : (
-            <div className={cn('flex h-[60vh] w-full flex-col items-center justify-center rounded-[24px] border border-white/10 bg-gradient-to-br text-white', item.gradientClass || visual.bannerClass)}>
-              <div className={cn('flex h-20 w-20 items-center justify-center rounded-[24px] border border-white/15 bg-white/10', visual.mediaClass)}>
+            <div className={cn('flex h-[60vh] w-full flex-col items-center justify-center rounded-[24px] border border-[var(--border-main)] bg-gradient-to-br text-[var(--text-main)]', item.gradientClass || visual.bannerClass)}>
+              <div className={cn('flex h-20 w-20 items-center justify-center rounded-[24px] border', visual.mediaClass)}>
                 <Icon className="h-10 w-10" />
               </div>
               <div className="mt-5 text-3xl font-black">{item.title}</div>
-              <div className="mt-2 text-sm text-white/75">{item.caption}</div>
+              <div className="mt-2 text-sm text-[var(--text-muted)]">{item.caption}</div>
             </div>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -443,8 +636,10 @@ export function ProfessionWorkspace({
 
   const visual = useMemo(() => getProfessionVisual(profession?.profession), [profession])
   const galleryItems = useMemo(() => [...buildGalleryItems(profession, worker, type), ...uploadedGallery], [profession, uploadedGallery, worker, type])
-  const packageCards = useMemo(() => buildPackages(profession), [profession])
+  const packageCards = useMemo(() => buildPackages(profession, worker), [profession, worker])
   const reviewCards = useMemo(() => buildReviews(reviews, profession), [reviews, profession])
+  const professionInfoRows = useMemo(() => buildProfessionInfoRows(profession, worker, reviewCards), [profession, worker, reviewCards])
+  const professionMetaRows = useMemo(() => buildProfessionMetaRows(profession, worker), [profession, worker])
 
   useEffect(() => {
     if (!worker?.id || !type) return
@@ -465,6 +660,21 @@ export function ProfessionWorkspace({
   const planLabel = worker?.planType ? `${worker.planType} Plan` : ''
   const planExpiryLabel = worker?.planExpiry ? formatPlanExpiry(worker.planExpiry) : ''
   const experienceYears = getExperienceYears(worker, profession)
+  const professionDescription = firstText(
+    profession.description,
+    profession.jobDescription,
+    profession.professionDescription,
+    profession.primaryJobDescription,
+    profession.primaryProfessionDescription,
+    profession.about,
+    profession.details,
+    profession.summary,
+    type === 'primary' ? worker.primaryProfessionDescription : worker.secondaryProfessionDescription,
+    type === 'primary' ? worker.primaryDescription : worker.secondaryDescription,
+    worker.professionDescription,
+    worker.jobDescription,
+    worker.description,
+  )
   const quickFacts = [
     experienceYears > 0 ? { label: 'Experience', value: `${experienceYears}+ years` } : null,
     planLabel ? { label: 'Plan', value: planLabel } : null,
@@ -588,7 +798,7 @@ export function ProfessionWorkspace({
                 overflow: 'hidden',
               }}
             >
-              {profession.description || 'No profession description has been added yet.'}
+              {professionDescription || 'No profession description has been added yet.'}
             </p>
             <button type="button" onClick={() => setDescriptionExpanded((current) => !current)} className="mt-3 text-sm font-semibold text-brand-700 dark:text-brand-300">
               {descriptionExpanded ? 'Show Less' : 'Read More'}
@@ -626,16 +836,13 @@ export function ProfessionWorkspace({
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1.18fr_0.82fr]">
-        <div className="space-y-6">
-          <SectionCard title="Job Description" subtitle="Role summary and service scope for this profession screen">
-            <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-5">
-              <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">{type === 'primary' ? 'Primary Job Description' : 'Secondary Job Description'}</div>
-              <p className="mt-3 text-sm leading-7 text-[var(--text-main)]">
-                {profession.description || 'No job description has been added for this profession yet.'}
-              </p>
-            </div>
-          </SectionCard>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div className={cn('space-y-6', !packageCards.length && 'xl:col-span-2')}>
+          {professionInfoRows.length > 0 && (
+            <SectionCard title={`${type === 'primary' ? 'Primary' : 'Secondary'} Profession Details`} subtitle="Core profession fields synced from Firebase">
+              <InfoGrid rows={professionInfoRows} />
+            </SectionCard>
+          )}
 
           <SectionCard title="Services Offered" subtitle="Core service categories and skill tags visible for this profession">
             <div className="flex flex-wrap gap-2">
@@ -647,6 +854,93 @@ export function ProfessionWorkspace({
             </div>
           </SectionCard>
 
+          {professionMetaRows.length > 0 && (
+            <SectionCard title={`${type === 'primary' ? 'Primary' : 'Secondary'} Profession Meta-Data`} subtitle="Additional profession metadata from Firebase">
+              <InfoGrid rows={professionMetaRows} />
+            </SectionCard>
+          )}
+        </div>
+
+        <div className="space-y-6">
+          <SectionCard title="Job Description" subtitle="Role summary and service scope for this profession screen">
+            <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/60 p-5">
+              <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">{type === 'primary' ? 'Primary Job Description' : 'Secondary Job Description'}</div>
+              <p className="mt-3 text-sm leading-7 text-[var(--text-main)]">
+                {professionDescription || 'No job description has been added for this profession yet.'}
+              </p>
+            </div>
+          </SectionCard>
+
+          {packageCards.length > 0 && (
+          <SectionCard title="Pricing Packages" subtitle="Structured packages with active selection and booking-focused CTA">
+            <div className="space-y-3">
+              {packageCards.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setSelectedPackage(item.id)}
+                className={cn(
+                  'w-full rounded-[24px] border p-4 text-left transition-all duration-200',
+                  selectedPackage === item.id
+                    ? 'border-brand-500/30 bg-brand-500/10 shadow-[0_12px_28px_rgba(20,184,166,0.12)]'
+                    : 'border-[var(--border-main)] bg-[var(--bg-main)]/60 hover:bg-[var(--bg-main)]',
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-base font-black text-[var(--text-main)]">{item.label}</div>
+                      {item.recommended && <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-400">Recommended</span>}
+                    </div>
+                    <div className="mt-1 text-sm text-[var(--text-muted)]">{item.description}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Starting</div>
+                    <div className="mt-1 text-2xl font-black text-[var(--text-main)]">{formatCurrency(item.price)}</div>
+                  </div>
+                </div>
+                {item.features.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {item.features.map((feature) => (
+                    <div key={feature} className="flex items-start gap-2 text-sm text-[var(--text-main)]">
+                      <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600 dark:text-emerald-400">
+                        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      </span>
+                      <span>{feature}</span>
+                    </div>
+                  ))}
+                </div>
+                )}
+              </button>
+              ))}
+            </div>
+
+            {selectedPackageDetails && (
+              <div className="mt-4 rounded-[24px] border border-[var(--border-main)] bg-[var(--card-bg)] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Selected Package</div>
+                    <div className="mt-1 text-lg font-black text-[var(--text-main)]">{selectedPackageDetails.label}</div>
+                  </div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-brand-500/20 bg-brand-500/10 px-3 py-1 text-sm font-semibold text-brand-700 dark:text-brand-300">
+                    {formatCurrency(selectedPackageDetails.price)}
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <button type="button" onClick={onBook} className="rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white hover:bg-brand-700">
+                    Book Now
+                  </button>
+                  <button type="button" onClick={onChat} className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] hover:bg-[var(--card-hover)]">
+                    Chat with Worker
+                  </button>
+                </div>
+              </div>
+            )}
+          </SectionCard>
+          )}
+        </div>
+
+        <div className="space-y-6 xl:col-span-2">
           <SectionCard
             title="Work Reference Images"
             subtitle="Clickable gallery with upload support and full-screen preview"
@@ -661,38 +955,30 @@ export function ProfessionWorkspace({
             }
           >
           {galleryItems.length > 0 ? (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {galleryItems.map((item, index) => (
-                  <div key={item.id} className="group overflow-hidden rounded-[24px] border border-[var(--border-main)] bg-[var(--bg-main)] text-left transition-transform duration-200 hover:-translate-y-0.5">
+                  <div key={item.id} className="group overflow-hidden rounded-[22px] border border-[var(--border-main)] bg-[var(--bg-main)] text-left shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-transform duration-200 hover:-translate-y-0.5">
                     <button
                       type="button"
                       onClick={() => setPreviewItem(item)}
                       className="block w-full text-left"
                     >
-                      {item.src ? (
-                        <img src={item.src} alt={item.title} loading={index < 4 ? 'eager' : 'lazy'} fetchPriority={index < 4 ? 'high' : 'auto'} decoding="async" className="h-40 w-full object-cover" />
-                      ) : (
-                        <div className={cn('flex h-40 items-center justify-center bg-gradient-to-br', item.gradientClass)}>
-                          <div className={cn('flex h-16 w-16 items-center justify-center rounded-2xl border', visual.mediaClass)}>
-                            <Icon className="h-8 w-8" />
-                          </div>
-                        </div>
-                      )}
+                      <GalleryThumb item={item} index={index} visual={visual} />
                     </button>
                     <div className="p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-bold text-[var(--text-main)]">{item.title}</div>
-                          <div className="mt-1 text-xs text-[var(--text-muted)]">{item.caption}</div>
+                      <div className="grid gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-bold text-[var(--text-main)]">{item.title}</div>
+                          <div className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">{item.caption}</div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-between gap-2">
                           <button
                             type="button"
                             onClick={() => setPreviewItem(item)}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-2.5 py-2 text-xs font-bold text-[var(--text-muted)] transition-colors hover:text-[var(--text-main)]"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-brand-500/25 bg-brand-500/10 px-3 py-2 text-xs font-bold text-brand-700 transition-colors hover:bg-brand-500/15 dark:text-brand-300"
                           >
                             <Eye className="h-4 w-4" />
-                            Preview
+                            {item.type === 'video' ? 'Play' : 'Preview'}
                           </button>
                           {item.id.startsWith('upload-') && (
                             <button
@@ -736,80 +1022,6 @@ export function ProfessionWorkspace({
             ) : (
               <div className="rounded-2xl border border-dashed border-[var(--border-main)] bg-[var(--bg-main)]/50 px-5 py-8 text-center text-sm text-[var(--text-muted)]">
                 No customer reviews added yet.
-              </div>
-            )}
-          </SectionCard>
-        </div>
-
-        <div className="space-y-6">
-          <SectionCard title="Pricing Packages" subtitle="Structured packages with active selection and booking-focused CTA">
-            {packageCards.length > 0 ? (
-              <div className="space-y-3">
-                {packageCards.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setSelectedPackage(item.id)}
-                  className={cn(
-                    'w-full rounded-[24px] border p-4 text-left transition-all duration-200',
-                    selectedPackage === item.id
-                      ? 'border-brand-500/30 bg-brand-500/10 shadow-[0_12px_28px_rgba(20,184,166,0.12)]'
-                      : 'border-[var(--border-main)] bg-[var(--bg-main)]/60 hover:bg-[var(--bg-main)]',
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-base font-black text-[var(--text-main)]">{item.label}</div>
-                        {item.recommended && <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-400">Recommended</span>}
-                      </div>
-                      <div className="mt-1 text-sm text-[var(--text-muted)]">{item.description}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Starting</div>
-                      <div className="mt-1 text-2xl font-black text-[var(--text-main)]">{formatCurrency(item.price)}</div>
-                    </div>
-                  </div>
-                  {item.features.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    {item.features.map((feature) => (
-                      <div key={feature} className="flex items-start gap-2 text-sm text-[var(--text-main)]">
-                        <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600 dark:text-emerald-400">
-                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                        </span>
-                        <span>{feature}</span>
-                      </div>
-                    ))}
-                  </div>
-                  )}
-                </button>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-[var(--border-main)] bg-[var(--bg-main)]/50 px-5 py-8 text-center text-sm text-[var(--text-muted)]">
-                No pricing packages added yet.
-              </div>
-            )}
-
-            {selectedPackageDetails && (
-              <div className="mt-4 rounded-[24px] border border-[var(--border-main)] bg-[var(--card-bg)] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Selected Package</div>
-                    <div className="mt-1 text-lg font-black text-[var(--text-main)]">{selectedPackageDetails.label}</div>
-                  </div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-brand-500/20 bg-brand-500/10 px-3 py-1 text-sm font-semibold text-brand-700 dark:text-brand-300">
-                    {formatCurrency(selectedPackageDetails.price)}
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                  <button type="button" onClick={onBook} className="rounded-2xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white hover:bg-brand-700">
-                    Book Now
-                  </button>
-                  <button type="button" onClick={onChat} className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] hover:bg-[var(--card-hover)]">
-                    Chat with Worker
-                  </button>
-                </div>
               </div>
             )}
           </SectionCard>

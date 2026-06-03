@@ -305,7 +305,13 @@ export function buildChartConfig(source = {}, activeTab, activeRange, selectedDa
   const active = datasets[activeTab] || datasets.bookings
 
   if (activeRange === 'today') {
-    const buckets = [0, 4, 8, 12, 16, 20].map((hour) => ({ label: `${hour === 0 ? 12 : hour > 12 ? hour - 12 : hour} ${hour >= 12 ? 'PM' : 'AM'}`, value: 0, sortKey: hour }))
+    const buckets = [0, 4, 8, 12, 16, 20].map((hour) => ({
+      key: `hour-${hour}`,
+      label: `${hour === 0 ? 12 : hour > 12 ? hour - 12 : hour} ${hour >= 12 ? 'PM' : 'AM'}`,
+      value: 0,
+      sortKey: hour,
+      items: [],
+    }))
 
     active.rows.forEach((row) => {
       const rowDate = parseDateTime(active.getDate(row))
@@ -318,6 +324,7 @@ export function buildChartConfig(source = {}, activeTab, activeRange, selectedDa
 
       if (bucketIndex >= 0) {
         buckets[bucketIndex].value += active.getValue(row)
+        buckets[bucketIndex].items.push(row)
       }
     })
 
@@ -333,13 +340,17 @@ export function buildChartConfig(source = {}, activeTab, activeRange, selectedDa
         key,
         label: day.toLocaleDateString('en-IN', { weekday: 'short' }),
         value: 0,
+        items: [],
       }
     })
 
     active.rows.forEach((row) => {
       const key = extractDate(active.getDate(row))
       const bucket = buckets.find((item) => item.key === key)
-      if (bucket) bucket.value += active.getValue(row)
+      if (bucket) {
+        bucket.value += active.getValue(row)
+        bucket.items.push(row)
+      }
     })
 
     return { ...active, points: buckets }
@@ -348,9 +359,11 @@ export function buildChartConfig(source = {}, activeTab, activeRange, selectedDa
   const monthStart = startOfMonth(selected)
   const monthEnd = endOfMonth(selected)
   const buckets = Array.from({ length: 5 }, (_, index) => ({
+    key: `week-${index + 1}`,
     label: `W${index + 1}`,
     value: 0,
     sortKey: index,
+    items: [],
   }))
 
   active.rows.forEach((row) => {
@@ -358,6 +371,7 @@ export function buildChartConfig(source = {}, activeTab, activeRange, selectedDa
     if (!rowDate || rowDate < monthStart || rowDate > monthEnd) return
     const bucketIndex = Math.min(weekOfMonth(rowDate), buckets.length - 1)
     buckets[bucketIndex].value += active.getValue(row)
+    buckets[bucketIndex].items.push(row)
   })
 
   return { ...active, points: buckets }

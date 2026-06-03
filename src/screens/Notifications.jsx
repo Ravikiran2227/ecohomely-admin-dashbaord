@@ -35,6 +35,7 @@ function Metric({ label, value, sub, tone }) {
 }
 
 function getCampaignRoute(item) {
+  if (item.workerId || item.servicemanId) return { label: 'Open Worker Profile', path: `/workers/approval/${item.workerId || item.servicemanId}` }
   const audience = String(item.audience || '').toLowerCase()
   const title = String(item.title || '').toLowerCase()
 
@@ -80,6 +81,7 @@ function normalizeCampaign(record = {}) {
     title: record.title || record.heading || record.subject || '',
     body: record.body || record.message || record.description || '',
     audience: record.audience || record.target || record.type || '',
+    workerId: record.workerId || record.servicemanId || record.partnerId || '',
     channel: channelValue(record),
     sent: Number.isNaN(recipients) ? 0 : recipients,
     delivered: Number.isNaN(delivered) ? 0 : delivered,

@@ -4,6 +4,7 @@ import bookingsApi from '../services/bookingsApi'
 import {
   appendActivity,
   assignWorkerToBooking,
+  getCurrentTimestamp,
   normalizeStatusLabel,
   updateBookingStatus,
 } from '../utils/bookingTrackerData'
@@ -40,11 +41,19 @@ function normalizeActivity(entry, bookingId) {
 
 function normalizeBooking(record = {}) {
   const requestedAt = toDateTimeString(record.requestedAt || record.bookingDate || record.bookedAt || record.scheduledAt || record.createdAt) || ''
+  const relatedPayments = asArray(record.relatedPayments || record.payments || record.invoices)
+  const invoiceRecord = relatedPayments.find((item) => item.invoiceId || item.invoiceNumber || String(item.type || item.source || '').toLowerCase().includes('invoice')) || relatedPayments[0]
+  const invoiceGenerated = Boolean(record.invoiceGenerated || record.invoiceId || record.invoiceNumber || invoiceRecord)
+  const rawStatus = record.status || record.bookingStatus || record.Status || ''
+  const normalizedStatus = invoiceGenerated ? 'Completed' : normalizeStatusLabel(rawStatus)
+  const rejectedAt = toDateTimeString(record.rejectedAt || record.cancelledAt || record.canceledAt)
+  const invoiceCreatedAt = toDateTimeString(invoiceRecord?.createdAt || invoiceRecord?.invoiceDate || invoiceRecord?.date || invoiceRecord?.paidAt)
   const customerLocation = record.userLocation || record.customerDetails?.location || record.location || null
   const workerLocation = record.servicemanLocation || record.workerLocation || record.workerDetails?.location || null
   const booking = {
     ...record,
     id: record.id || record.bookingId,
+    bookingId: record.bookingId || record.id || '',
     customerId: record.customerId || record.userId || record.customer_id || '',
     workerId: record.workerId || record.servicemanId || record.worker_id || '',
     customerName: record.customerName || record.customer || record.customerDetails?.name || record.name || record.userName || '',
@@ -52,12 +61,19 @@ function normalizeBooking(record = {}) {
     service: record.service || record.profession || record.category || record.serviceName || record.job || '',
     category: record.category || record.profession || record.service || record.serviceName || '',
     area: record.area || record.customerDetails?.area || locationArea(customerLocation) || record.city || '',
-    status: normalizeStatusLabel(record.status),
+    rawStatus,
+    status: normalizedStatus,
     requestedAt,
     assignedAt: toDateTimeString(record.assignedAt),
     acceptedAt: toDateTimeString(record.acceptedAt),
     startedAt: toDateTimeString(record.startedAt),
-    completedAt: toDateTimeString(record.completedAt),
+    rejectedAt,
+    cancelledAt: rejectedAt,
+    invoiceGenerated,
+    invoiceId: record.invoiceId || invoiceRecord?.invoiceId || invoiceRecord?.id || '',
+    invoiceNumber: record.invoiceNumber || invoiceRecord?.invoiceNumber || '',
+    invoiceCreatedAt,
+    completedAt: toDateTimeString(record.completedAt || record.completedDate || record.finishedAt) || (invoiceGenerated ? invoiceCreatedAt : null),
     amount: Number(record.amount || record.amt || record.finalPrice || record.estimatedPrice || 0),
     estimatedPrice: Number(record.estimatedPrice || record.amount || record.amt || 0),
     finalPrice: Number(record.finalPrice || record.amount || record.amt || 0),
@@ -86,6 +102,7 @@ function normalizeBooking(record = {}) {
     adminNotes: record.adminNotes || '',
     workerNotes: record.workerNotes || '',
     customerNotes: record.customerNotes || '',
+    relatedPayments,
   }
 
   const activityLog = asArray(record.activityLog).map((entry) => normalizeActivity(entry, booking.id))
@@ -127,8 +144,12 @@ export function BookingProvider({ children }) {
         bookingsApi.getBooking(bookingId),
         bookingsApi.getBookingTimeline(bookingId).catch(() => []),
       ])
+      const paymentKeys = Array.from(new Set([bookingId, record?.bookingId, record?.id].filter(Boolean)))
+      const paymentGroups = await Promise.all(paymentKeys.map((key) => bookingsApi.getBookingPayments(key).catch(() => [])))
+      const relatedPayments = Array.from(new Map(paymentGroups.flat().map((item) => [item.id || item.invoiceId || item.invoiceNumber || JSON.stringify(item), item])).values())
       const normalized = normalizeBooking({
         ...record,
+        relatedPayments,
         activityLog: asArray(timeline).length > 0 ? timeline : record.activityLog,
       })
       setBookings((current) => {

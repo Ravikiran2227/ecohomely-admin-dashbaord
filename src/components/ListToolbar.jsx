@@ -54,7 +54,7 @@ export default function ListToolbar({
       </div>
 
       {filters && (
-        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
+        <div className="mt-3 flex flex-col gap-2.5 lg:flex-row lg:flex-wrap lg:items-center">
           {filters}
         </div>
       )}

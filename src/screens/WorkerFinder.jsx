@@ -8,6 +8,11 @@ function statusColor(available) {
   return available ? '#16A34A' : '#94A3B8'
 }
 
+function phoneDigits(value = '') {
+  const digits = String(value || '').replace(/\D/g, '')
+  return digits.length > 10 ? digits.slice(-10) : digits
+}
+
 export default function WorkerFinder({
   workers,
   selectedIds,
@@ -30,6 +35,7 @@ export default function WorkerFinder({
     const matchesRating = worker.rating >= filters.minRating
     return matchesAvailability && matchesService && matchesRating
   })
+  const visibleWorkers = filteredWorkers.length ? filteredWorkers : sortedWorkers
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -99,21 +105,19 @@ export default function WorkerFinder({
               : 'Search results will appear here after the customer location is confirmed.'}
             className="py-8"
           />
-        ) : !filteredWorkers.length ? (
-          <EmptyState
-            icon="filter"
-            title="No workers match the current filters"
-            description="Adjust availability, rating, or service match to continue with the nearby worker shortlist."
-            className="py-8"
-          />
         ) : (
           <div style={{ display: 'grid', gap: 16 }}>
+            {!filteredWorkers.length && (
+              <div style={{ border: '1px solid color-mix(in srgb, #F59E0B 30%, var(--border-main))', background: 'color-mix(in srgb, #F59E0B 10%, var(--card-bg))', color: 'var(--text-main)', borderRadius: 14, padding: '12px 14px', fontSize: 13, fontWeight: 700 }}>
+                No workers matched the selected Step 2 filters. Showing the nearest available shortlist below.
+              </div>
+            )}
             <div style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-main)' }}>
-              <MapView customerLocation={customerLocation} workers={filteredWorkers} selectedIds={selectedIds} height={300} />
+              <MapView customerLocation={customerLocation} workers={visibleWorkers} selectedIds={selectedIds} height={300} />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-              {filteredWorkers.map((worker) => {
+              {visibleWorkers.map((worker) => {
                 const selected = selectedIds.includes(worker.id)
                 const disabled = !selected && maxReached
                 return (
@@ -161,7 +165,23 @@ export default function WorkerFinder({
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{worker.phone}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{worker.phone || 'No phone'}</div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <Btn
+                            v="outline"
+                            onClick={() => worker.phone && window.open(`tel:${phoneDigits(worker.phone)}`, '_self')}
+                            disabled={!phoneDigits(worker.phone)}
+                          >
+                            Call
+                          </Btn>
+                          <Btn
+                            v="outline"
+                            onClick={() => phoneDigits(worker.phone) && window.open(`https://wa.me/91${phoneDigits(worker.phone)}`, '_blank', 'noopener,noreferrer')}
+                            disabled={!phoneDigits(worker.phone)}
+                          >
+                            WhatsApp
+                          </Btn>
+                        </div>
                         <Btn
                           v={selected ? 'success' : 'outline'}
                           onClick={() => onToggleSelect(worker.id)}

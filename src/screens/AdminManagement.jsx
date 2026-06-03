@@ -11,6 +11,7 @@ import SectionCard from '../components/SectionCard'
 import { DataTable, TableRow, TD } from '../components/Table'
 import { PERMISSIONS, ROLES } from '../config/rbac'
 import { useAuth } from '../context/authContextValue'
+import adminApi from '../services/adminApi'
 
 const COLS = ['Username', 'Name', 'Email', 'Role', 'Created Date', 'Last Login', 'Actions']
 
@@ -125,16 +126,24 @@ function AdminForm({ value, onChange, editing }) {
 }
 
 function CredentialsPanel({ credentials }) {
-  const message = `Ecohomely Admin Credentials\n\nUsername: ${credentials?.username || ''}\nPassword: ${credentials?.password || ''}\nRole: ${displayRole(credentials?.role)}\nName: ${credentials?.name || ''}`
+  const message = `Ecohomely Admin Credentials\n\nName: ${credentials?.name || ''}\nEmail: ${credentials?.email || ''}\nUsername: ${credentials?.username || ''}\nPassword: ${credentials?.password || ''}\nRole: ${displayRole(credentials?.role)}`
+  const delivered = credentials?.emailStatus === 'sent'
 
   return (
     <div className="grid gap-4">
-      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm font-bold text-emerald-700 dark:text-emerald-400">Sub admin created successfully.</div>
+      <div className={`rounded-2xl border p-4 text-sm font-bold ${credentials?.emailStatus === 'failed' ? 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'}`}>
+        {credentials?.emailStatus === 'failed'
+          ? `Sub admin created successfully, but email could not be queued: ${credentials?.emailError || 'mail service unavailable'}.`
+          : delivered
+            ? `Sub admin created successfully. Login details were sent to ${credentials?.email}.`
+            : `Sub admin created successfully. Login details were queued to ${credentials?.email}.`}
+      </div>
       <div className="grid gap-2 text-sm text-[var(--text-main)]">
+        <div><span className="font-bold">Name:</span> {credentials?.name}</div>
+        <div><span className="font-bold">Email:</span> {credentials?.email}</div>
         <div><span className="font-bold">Username:</span> {credentials?.username}</div>
         <div><span className="font-bold">Password:</span> {credentials?.password}</div>
         <div><span className="font-bold">Role:</span> {displayRole(credentials?.role)}</div>
-        <div><span className="font-bold">Name:</span> {credentials?.name}</div>
       </div>
       <div className="flex flex-wrap gap-2">
         <Btn v="outline" onClick={() => navigator.clipboard.writeText(message)}>Copy Credentials</Btn>
@@ -202,7 +211,24 @@ export default function AdminManagement() {
     try {
       if (modal.type === 'create') {
         const result = await createUser(form)
-        setCredentials({ username: form.username, password: result.generatedPassword || form.password, role: form.role, name: form.name })
+        const credentialsPayload = {
+          adminUserId: result.newUser?.id || result.id || '',
+          username: form.username,
+          password: result.generatedPassword || form.password,
+          role: form.role,
+          name: form.name,
+          email: form.email,
+        }
+        const emailResult = result.emailDelivery
+          ? { emailStatus: result.emailDelivery.status === 'sent' ? 'sent' : 'queued', emailProvider: result.emailDelivery.provider || '' }
+          : await adminApi.sendCredentialsEmail(credentialsPayload)
+            .then((delivery) => ({
+              emailStatus: delivery?.status === 'sent' ? 'sent' : 'queued',
+              emailProvider: delivery?.provider || '',
+            }))
+            .catch((mailError) => ({ emailStatus: 'failed', emailError: mailError.message || 'mail service unavailable' }))
+        Object.assign(credentialsPayload, emailResult)
+        setCredentials(credentialsPayload)
         setModal({ type: 'credentials', user: result.newUser })
         return
       }

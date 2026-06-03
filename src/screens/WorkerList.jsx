@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import PageHeader from '../components/PageHeader'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import EmptyState from '../components/EmptyState'
@@ -15,6 +14,7 @@ import { Card } from '../components/Card'
 import { DataTable, TableRow, TD } from '../components/Table'
 import locationsApi from '../services/locationsApi'
 import workersApi from '../services/workersApi'
+import { resolveWorkerAssetUrl } from '../services/firebaseClient'
 
 function FilterField({ value, onChange, options, placeholder, icon }) {
   const [open, setOpen] = useState(false)
@@ -22,7 +22,7 @@ function FilterField({ value, onChange, options, placeholder, icon }) {
   const label = selected?.name || selected || placeholder
 
   return (
-    <div className="relative z-[60] group min-w-[128px]">
+    <div className="relative z-[60] group min-w-[116px]">
       {icon && (
         <div className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-dark-400 transition-colors group-hover:text-brand-500">
           <Icon n={icon} sz={14} cl="currentColor" />
@@ -32,13 +32,13 @@ function FilterField({ value, onChange, options, placeholder, icon }) {
         type="button"
         onClick={() => setOpen((current) => !current)}
         onBlur={() => window.setTimeout(() => setOpen(false), 120)}
-        className={`flex h-12 w-full items-center justify-between gap-3 rounded-2xl border border-[color:color-mix(in_srgb,var(--color-primary)_28%,var(--border-main))] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card-bg)_96%,transparent),color-mix(in_srgb,var(--bg-main)_82%,var(--card-bg)))] ${icon ? 'pl-10' : 'pl-4'} pr-3 text-left text-sm font-extrabold text-[var(--text-main)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-primary)_6%,transparent)] transition-all hover:border-[var(--color-primary)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-4 focus:ring-brand-500/15`}
+        className={`flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-[color:color-mix(in_srgb,var(--color-primary)_28%,var(--border-main))] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card-bg)_96%,transparent),color-mix(in_srgb,var(--bg-main)_82%,var(--card-bg)))] ${icon ? 'pl-9' : 'pl-3'} pr-3 text-left text-xs font-extrabold text-[var(--text-main)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-primary)_6%,transparent)] transition-all hover:border-[var(--color-primary)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-4 focus:ring-brand-500/15`}
       >
-        <span className={`truncate ${value ? '' : 'text-[var(--text-muted)]'}`}>{label}</span>
+        <span className={`truncate ${value && !String(placeholder).toLowerCase().startsWith('sort by') ? '' : 'text-[var(--text-muted)]'}`}>{label}</span>
         <span className={`text-sm leading-none text-brand-500 transition-transform ${open ? 'rotate-180' : ''}`}>v</span>
       </button>
       {open && (
-        <div className="absolute left-0 top-[calc(100%+8px)] z-[999] max-h-72 w-full min-w-[190px] overflow-auto rounded-2xl border border-[color:color-mix(in_srgb,var(--color-primary)_24%,var(--border-main))] bg-[var(--card-bg)] p-1.5 shadow-[0_24px_60px_rgba(0,0,0,0.22)]">
+        <div className="absolute left-0 top-[calc(100%+8px)] z-[999] max-h-72 w-full min-w-[180px] overflow-auto rounded-2xl border border-[color:color-mix(in_srgb,var(--color-primary)_24%,var(--border-main))] bg-[var(--card-bg)] p-1.5 shadow-[0_24px_60px_rgba(0,0,0,0.22)]">
           <button
             type="button"
             onMouseDown={(event) => {
@@ -75,6 +75,19 @@ function FilterField({ value, onChange, options, placeholder, icon }) {
   )
 }
 
+function DateFilter({ value, onChange, placeholder }) {
+  return (
+    <input
+      type="date"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="h-10 min-w-[132px] rounded-xl border border-[color:color-mix(in_srgb,var(--color-primary)_28%,var(--border-main))] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card-bg)_96%,transparent),color-mix(in_srgb,var(--bg-main)_82%,var(--card-bg)))] px-3 text-xs font-extrabold text-[var(--text-muted)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-primary)_6%,transparent)] transition-all placeholder-[var(--text-muted)] hover:border-[var(--color-primary)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-4 focus:ring-brand-500/15"
+      aria-label={placeholder}
+      title={placeholder}
+    />
+  )
+}
+
 const emptyFilters = {
   state_id: '',
   district_id: '',
@@ -83,7 +96,37 @@ const emptyFilters = {
   profession: '',
   planType: '',
   availability: '',
+  approvalStatus: '',
+  period: '',
+  dateFrom: '',
+  dateTo: '',
+  sortBy: 'date',
 }
+
+const SORT_OPTIONS = [
+  { id: 'date', name: 'Sort By Date' },
+  { id: 'id', name: 'Sort By ID' },
+  { id: 'name', name: 'Sort By Name' },
+  { id: 'profession', name: 'Sort By Profession' },
+  { id: 'rating', name: 'Sort By Rating' },
+  { id: 'device', name: 'Sort By Device' },
+  { id: 'flagged', name: 'Sort By Flagged' },
+  { id: 'accountEdited', name: 'Sort By Account Edited' },
+  { id: 'verification', name: 'Sort By Verification Badge' },
+  { id: 'unpaidNotApproved', name: 'Sort By Not Paid & Not Approved' },
+]
+
+const APPROVAL_OPTIONS = [
+  { id: 'approved', name: 'Approved' },
+  { id: 'notApproved', name: 'Not Approved' },
+]
+
+const PERIOD_OPTIONS = [
+  { id: 'today', name: 'Today' },
+  { id: 'last7', name: 'Last 7 Days' },
+  { id: 'month', name: 'This Month' },
+  { id: 'total', name: 'Total' },
+]
 
 const MEMBERSHIP_BADGES = {
   gold: {
@@ -120,6 +163,84 @@ function MembershipBadge({ badge }) {
 }
 
 const PAGE_SIZE = 15
+const workerAvatarCache = new Map()
+
+function getWorkerAvatarCacheKey(worker = {}) {
+  return [
+    worker.id,
+    worker.uid,
+    worker.authId,
+    worker.profilePhoto,
+    worker.profilePhotoUrl,
+    worker.profileImage,
+    worker.imageUrl,
+    worker.image,
+    worker.photoUrl,
+    worker.updatedAt,
+  ].filter(Boolean).join('|')
+}
+
+function WorkerAvatar({ worker, priority = false }) {
+  const cacheKey = getWorkerAvatarCacheKey(worker)
+  const [src, setSrc] = useState(() => workerAvatarCache.get(cacheKey) || '')
+  const [failed, setFailed] = useState(false)
+  const initial = worker?.name?.[0] || 'W'
+
+  useEffect(() => {
+    let alive = true
+    setFailed(false)
+
+    if (!cacheKey) {
+      setSrc('')
+      return () => {
+        alive = false
+      }
+    }
+
+    const cached = workerAvatarCache.get(cacheKey)
+    if (cached) {
+      setSrc(cached)
+      return () => {
+        alive = false
+      }
+    }
+
+    setSrc('')
+    resolveWorkerAssetUrl(worker, 'profile')
+      .then((url) => {
+        if (!alive || !url) return
+        workerAvatarCache.set(cacheKey, url)
+        setSrc(url)
+      })
+      .catch(() => {
+        if (alive) setSrc('')
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [cacheKey, worker])
+
+  if (src && !failed) {
+    return (
+      <img
+        src={src}
+        alt={worker?.name || 'Worker'}
+        loading={priority ? 'eager' : 'lazy'}
+        decoding="async"
+        fetchPriority={priority ? 'high' : 'auto'}
+        onError={() => setFailed(true)}
+        className="h-10 w-10 rounded-xl border border-[var(--border-main)] object-cover shadow-sm"
+      />
+    )
+  }
+
+  return (
+    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-main)] bg-gradient-to-br from-dark-100 to-dark-200 text-sm font-bold text-dark-700 dark:from-dark-900 dark:to-dark-800 dark:text-dark-300">
+      {initial}
+    </div>
+  )
+}
 
 function firstText(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
@@ -244,6 +365,47 @@ function getDateMs(value) {
   return date ? date.getTime() : 0
 }
 
+function startOfDay(date) {
+  const next = new Date(date)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+function endOfDay(date) {
+  const next = new Date(date)
+  next.setHours(23, 59, 59, 999)
+  return next
+}
+
+function getWorkerCreatedDate(worker) {
+  return toDate(worker.createdAt || worker.createdDate || worker.dateAdded || worker.joinedAt || worker.created_on)
+}
+
+function matchesPeriod(date, period) {
+  if (!period || period === 'total') return true
+  if (!date) return false
+  const today = startOfDay(new Date())
+  if (period === 'today') return date >= today && date <= endOfDay(today)
+  if (period === 'last7') {
+    const sevenDaysAgo = new Date(today)
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
+    return date >= sevenDaysAgo && date <= endOfDay(today)
+  }
+  if (period === 'month') {
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+    return date >= monthStart && date <= endOfDay(today)
+  }
+  return true
+}
+
+function matchesDateRange(date, from, to) {
+  if (!from && !to) return true
+  if (!date) return false
+  const fromDate = from ? startOfDay(new Date(from)) : null
+  const toDateValue = to ? endOfDay(new Date(to)) : null
+  return (!fromDate || date >= fromDate) && (!toDateValue || date <= toDateValue)
+}
+
 function isApproved(worker) {
   return worker.approvalStatus === 'Approved' || worker.Approved === true || worker.approved === true
 }
@@ -259,6 +421,44 @@ function getMainArea(worker) {
 function getRating(worker) {
   const rating = firstText(worker.avgRating, worker.rating, worker.averageRating, worker.performance?.rating)
   return rating ? `${rating}/5` : 'N/A'
+}
+
+function getRatingNumber(worker) {
+  const rating = firstText(worker.avgRating, worker.rating, worker.averageRating, worker.performance?.rating)
+  const number = Number(String(rating || '').replace(/[^\d.]/g, ''))
+  return Number.isFinite(number) ? number : 0
+}
+
+function isFlaggedWorker(worker) {
+  return Boolean(worker.flagged || worker.isFlagged || worker.isFlaged || String(worker.flagStatus || worker.status || '').toLowerCase() === 'flagged')
+}
+
+function isPaidWorker(worker) {
+  return getPaymentInfo(worker).paid === 'Yes'
+}
+
+function compareBySort(left, right, sortBy) {
+  if (sortBy === 'id') return String(left.id || '').localeCompare(String(right.id || ''))
+  if (sortBy === 'name') return String(left.name || '').localeCompare(String(right.name || ''))
+  if (sortBy === 'profession') return getProfessionLabel(left).localeCompare(getProfessionLabel(right))
+  if (sortBy === 'rating') return getRatingNumber(right) - getRatingNumber(left) || String(left.name || '').localeCompare(String(right.name || ''))
+  if (sortBy === 'device') return getDeviceType(left).localeCompare(getDeviceType(right))
+  if (sortBy === 'flagged') return Number(isFlaggedWorker(right)) - Number(isFlaggedWorker(left)) || String(left.name || '').localeCompare(String(right.name || ''))
+  if (sortBy === 'accountEdited') {
+    const rightDate = getDateMs(right.updatedAt || right.accountEditedAt || right.profileUpdatedAt)
+    const leftDate = getDateMs(left.updatedAt || left.accountEditedAt || left.profileUpdatedAt)
+    return rightDate - leftDate || String(left.name || '').localeCompare(String(right.name || ''))
+  }
+  if (sortBy === 'verification') return String(right.approvalStatus || '').localeCompare(String(left.approvalStatus || '')) || String(left.name || '').localeCompare(String(right.name || ''))
+  if (sortBy === 'unpaidNotApproved') {
+    const leftMatch = !isPaidWorker(left) && !isApproved(left)
+    const rightMatch = !isPaidWorker(right) && !isApproved(right)
+    return Number(rightMatch) - Number(leftMatch) || String(left.name || '').localeCompare(String(right.name || ''))
+  }
+
+  const rightDate = getDateMs(right.createdAt || right.createdDate || right.dateAdded || right.updatedAt)
+  const leftDate = getDateMs(left.createdAt || left.createdDate || left.dateAdded || left.updatedAt)
+  return rightDate - leftDate || String(left.name || '').localeCompare(String(right.name || ''))
 }
 
 function uniqueOptions(rows, idKeys, nameKeys) {
@@ -455,12 +655,7 @@ export default function WorkerList() {
     setPage(1)
   }, [filters, search])
 
-  const sortedWorkers = useMemo(() => workers.slice().sort((left, right) => {
-    const rightDate = getDateMs(right.createdAt || right.createdDate || right.dateAdded || right.updatedAt)
-    const leftDate = getDateMs(left.createdAt || left.createdDate || left.dateAdded || left.updatedAt)
-    if (rightDate !== leftDate) return rightDate - leftDate
-    return String(left.name || '').localeCompare(String(right.name || ''))
-  }), [workers])
+  const sortedWorkers = useMemo(() => workers.slice().sort((left, right) => compareBySort(left, right, filters.sortBy)), [filters.sortBy, workers])
 
   const filtered = useMemo(() => sortedWorkers.filter((worker) => {
     const selectedState = stateOptions.find((item) => item.id === filters.state_id)?.name || ''
@@ -477,9 +672,13 @@ export default function WorkerList() {
     const matchesProfession = !filters.profession || profession === String(filters.profession).toLowerCase()
     const matchesPlan = !filters.planType || String(worker.planType || '').toLowerCase() === String(filters.planType).toLowerCase()
     const matchesAvailability = !filters.availability || String(worker.availability || '').toLowerCase() === String(filters.availability).toLowerCase()
+    const workerApproved = isApproved(worker)
+    const matchesApproval = !filters.approvalStatus || (filters.approvalStatus === 'approved' ? workerApproved : !workerApproved)
+    const createdDate = getWorkerCreatedDate(worker)
+    const matchesDate = matchesPeriod(createdDate, filters.period) && matchesDateRange(createdDate, filters.dateFrom, filters.dateTo)
     const matchesSearch = !search || text.includes(search.toLowerCase())
 
-    return matchesState && matchesDistrict && matchesCity && matchesArea && matchesProfession && matchesPlan && matchesAvailability && matchesSearch
+    return matchesState && matchesDistrict && matchesCity && matchesArea && matchesProfession && matchesPlan && matchesAvailability && matchesApproval && matchesDate && matchesSearch
   }), [areaOptions, cityOptions, districtOptions, filters, search, sortedWorkers, stateOptions])
   const pageCount = Math.max(Math.ceil(filtered.length / PAGE_SIZE), 1)
   const safePage = Math.min(page, pageCount)
@@ -564,7 +763,7 @@ export default function WorkerList() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <PageHeader
+      {false && <PageHeader
         title="Worker Directory"
         sub={`${workers.length} total professionals · ${pending} awaiting action`}
         action={(
@@ -574,24 +773,35 @@ export default function WorkerList() {
             <Btn v="primary" onClick={() => navigate('/workers/approval')}>Approval Queue</Btn>
           </div>
         )}
-      />
+      />}
       <ListToolbar
-        title="Filter workers"
-        subtitle="Search by worker, skill, or area and narrow the queue before opening profiles."
+        title="Worker Directory"
+        subtitle={`${workers.length} total professionals - ${pending} awaiting action`}
         resultLabel={`${pagedWorkers.length} of ${filtered.length} workers shown`}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search worker, profession, or location..."
-        actions={<Btn v="ghost" size="sm" onClick={resetFilters}>Reset filters</Btn>}
+        actions={(
+          <>
+            <Btn v="ghost" size="sm" onClick={resetFilters}>Reset filters</Btn>
+            <Btn v="outline" onClick={exportWorkers}>Export</Btn>
+            <Btn v="outline" onClick={() => navigate('/workers/dashboard')}>Stats</Btn>
+            <Btn v="primary" onClick={() => navigate('/workers/approval')}>Approval Queue</Btn>
+          </>
+        )}
         filters={(
           <>
-            <FilterField value={filters.state_id} onChange={(v) => setFilters((c) => ({ ...c, state_id: v, district_id: '', city_id: '', area_id: '' }))} options={stateOptions} placeholder="State" />
             <FilterField value={filters.district_id} onChange={(v) => setFilters((c) => ({ ...c, district_id: v, city_id: '', area_id: '' }))} options={districtOptions} placeholder="District" />
             <FilterField value={filters.city_id} onChange={(v) => setFilters((c) => ({ ...c, city_id: v, area_id: '' }))} options={cityOptions} placeholder="City" />
             <FilterField value={filters.area_id} onChange={(v) => setFilters((c) => ({ ...c, area_id: v }))} options={areaOptions} placeholder="Area" />
             <FilterField value={filters.profession} onChange={(v) => setFilters((c) => ({ ...c, profession: v }))} options={professionOptions} placeholder="Role" icon="star" />
             <FilterField value={filters.planType} onChange={(v) => setFilters((c) => ({ ...c, planType: v }))} options={['Free', 'Pro']} placeholder="Plan" icon="dollar" />
             <FilterField value={filters.availability} onChange={(v) => setFilters((c) => ({ ...c, availability: v }))} options={['Available', 'Busy', 'Offline']} placeholder="Status" icon="activity" />
+            <FilterField value={filters.approvalStatus} onChange={(v) => setFilters((c) => ({ ...c, approvalStatus: v }))} options={APPROVAL_OPTIONS} placeholder="Approval" />
+            <DateFilter value={filters.dateFrom} onChange={(v) => setFilters((c) => ({ ...c, dateFrom: v }))} placeholder="From date" />
+            <DateFilter value={filters.dateTo} onChange={(v) => setFilters((c) => ({ ...c, dateTo: v }))} placeholder="To date" />
+            <FilterField value={filters.period} onChange={(v) => setFilters((c) => ({ ...c, period: v }))} options={PERIOD_OPTIONS} placeholder="Total" />
+            <FilterField value={filters.sortBy} onChange={(v) => setFilters((c) => ({ ...c, sortBy: v || 'date' }))} options={SORT_OPTIONS} placeholder="Sort By Date" icon="activity" />
           </>
         )}
       />
@@ -605,7 +815,7 @@ export default function WorkerList() {
         <DataTable cols={COLS} className="[&_table]:min-w-[1720px]">
           {pagedWorkers.map((worker, index) => {
             const payment = getPaymentInfo(worker)
-            const flagged = worker.flagged || worker.isFlagged || worker.isFlaged
+            const flagged = isFlaggedWorker(worker)
             const dateAdded = formatDateOnly(worker.createdAt || worker.createdDate || worker.dateAdded)
             const approvedBy = isApproved(worker) ? firstText(worker.approvedBy, worker.approvedByName, worker.approverName) || 'N/A' : 'N/A'
             const membershipBadge = getMembershipBadge(worker)
@@ -620,8 +830,13 @@ export default function WorkerList() {
               </TD>
               <TD>
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-main)] bg-gradient-to-br from-dark-100 to-dark-200 text-sm font-bold text-dark-700 dark:from-dark-900 dark:to-dark-800 dark:text-dark-300">
-                    {worker.name?.[0] || 'W'}
+                  <div className="relative shrink-0">
+                    <WorkerAvatar worker={worker} priority={index < 6} />
+                    {flagged && (
+                      <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-red-500 text-white shadow-lg" title="Flagged worker">
+                        <Icon n="flag" sz={11} cl="currentColor" />
+                      </span>
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-bold text-[var(--text-main)]">{worker.name}</p>

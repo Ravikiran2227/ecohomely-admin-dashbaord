@@ -223,6 +223,64 @@ function normalizeMembership(value) {
   return ['gold', 'silver', 'bronze'].includes(normalized) ? normalized : 'gold'
 }
 
+function dateMs(value) {
+  if (!value) return 0
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'number') return value
+  if (typeof value?.toDate === 'function') return value.toDate().getTime()
+  if (typeof value?.toMillis === 'function') return value.toMillis()
+  if (typeof value?.seconds === 'number') return value.seconds * 1000
+  if (typeof value?._seconds === 'number') return value._seconds * 1000
+  const parsed = new Date(String(value).replace(' ', 'T'))
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+}
+
+function workerVersionSnapshot(worker = {}) {
+  const primary = Array.isArray(worker.professions) ? worker.professions[0] || {} : {}
+  return {
+    name: worker.name || worker.fullName || '',
+    phone: worker.phone || worker.mobile || '',
+    profession: primary.profession || worker.profession || worker.primaryProfession || '',
+    experience: firstValue(primary.experienceYears, worker.experienceYears, worker.experience, worker.workExperience) || '',
+    languages: normalizeLanguages(worker),
+    services: primary.services || worker.services || [],
+    pricing: firstValue(primary.price, worker.price, worker.basePrice) || '',
+    location: firstValue(worker.areaName, worker.area, worker.cityName, worker.city, worker.serviceArea) || '',
+    image: firstValue(worker.profilePhoto, worker.profilePhotoUrl, worker.imageUrl, worker.image) || '',
+    aadhaar: firstValue(worker.aadhaarUrl, worker.aadhaarImage, worker.aadharUrl, worker.aadharImage) || '',
+  }
+}
+
+function normalizeVerificationVersions(worker = {}, approvalStatus = 'Pending') {
+  const baseVersions = Array.isArray(worker.verificationVersions) && worker.verificationVersions.length > 0
+    ? worker.verificationVersions
+    : [{ version: 1, status: approvalStatus, updatedAt: worker.createdAt || new Date().toISOString(), note: 'Initial worker record', data: workerVersionSnapshot(worker) }]
+  const requestedAt = dateMs(worker.correctionRequestedAt || worker.profileCorrectionRequest?.requestedAt || worker.partnerAppPopup?.requestedAt)
+  const submittedAt = dateMs(worker.correctionSubmittedAt || worker.resubmittedAt || worker.profileUpdatedAt || worker.updatedAt)
+  const hasSubmittedVersion = baseVersions.some((version) => dateMs(version.updatedAt) > requestedAt && String(version.note || version.status || '').toLowerCase().includes('submit'))
+
+  if (requestedAt && submittedAt > requestedAt && !hasSubmittedVersion) {
+    const nextVersion = baseVersions.reduce((max, item) => Math.max(max, Number(item.version) || 0), 0) + 1
+    return [
+      ...baseVersions,
+      {
+        version: nextVersion,
+        status: 'Pending',
+        updatedAt: worker.correctionSubmittedAt || worker.resubmittedAt || worker.profileUpdatedAt || worker.updatedAt,
+        note: 'Worker resubmitted requested profile corrections.',
+        data: workerVersionSnapshot(worker),
+        changedFields: worker.correctionFields || worker.correctionItems || worker.profileCorrectionRequest?.fields || [],
+        requestedFields: worker.correctionFields || worker.correctionItems || worker.profileCorrectionRequest?.fields || [],
+      },
+    ]
+  }
+
+  return baseVersions.map((version) => ({
+    ...version,
+    data: version.data || workerVersionSnapshot(worker),
+  }))
+}
+
 function fileNameFromValue(value = '', fallback = 'Document') {
   const text = String(value || '').split('?')[0]
   const last = decodeURIComponent(text.split('/').pop() || '').trim()
@@ -342,6 +400,7 @@ function normalizeDocuments(worker = {}) {
   })
   const aliases = [
     ['aadhaar', 'Aadhaar', firstValue(worker.aadhaarUrl, worker.aadhaarURL, worker.aadhaarImage, worker.aadhaarPhoto, worker.aadhaarFile, worker.aadharUrl, worker.aadharImage)],
+    ['drivingLicense', 'Driving License', firstValue(worker.drivingLicense, worker.drivingLicence, worker.drivingLicenseUrl, worker.drivingLicenceUrl, worker.drivingLicenseURL, worker.drivingLicenceURL, worker.licenseUrl, worker.licenceUrl, worker.dlUrl, worker.dlImage)],
     ['pan', 'PAN Card', firstValue(worker.panUrl, worker.panURL, worker.panImage, worker.panCard, worker.panFile)],
     ['photo', 'Profile Photo', firstValue(worker.profilePhotoUrl, worker.profilePhotoURL, worker.photoUrl, worker.photoURL, worker.profileImageUrl, worker.profileImage, worker.imageUrl, worker.image, worker.avatarUrl, worker.photo)],
     ['experienceLetter', 'Experience Letter', firstValue(worker.experienceLetter, worker.experienceLetterUrl, worker.experienceLetterURL, worker.experienceLetterFile, worker.experienceCertificate, worker.experienceCertificateUrl)],
@@ -454,9 +513,7 @@ export function normalizeWorker(worker = {}) {
   const approvalStatus = normalizeApprovalStatus(worker)
   const availability = firstValue(worker.availability, toBoolean(worker.isOnline) || worker.active === true ? 'Available' : '')
     || (worker.active === false || worker.isOnline === false ? 'Offline' : 'Offline')
-  const verificationVersions = Array.isArray(worker.verificationVersions) && worker.verificationVersions.length > 0
-    ? worker.verificationVersions
-    : [{ version: 1, status: approvalStatus, updatedAt: worker.createdAt || new Date().toISOString(), note: 'Initial worker record' }]
+  const verificationVersions = normalizeVerificationVersions(worker, approvalStatus)
 
   return {
     ...worker,

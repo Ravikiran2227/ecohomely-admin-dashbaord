@@ -242,6 +242,7 @@ export function AuthProvider({ children }) {
     return {
       newUser,
       generatedPassword: result?.credentials?.temporaryPassword || result?.temporaryPassword || result?.password || payload?.password || '',
+      emailDelivery: result?.credentials?.emailDelivery || result?.emailDelivery || null,
     }
   }, [refreshActivityLogs])
 

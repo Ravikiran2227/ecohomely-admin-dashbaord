@@ -24,6 +24,30 @@ function statusIs(row, values) {
   return values.some((value) => status === value.toLowerCase())
 }
 
+function statusIn(row, values) {
+  const status = String(row?.status || row?.approvalStatus || '').trim().toLowerCase()
+  return values.some((value) => status === String(value).trim().toLowerCase())
+}
+
+function workerNeedsApproval(worker = {}) {
+  return worker.approvalStatus === 'Pending'
+    || worker.status === 'Pending'
+    || worker.approved === false
+    || worker.isApproved === false
+}
+
+function getBookingWorkerId(booking = {}) {
+  return booking.workerId || booking.worker_id || booking.servicemanId || booking.serviceman_id || booking.partnerId
+}
+
+function getBookingArea(booking = {}) {
+  return booking.area || booking.city || booking.userLocation?.city || booking.servicemanLocation?.city || booking.location?.city || 'assigned area'
+}
+
+function getBookingService(booking = {}) {
+  return booking.service || booking.profession || booking.category || booking.subService || booking.sub_service || 'Service'
+}
+
 function toDateInputValue(date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -38,6 +62,36 @@ function parseDateValue(value) {
 
 function addMonths(date, amount) {
   return new Date(date.getFullYear(), date.getMonth() + amount, 1)
+}
+
+function getRecordTitle(record, activeTab) {
+  if (!record) return 'Record'
+  if (activeTab === 'revenue') return record.paymentId || record.transactionId || record.id || 'Payment'
+  if (activeTab === 'workers') return record.name || record.fullName || record.workerName || record.id || 'Worker'
+  if (activeTab === 'customers') return record.name || record.fullName || record.customerName || record.id || 'Customer'
+  if (activeTab === 'tolet') return record.title || record.propertyName || record.ownerName || record.id || 'ToLet listing'
+  return record.customerName || record.customer || record.name || record.bookingId || record.id || 'Booking'
+}
+
+function getRecordMeta(record, activeTab) {
+  if (!record) return ''
+  if (activeTab === 'revenue') {
+    const amount = Number(record.amt || record.amount || record.total || record.value || 0)
+    return [`Rs ${amount.toLocaleString('en-IN')}`, record.status].filter(Boolean).join(' - ')
+  }
+  if (activeTab === 'workers') return [record.profession || record.primaryProfession, record.area || record.city, record.status].filter(Boolean).join(' - ')
+  if (activeTab === 'customers') return [record.phone || record.mobile, record.area || record.city, record.status].filter(Boolean).join(' - ')
+  if (activeTab === 'tolet') return [record.area || record.city, record.status].filter(Boolean).join(' - ')
+  return [record.service || record.category, record.area || record.city, record.status].filter(Boolean).join(' - ')
+}
+
+function getRecordPath(record, activeTab) {
+  if (!record?.id) return ''
+  if (activeTab === 'workers') return `/workers/${record.id}`
+  if (activeTab === 'customers') return `/customers/${record.id}`
+  if (activeTab === 'tolet') return '/tolet'
+  if (activeTab === 'bookings') return `/bookings/${record.id}`
+  return ''
 }
 
 function buildCalendarDays(monthDate) {
@@ -164,6 +218,8 @@ export default function DashboardControlCenter() {
   const [activeTab, setActiveTab] = useState('bookings')
   const [activeRange, setActiveRange] = useState('week')
   const [selectedDate, setSelectedDate] = useState(todayValue)
+  const [hoveredPoint, setHoveredPoint] = useState(null)
+  const [selectedPointKey, setSelectedPointKey] = useState('')
 
   const loadDashboard = async () => {
     setLoading(true)
@@ -192,10 +248,23 @@ export default function DashboardControlCenter() {
   const chartConfig = useMemo(() => buildChartConfig(dashboardData || {}, activeTab, activeRange, activeDate), [activeDate, activeRange, activeTab, dashboardData])
   const chartInsight = useMemo(() => buildChartInsight(chartConfig, activeRange), [activeRange, chartConfig])
   const recentBookings = useMemo(() => getRecentDashboardBookings(dashboardData || {}), [dashboardData])
+  const selectedPoint = useMemo(() => {
+    if (!chartConfig.points?.length) return null
+    return chartConfig.points.find((point) => (point.key || point.label) === selectedPointKey) || chartConfig.points.find((point) => point.value > 0) || chartConfig.points[0]
+  }, [chartConfig.points, selectedPointKey])
+
+  useEffect(() => {
+    setSelectedPointKey('')
+    setHoveredPoint(null)
+  }, [activeTab, activeRange, activeDate])
 
   const pendingCount = records.bookings.filter((booking) => statusIs(booking, ['Pending'])).length
-  const unassignedBookings = records.bookings.filter((booking) => !booking.workerId && !booking.worker_id && !booking.servicemanId && !booking.serviceman_id)
+  const unassignedBookings = records.bookings.filter((booking) => !getBookingWorkerId(booking) && statusIn(booking, ['Pending', 'Created', 'Booking Created']))
   const cancelledCount = records.bookings.filter((booking) => statusIs(booking, ['Cancelled', 'Canceled'])).length
+  const workerApprovalQueue = records.workers.filter(workerNeedsApproval)
+  const openComplaints = records.complaints.filter((item) => statusIn(item, ['Open', 'Pending', 'In Progress', 'Under Review']))
+  const pendingToLet = records.toLetListings.filter((listing) => statusIn(listing, ['Pending', 'Under Review']))
+  const failedPayments = records.payments.filter((payment) => statusIn(payment, ['Failed', 'Rejected', 'Cancelled', 'Canceled']))
   const hasDashboardRows = Object.values(records).some((items) => items.length > 0)
 
   if (loading) {
@@ -247,48 +316,123 @@ export default function DashboardControlCenter() {
     {
       title: 'Unassigned Bookings',
       count: unassignedBookings.length,
-      description: unassignedBookings[0] ? `${unassignedBookings[0].customerName || unassignedBookings[0].customer || 'Customer'} - ${unassignedBookings[0].service || unassignedBookings[0].category || 'Service'} in ${unassignedBookings[0].area || unassignedBookings[0].city || 'assigned area'}` : 'No unassigned bookings right now',
+      description: unassignedBookings[0] ? `${unassignedBookings[0].customerName || unassignedBookings[0].customer || 'Customer'} - ${getBookingService(unassignedBookings[0])} in ${getBookingArea(unassignedBookings[0])}` : 'Every pending booking has a worker assigned.',
       color: '#F59E0B',
       action: () => navigate('/bookings'),
       actionLabel: 'Open bookings',
       icon: 'clock',
     },
+    {
+      title: 'Worker Approvals',
+      count: workerApprovalQueue.length,
+      description: workerApprovalQueue[0] ? `${workerApprovalQueue[0].name || workerApprovalQueue[0].fullName || 'Worker'} is waiting for profile review.` : 'No worker profiles are waiting for approval.',
+      color: '#2563EB',
+      action: () => navigate('/workers/approval'),
+      actionLabel: 'Review workers',
+      icon: 'worker',
+    },
+    {
+      title: 'Open Complaints',
+      count: openComplaints.length,
+      description: openComplaints[0] ? `${openComplaints[0].name || openComplaints[0].customerName || 'Customer'} - ${openComplaints[0].reason || openComplaints[0].issue || openComplaints[0].message || 'Complaint needs attention'}` : 'No open complaints need action.',
+      color: '#EF4444',
+      action: () => navigate('/assistance'),
+      actionLabel: 'Open assistance',
+      icon: 'alert',
+    },
+    {
+      title: 'ToLet Reviews',
+      count: pendingToLet.length,
+      description: pendingToLet[0] ? `${pendingToLet[0].title || pendingToLet[0].propertyName || 'Listing'} is waiting for review.` : 'No ToLet listings are pending review.',
+      color: '#8B5CF6',
+      action: () => navigate('/tolet'),
+      actionLabel: 'Open ToLet',
+      icon: 'building',
+    },
+    {
+      title: 'Payment Issues',
+      count: failedPayments.length,
+      description: failedPayments[0] ? `${failedPayments[0].customerName || failedPayments[0].userName || 'Payment'} has a failed or rejected status.` : 'No failed payment records are waiting.',
+      color: '#DC2626',
+      action: () => navigate('/payments'),
+      actionLabel: 'Open payments',
+      icon: 'creditcard',
+    },
+  ]
+  const visibleAlerts = alertCards.filter((alert) => alert.count > 0)
+  const queueSummary = [
+    {
+      label: 'Pending bookings',
+      value: pendingCount,
+      sub: `${unassignedBookings.length} unassigned`,
+      color: '#F59E0B',
+      path: '/bookings',
+    },
+    {
+      label: 'Worker approvals',
+      value: workerApprovalQueue.length,
+      sub: 'Profiles awaiting review',
+      color: '#2563EB',
+      path: '/workers/approval',
+    },
+    {
+      label: 'Open complaints',
+      value: openComplaints.length,
+      sub: 'Customer or worker issues',
+      color: '#EF4444',
+      path: '/assistance',
+    },
+    {
+      label: 'ToLet pending',
+      value: pendingToLet.length,
+      sub: 'Listings awaiting review',
+      color: '#8B5CF6',
+      path: '/tolet',
+    },
+    {
+      label: 'Verified revenue',
+      value: `Rs ${performance.insights.verifiedRevenue.toLocaleString('en-IN')}`,
+      sub: 'Paid or verified collections',
+      color: '#10B981',
+      path: '/payments',
+    },
   ]
 
   const maxPoint = Math.max(...chartConfig.points.map((point) => point.value), 1)
+  const chartHasData = chartConfig.points.some((point) => point.value > 0)
 
   return (
-    <div className="w-full space-y-6 animate-in fade-in duration-500 pb-16 px-3 sm:px-4 lg:px-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+    <div className="w-full space-y-4 animate-in fade-in duration-500 pb-8 px-1 sm:px-2 lg:px-3">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div className="space-y-1">
           <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-600">Ecohomely Dashboard</p>
-          <h1 className="text-3xl font-bold text-[var(--text-main)]">Clear overview, faster action</h1>
+          <h1 className="text-2xl font-bold text-[var(--text-main)]">Clear overview, faster action</h1>
           <p className="text-sm text-[var(--text-muted)]">Track today's work, spot issues early, and move straight to action.</p>
         </div>
         <Badge label={`Focus date ${formatDashboardDate(activeDate)}`} color="#0F766E" size="sm" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {summaryCards.map((card) => (
           <StatCard key={card.label} {...card} />
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,2.35fr)_minmax(320px,1fr)]">
-        <div className="min-w-0 space-y-6">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2.35fr)_minmax(280px,0.72fr)]">
+        <div className="min-w-0 space-y-4">
           <SectionCard
             title="Analytics"
-            subtitle="One graph, focused controls, readable trends"
+            subtitle="Hover a bar for the value, click a bar to inspect its records below"
             icon={<Icon name="activity" size={18} />}
             action={
-              <div className="flex flex-wrap items-center justify-end gap-3">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <div className="flex flex-wrap items-center gap-1 rounded-full border border-[var(--border-main)] bg-[var(--bg-main)] p-1 shadow-sm">
                   {DASHBOARD_RANGE_OPTIONS.map((option) => (
                     <button
                       key={option.id}
                       type="button"
                       onClick={() => setActiveRange(option.id)}
-                      className={`rounded-full px-4 py-2 text-xs font-bold transition-all ${
+                      className={`rounded-full px-3 py-1.5 text-xs font-bold transition-all ${
                         activeRange === option.id
                           ? 'bg-emerald-600 text-white shadow-sm'
                           : 'text-[var(--text-muted)] hover:bg-[var(--card-bg)] hover:text-[var(--text-main)]'
@@ -302,13 +446,13 @@ export default function DashboardControlCenter() {
               </div>
             }
           >
-            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-2">
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] p-1.5">
               {DASHBOARD_GRAPH_TABS.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-bold transition-all ${
+                  className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold transition-all ${
                     activeTab === tab.id
                       ? 'bg-[var(--card-bg)] text-emerald-700 shadow-sm ring-1 ring-emerald-500/20'
                       : 'text-[var(--text-muted)] hover:bg-[var(--card-bg)] hover:text-[var(--text-main)]'
@@ -319,46 +463,116 @@ export default function DashboardControlCenter() {
               ))}
             </div>
 
-            <Card className="p-4 md:p-5 shadow-premium">
-              <div className="mb-4 flex items-start justify-between gap-3">
+            <Card className="p-3 md:p-4 shadow-premium">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h3 className="text-base font-bold text-[var(--text-main)]">{chartConfig.title}</h3>
                   <p className="text-xs text-[var(--text-muted)]">{chartConfig.subtitle}</p>
                 </div>
-                <Badge label={`${chartInsight.total} total`} color={chartConfig.color} size="xs" />
+                <div className="flex flex-wrap gap-2">
+                  <Badge label={`${chartInsight.total.toLocaleString('en-IN')} total`} color={chartConfig.color} size="xs" />
+                  <Badge label={`${selectedPoint?.label || '-'} selected`} color="#0F766E" size="xs" />
+                </div>
               </div>
 
-              <div className="relative h-[200px] overflow-hidden rounded-xl bg-[var(--bg-main)] px-2 pt-2">
-                <div className="absolute inset-x-0 top-0 bottom-6 grid grid-rows-4">
+              <div className="relative overflow-visible rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] p-3">
+                <div className="pointer-events-none absolute inset-x-3 top-3 bottom-10 grid grid-rows-4">
                   {[0, 1, 2, 3].map((line) => (
                     <div key={line} className="border-t border-[var(--border-main)]/70" />
                   ))}
                 </div>
 
                 <div
-                  className="relative grid h-full items-end gap-2 sm:gap-3"
+                  className="relative grid h-[190px] items-end gap-2 sm:gap-3"
                   style={{ gridTemplateColumns: `repeat(${chartConfig.points.length}, minmax(0, 1fr))` }}
                 >
-                  {chartConfig.points.map((point) => (
-                    <div key={point.label} className="flex h-full min-w-0 flex-col items-center justify-end gap-2">
-                      <span className="text-[11px] font-bold text-[var(--text-main)]">{point.value}</span>
-                      <div className="flex h-[132px] w-full items-end justify-center">
-                        <div
-                          className="w-full max-w-10 rounded-t-2xl transition-all"
-                          style={{
-                            height: `${point.value ? Math.max((point.value / maxPoint) * 132, 14) : 0}px`,
-                            background: `linear-gradient(180deg, ${chartConfig.color} 0%, ${chartConfig.color}BB 100%)`,
-                          }}
-                        />
-                      </div>
-                      <span className="truncate text-[11px] font-semibold text-[var(--text-muted)]">{point.label}</span>
-                    </div>
-                  ))}
+                  {chartConfig.points.map((point) => {
+                    const pointKey = point.key || point.label
+                    const isSelected = selectedPoint && (selectedPoint.key || selectedPoint.label) === pointKey
+                    const barHeight = point.value ? Math.max((point.value / maxPoint) * 125, 16) : 5
+
+                    return (
+                      <button
+                        key={pointKey}
+                        type="button"
+                        className="group relative flex h-full min-w-0 flex-col items-center justify-end gap-1.5 rounded-lg px-1 pb-1 outline-none transition-colors hover:bg-[var(--card-bg)]/70 focus-visible:ring-2 focus-visible:ring-emerald-500"
+                        onMouseEnter={() => setHoveredPoint(point)}
+                        onMouseLeave={() => setHoveredPoint(null)}
+                        onFocus={() => setHoveredPoint(point)}
+                        onBlur={() => setHoveredPoint(null)}
+                        onClick={() => setSelectedPointKey(pointKey)}
+                      >
+                        {(hoveredPoint?.key || hoveredPoint?.label) === pointKey && (
+                          <div className="absolute -top-2 left-1/2 z-10 w-max max-w-40 -translate-x-1/2 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-3 py-2 text-center shadow-xl">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{point.label}</p>
+                            <p className="text-sm font-black text-[var(--text-main)]">{point.value.toLocaleString('en-IN')}</p>
+                          </div>
+                        )}
+                        <span className="text-[11px] font-bold text-[var(--text-main)]">{point.value.toLocaleString('en-IN')}</span>
+                        <div className="flex h-[126px] w-full items-end justify-center">
+                          <div
+                            className={`w-full max-w-14 rounded-t-xl transition-all duration-300 group-hover:brightness-110 ${isSelected ? 'ring-2 ring-emerald-300 ring-offset-2 ring-offset-[var(--bg-main)]' : ''}`}
+                            style={{
+                              height: `${barHeight}px`,
+                              background: point.value
+                                ? `linear-gradient(180deg, ${chartConfig.color} 0%, color-mix(in srgb, ${chartConfig.color} 62%, #020617) 100%)`
+                                : 'var(--border-main)',
+                              boxShadow: point.value ? `0 14px 28px ${chartConfig.color}35` : 'none',
+                            }}
+                          />
+                        </div>
+                        <span className={`w-full truncate text-center text-[11px] font-bold ${isSelected ? 'text-emerald-600' : 'text-[var(--text-muted)]'}`}>{point.label}</span>
+                      </button>
+                    )
+                  })}
                 </div>
+              </div>
+
+              <div className="mt-3 rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] p-3">
+                <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">Selected records</p>
+                    <h4 className="text-base font-bold text-[var(--text-main)]">{selectedPoint?.label || 'No bar selected'}</h4>
+                  </div>
+                  <Badge label={`${(selectedPoint?.items || []).length} records`} color={chartConfig.color} size="xs" />
+                </div>
+                {!chartHasData ? (
+                  <div className="rounded-lg border border-dashed border-[var(--border-main)] p-3 text-center text-sm font-semibold text-[var(--text-muted)]">
+                    No records found for this graph range.
+                  </div>
+                ) : (selectedPoint?.items || []).length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-[var(--border-main)] p-3 text-center text-sm font-semibold text-[var(--text-muted)]">
+                    No records in this bar.
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {(selectedPoint?.items || []).slice(0, 6).map((record, index) => {
+                      const path = getRecordPath(record, activeTab)
+                      return (
+                        <button
+                          key={record.id || record.bookingId || record.paymentId || `${selectedPoint.label}-${index}`}
+                          type="button"
+                          onClick={() => path && navigate(path)}
+                          disabled={!path}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-3 py-2 text-left transition-colors hover:border-emerald-400 disabled:cursor-default disabled:hover:border-[var(--border-main)]"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-bold text-[var(--text-main)]">{getRecordTitle(record, activeTab)}</span>
+                            <span className="block truncate text-xs text-[var(--text-muted)]">{getRecordMeta(record, activeTab) || 'Firebase record'}</span>
+                          </span>
+                          {path && <span className="shrink-0 text-xs font-bold text-emerald-600">Open</span>}
+                        </button>
+                      )
+                    })}
+                    {(selectedPoint?.items || []).length > 6 && (
+                      <p className="text-xs font-semibold text-[var(--text-muted)]">Showing 6 of {(selectedPoint?.items || []).length} records.</p>
+                    )}
+                  </div>
+                )}
               </div>
             </Card>
 
-            <div className="grid gap-3 rounded-2xl border border-emerald-500/20 bg-[color:color-mix(in_srgb,#10B981_10%,var(--card-bg))] p-4 md:grid-cols-2">
+            <div className="grid gap-2 rounded-xl border border-emerald-500/20 bg-[color:color-mix(in_srgb,#10B981_10%,var(--card-bg))] p-3 md:grid-cols-2">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 rounded-lg bg-[var(--card-bg)] p-2 text-emerald-700 shadow-sm">
                   <Icon name="activity" size={16} />
@@ -386,7 +600,7 @@ export default function DashboardControlCenter() {
           />
         </div>
 
-        <div className="min-w-0 space-y-6">
+        <div className="min-w-0 space-y-4">
           <SectionCard
             title="Status"
             subtitle="Quick booking health snapshot"
@@ -394,13 +608,13 @@ export default function DashboardControlCenter() {
           >
             <div className="grid gap-3">
               {statusCards.map((card) => (
-                <Card key={card.label} className="p-4">
+                <Card key={card.label} className="p-3">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--text-muted)]">{card.label}</p>
-                      <p className="mt-2 text-2xl font-bold text-[var(--text-main)]">{card.value}</p>
+                      <p className="mt-1 text-2xl font-bold text-[var(--text-main)]">{card.value}</p>
                     </div>
-                    <div className="h-11 w-2 rounded-full" style={{ backgroundColor: card.color }} />
+                    <div className="h-10 w-2 rounded-full" style={{ backgroundColor: card.color }} />
                   </div>
                 </Card>
               ))}
@@ -412,9 +626,17 @@ export default function DashboardControlCenter() {
             subtitle="Priority items to review now"
             icon={<Icon name="alert" size={18} />}
           >
-            <div className="grid gap-4">
-              {alertCards.map((alert) => (
-                <Card key={alert.title} className="p-4">
+            <div className="grid gap-3">
+              {(visibleAlerts.length ? visibleAlerts : [{
+                title: 'All clear',
+                count: 0,
+                description: 'No urgent dashboard alerts right now. Queues, complaints, payments, and bookings are clear.',
+                color: '#10B981',
+                action: () => navigate('/bookings'),
+                actionLabel: 'View bookings',
+                icon: 'check',
+              }]).map((alert) => (
+                <Card key={alert.title} className="p-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start gap-3">
                       <div className="rounded-xl p-2.5" style={{ backgroundColor: `${alert.color}15`, color: alert.color }}>
@@ -432,7 +654,7 @@ export default function DashboardControlCenter() {
                   <button
                     type="button"
                     onClick={alert.action}
-                    className="mt-4 text-xs font-bold uppercase tracking-widest text-emerald-600 hover:text-emerald-700"
+                    className="mt-3 text-xs font-bold uppercase tracking-widest text-emerald-600 hover:text-emerald-700"
                   >
                     {alert.actionLabel}
                   </button>
@@ -443,22 +665,24 @@ export default function DashboardControlCenter() {
 
           <SectionCard
             title="Queue Summary"
-            subtitle="Extra visibility without clutter"
+            subtitle="Live operational queues from Firebase"
             icon={<Icon name="building" size={18} />}
           >
-            <div className="grid gap-3 text-sm text-[var(--text-main)]">
-              <div className="flex items-center justify-between rounded-xl bg-[var(--bg-main)] px-4 py-3">
-                <span className="font-semibold">Worker approvals</span>
-                <Badge label={`${records.workers.filter((worker) => worker.approvalStatus === 'Pending' || worker.status === 'Pending' || worker.approved === false).length}`} color="#2563EB" size="xs" />
-              </div>
-              <div className="flex items-center justify-between rounded-xl bg-[var(--bg-main)] px-4 py-3">
-                <span className="font-semibold">ToLet pending</span>
-                <Badge label={`${performance.insights.pendingToLetReviews}`} color="#F59E0B" size="xs" />
-              </div>
-              <div className="flex items-center justify-between rounded-xl bg-[var(--bg-main)] px-4 py-3">
-                <span className="font-semibold">Verified revenue</span>
-                <span className="font-bold text-emerald-700">Rs {performance.insights.verifiedRevenue.toLocaleString('en-IN')}</span>
-              </div>
+            <div className="grid gap-2 text-sm text-[var(--text-main)]">
+              {queueSummary.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => navigate(item.path)}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2.5 text-left transition-colors hover:border-emerald-400 hover:bg-[var(--card-bg)]"
+                >
+                  <span className="min-w-0">
+                    <span className="block font-bold text-[var(--text-main)]">{item.label}</span>
+                    <span className="block truncate text-xs font-medium text-[var(--text-muted)]">{item.sub}</span>
+                  </span>
+                  <Badge label={`${item.value}`} color={item.color} size="xs" />
+                </button>
+              ))}
             </div>
           </SectionCard>
         </div>

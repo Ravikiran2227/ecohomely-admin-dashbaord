@@ -92,6 +92,97 @@ export function PinMap({ lat, lng, label, height = 320 }) {
 }
 
 // ─── Multi-zone heatmap ───────────────────────────────────────────────────────
+export function CustomerLocationHeatmap({ location, points = [], label = 'Customer location', height = 360 }) {
+  const ref = useRef(null)
+  const mapRef = useRef(null)
+  const layerRef = useRef(null)
+  const lat = Number(location?.lat ?? location?.latitude)
+  const lng = Number(location?.lng ?? location?.longitude)
+  const validPoints = points
+    .map((point) => ({
+      lat: Number(point?.lat ?? point?.latitude),
+      lng: Number(point?.lng ?? point?.longitude),
+      label: point?.label || point?.area || '',
+    }))
+    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+
+  useEffect(() => {
+    if (!ref.current || !Number.isFinite(lat) || !Number.isFinite(lng)) return
+
+    loadLeaflet().then((L) => {
+      if (!mapRef.current) {
+        mapRef.current = L.map(ref.current, {
+          scrollWheelZoom: false,
+          zoomAnimation: false,
+          fadeAnimation: false,
+          markerZoomAnimation: false,
+        })
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap',
+          maxZoom: 18,
+        }).addTo(mapRef.current)
+      }
+
+      if (layerRef.current) {
+        try {
+          layerRef.current.remove()
+        } catch {}
+      }
+
+      const layer = L.layerGroup().addTo(mapRef.current)
+      layerRef.current = layer
+      const heatPoints = validPoints.length ? validPoints : [{ lat, lng, label }]
+      const bounds = L.latLngBounds([[lat, lng], ...heatPoints.map((point) => [point.lat, point.lng])])
+
+      L.circle([lat, lng], { radius: 260, color: C.teal, fillColor: C.teal, fillOpacity: 0.22, weight: 2 }).addTo(layer)
+      L.circle([lat, lng], { radius: 900, color: C.primary, fillColor: C.primary, fillOpacity: 0.08, weight: 1 }).addTo(layer)
+
+      heatPoints.forEach((point, index) => {
+        L.circle([point.lat, point.lng], {
+          radius: 420,
+          color: C.warning,
+          fillColor: C.warning,
+          fillOpacity: index === 0 && heatPoints.length === 1 ? 0.12 : 0.16,
+          weight: 1,
+        }).addTo(layer)
+      })
+
+      L.marker([lat, lng])
+        .addTo(layer)
+        .bindPopup(`<b>${escapeHtml(label)}</b><br>${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+        .openPopup()
+
+      if (bounds.isValid()) {
+        mapRef.current.fitBounds(bounds.pad(0.22), { maxZoom: 15 })
+      } else {
+        mapRef.current.setView([lat, lng], 14)
+      }
+    })
+
+    return () => {
+      if (layerRef.current) {
+        try {
+          layerRef.current.remove()
+        } catch {}
+        layerRef.current = null
+      }
+    }
+  }, [lat, lng, label, validPoints])
+
+  useEffect(() => () => {
+    if (mapRef.current) {
+      try {
+        mapRef.current.off()
+        mapRef.current.remove()
+      } catch {}
+      mapRef.current = null
+    }
+  }, [])
+
+  return <div ref={ref} style={{ height, width: '100%', borderRadius: 12 }} />
+}
+
 export function HeatMap({ zones, onZoneClick, height = 420 }) {
   const ref    = useRef(null)
   const mapRef = useRef(null)

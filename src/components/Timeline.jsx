@@ -1,3 +1,5 @@
+import { buildBookingTimelineSteps, formatDateTime, statusColor as defaultStatusColor } from '../utils/bookingTrackerData'
+
 export default function Timeline({ booking, statusColor, palette = {} }) {
   const resolvedPalette = {
     primary: palette.primary || 'var(--color-primary)',
@@ -6,22 +8,12 @@ export default function Timeline({ booking, statusColor, palette = {} }) {
     pending: palette.pending || 'var(--border-main)',
   }
 
-  const steps = [
-    { key: 'requestedAt', label: 'Booking Created', time: booking.requestedAt, done: true },
-    { key: 'assignedAt', label: 'Assigned', time: booking.assignedAt, done: !!booking.assignedAt },
-    { key: 'acceptedAt', label: 'Accepted', time: booking.acceptedAt, done: !!booking.acceptedAt },
-    { key: 'startedAt', label: 'Started', time: booking.startedAt, done: !!booking.startedAt },
-    { key: 'completedAt', label: 'Completed', time: booking.completedAt, done: !!booking.completedAt },
-  ]
+  const colorForStatus = statusColor || defaultStatusColor
+  const steps = buildBookingTimelineSteps(booking)
 
   const formatTime = (value) => {
     if (!value) return 'Pending'
-    return new Date(value.replace(' ', 'T')).toLocaleString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    return formatDateTime(value) || 'Pending'
   }
 
   return (
@@ -33,8 +25,8 @@ export default function Timeline({ booking, statusColor, palette = {} }) {
               width: 16,
               height: 16,
               borderRadius: 999,
-              background: step.done ? (step.label === 'Booking Created' ? resolvedPalette.primary : statusColor(step.label === 'Started' ? 'In Progress' : step.label)) : resolvedPalette.pending,
-              border: `2px solid ${step.done ? (step.label === 'Booking Created' ? resolvedPalette.primary : statusColor(step.label === 'Started' ? 'In Progress' : step.label)) : resolvedPalette.pending}`,
+              background: step.done ? (step.label === 'Booking Created' ? resolvedPalette.primary : colorForStatus(step.label === 'Started' ? 'In Progress' : step.label)) : resolvedPalette.pending,
+              border: `2px solid ${step.done ? (step.label === 'Booking Created' ? resolvedPalette.primary : colorForStatus(step.label === 'Started' ? 'In Progress' : step.label)) : resolvedPalette.pending}`,
               marginTop: 3,
             }} />
             {index < steps.length - 1 && (

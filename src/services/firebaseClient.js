@@ -192,6 +192,84 @@ async function createAdminUser(payload = {}) {
   return { id: recordRef.id, ...body, collectionName }
 }
 
+function adminRoleLabel(role = '') {
+  const value = storedAdminRole(role)
+  if (value === 'manager') return 'Manager'
+  if (value === 'sub_manager') return 'Sub Manager'
+  return 'Super Admin'
+}
+
+function buildAdminCredentialEmail(payload = {}) {
+  const role = adminRoleLabel(payload.role)
+  const subject = 'Ecohomely Admin Dashboard Login Credentials'
+  const text = [
+    `Hello ${payload.name || 'Admin'},`,
+    '',
+    'Your Ecohomely admin dashboard account has been created.',
+    '',
+    `Name: ${payload.name || ''}`,
+    `Email: ${payload.email || ''}`,
+    `Username: ${payload.username || ''}`,
+    `Password: ${payload.password || ''}`,
+    `Role: ${role}`,
+    '',
+    'Please sign in and change your password after your first login.',
+  ].join('\n')
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#102033">
+      <h2>Ecohomely Admin Dashboard Credentials</h2>
+      <p>Hello <strong>${payload.name || 'Admin'}</strong>,</p>
+      <p>Your Ecohomely admin dashboard account has been created.</p>
+      <table cellpadding="8" cellspacing="0" style="border-collapse:collapse;border:1px solid #d7e2ee">
+        <tr><td><strong>Name</strong></td><td>${payload.name || ''}</td></tr>
+        <tr><td><strong>Email</strong></td><td>${payload.email || ''}</td></tr>
+        <tr><td><strong>Username</strong></td><td>${payload.username || ''}</td></tr>
+        <tr><td><strong>Password</strong></td><td>${payload.password || ''}</td></tr>
+        <tr><td><strong>Role</strong></td><td>${role}</td></tr>
+      </table>
+      <p>Please sign in and change your password after your first login.</p>
+    </div>
+  `
+
+  return { subject, text, html, role }
+}
+
+async function sendAdminCredentialsEmail(payload = {}) {
+  if (!payload.email || !payload.username || !payload.password) {
+    throw Object.assign(new Error('Email, username, and password are required.'), { status: 400 })
+  }
+
+  const email = buildAdminCredentialEmail(payload)
+  const now = new Date()
+  const mailPayload = {
+    to: [payload.email],
+    message: {
+      subject: email.subject,
+      text: email.text,
+      html: email.html,
+    },
+    createdAt: now,
+    createdBy: payload.createdBy || 'admin-dashboard',
+    category: 'admin_credentials',
+    adminUserId: payload.adminUserId || '',
+    delivery: { status: 'queued' },
+  }
+
+  const mailRef = await addDoc(collection(db, 'mail'), mailPayload)
+  await addDoc(collection(db, 'adminCredentialEmails'), {
+    adminUserId: payload.adminUserId || '',
+    name: payload.name || '',
+    email: payload.email,
+    username: payload.username,
+    role: email.role,
+    mailId: mailRef.id,
+    status: 'queued',
+    createdAt: now,
+  }).catch(() => null)
+
+  return { id: mailRef.id, status: 'queued', to: payload.email }
+}
+
 async function updateAdminUser(id, payload = {}) {
   const current = await findAdminRecord(id)
   const nextCollectionName = adminCollectionForRole(payload.role || current.data.role)
@@ -438,6 +516,10 @@ function isImagePath(path = '') {
   return /\.(png|jpe?g|webp|gif|bmp|svg|heic)(\?|#|$)/i.test(path)
 }
 
+function isVideoPath(path = '') {
+  return /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(path)
+}
+
 function documentLabelFromPath(path = '') {
   const text = path.toLowerCase()
   if (/licen[cs]e|driving|driver|dl(?:[_-]|\b)/.test(text)) return ['license', 'Driving License']
@@ -590,7 +672,7 @@ export async function resolveWorkerMediaFiles(worker = {}) {
   const files = uniqueFiles([...directMatches.flat(), ...rootMediaFiles.filter((file) => fileBelongsToAssetKeys(file, lowerKeys))])
 
   const resolved = await Promise.all(files
-    .filter((file) => isImagePath(file.name) && looksLikeProfessionMedia(file.fullPath))
+    .filter((file) => (isImagePath(file.name) || isVideoPath(file.name)) && looksLikeProfessionMedia(file.fullPath))
     .slice(0, 24)
     .map(async (file, index) => ({
       id: `storage-media-${index + 1}`,
@@ -598,6 +680,7 @@ export async function resolveWorkerMediaFiles(worker = {}) {
       caption: 'Profession media from Firebase Storage',
       src: await getDownloadURL(file).catch(() => ''),
       path: file.fullPath,
+      type: isVideoPath(file.name) ? 'video' : 'image',
     })))
 
   return resolved.filter((item) => item.src)
@@ -607,7 +690,7 @@ export async function resolveWorkerAssetUrl(worker = {}, kind = 'profile') {
   const directFields = kind === 'aadhaar'
     ? ['aadhaarUrl', 'aadhaarURL', 'aadhaarImage', 'aadhaarPhoto', 'aadhaarFile', 'aadhaarUploaded', 'aadharUrl', 'aadharImage', 'adhaarUrl', 'adhaarImage']
     : ['profilePhotoUrl', 'profilePhotoURL', 'photoUrl', 'photoURL', 'profileImageUrl', 'profileImage', 'imageUrl', 'image', 'avatarUrl', 'avatar', 'photo', 'profilePhoto']
-  const direct = firstAssetValue(worker, directFields)
+  const direct = firstNestedAssetValue(worker, directFields)
   if (direct && typeof direct === 'string') {
     const resolved = kind === 'aadhaar' && !/aadhaar|aadhar|adhaar|adhar/i.test(direct) ? '' : await downloadAsset(direct)
     if (resolved) return resolved
@@ -868,6 +951,49 @@ function nameOf(row = {}, fallback = '') {
   return pick(row, ['name', 'fullName', 'displayName', 'customerName', 'userName', 'username', 'businessName', 'companyName'], fallback)
 }
 
+function workerSnapshot(row = {}) {
+  const profession = pick(row, ['profession', 'primaryProfession', 'professionName', 'category', 'serviceName'])
+  const languages = row.languages || row.language || row.knownLanguages || row.spokenLanguages || ''
+  const services = row.services || row.serviceList || row.categories || ''
+  return {
+    name: nameOf(row, ''),
+    phone: pick(row, ['phone', 'mobile', 'phoneNumber']),
+    profession,
+    experience: pick(row, ['experience', 'experienceYears', 'yearsOfExperience', 'workExperience']),
+    languages,
+    services,
+    pricing: pick(row, ['price', 'basePrice', 'servicePrice']),
+    location: pick(row, ['areaName', 'area', 'cityName', 'city', 'serviceArea']),
+    image: pick(row, ['profilePhoto', 'profilePhotoUrl', 'photoUrl', 'image', 'imageUrl']),
+    aadhaar: pick(row, ['aadhaarUrl', 'aadhaarImage', 'aadharUrl', 'aadharImage']),
+  }
+}
+
+function appendWorkerVersion(current = {}, status, note = '', extra = {}) {
+  const versions = Array.isArray(current.verificationVersions) ? current.verificationVersions : []
+  const lastVersion = versions.reduce((max, item) => Math.max(max, Number(item.version) || 0), 0)
+  const now = new Date().toISOString()
+  return [
+    ...versions,
+    {
+      version: lastVersion + 1,
+      status,
+      note,
+      updatedAt: now,
+      data: workerSnapshot({ ...current, ...extra.snapshotSource }),
+      changedFields: extra.changedFields || [],
+      requestedFields: extra.requestedFields || current.correctionFields || current.correctionItems || [],
+    },
+  ]
+}
+
+function isWorkerCorrectionResubmission(current = {}, payload = {}) {
+  const correctionActive = current.correctionRequired || current.requiresCorrection || current.needsCorrection || current.correctionRequested || String(current.approvalStatus || '').toLowerCase().includes('correction')
+  if (!correctionActive) return false
+  const ignored = new Set(['updatedAt', 'createdAt', 'approvalStatus', 'status', 'correctionStatus', 'correctionRequired', 'requiresCorrection', 'needsCorrection', 'correctionRequested'])
+  return Object.keys(payload || {}).some((key) => !ignored.has(key))
+}
+
 function normalizeBookingRecord(record = {}, customerById = new Map(), workerById = new Map()) {
   const customerId = normalizeId(pick(record, ['customerId', 'userId', 'customer_id', 'uid']))
   const workerId = normalizeId(pick(record, ['workerId', 'servicemanId', 'serviceman_id', 'worker_id']))
@@ -998,6 +1124,7 @@ async function listCollection(name, filters = {}) {
   if (name === 'adminUsers') return sortByDate(applyQueryFilters(await listAdminUsers(), filters), 'createdDate')
   if (name === 'controlVersions') return listVersionControlDocuments()
   if (name === 'accountDeletions') return listAccountDeletionRequests(filters)
+  if (name === 'notifications') return listNotifications(filters)
 
   const topLevelRows = await Promise.all(aliasesFor(name).map((alias) => getDocs(collection(db, alias))))
     .then((snapshots) => snapshots.flatMap((snapshot) => snapshot.docs.map(docToJson)))
@@ -1010,6 +1137,58 @@ async function listCollection(name, filters = {}) {
   })
   const rows = [...byId.values()]
   return sortByDate(applyQueryFilters(rows, filters))
+}
+
+async function listNotifications(filters = {}) {
+  const topLevelRows = await Promise.all(aliasesFor('notifications').map((alias) =>
+    getDocs(collection(db, alias))
+      .then((snapshot) => snapshot.docs.map(docToJson))
+      .catch(() => []),
+  )).then((groups) => groups.flat())
+  const workerRows = await listCollection('workers').catch(() => [])
+  const correctionRows = workerRows.map(workerUpdateNotification).filter(Boolean)
+  const byId = new Map()
+
+  ;[...topLevelRows, ...correctionRows].forEach((row) => {
+    byId.set(row.id || row.notificationId || `${row.type}:${row.workerId}:${row.createdAt}`, {
+      ...(byId.get(row.id) || {}),
+      ...row,
+    })
+  })
+
+  return sortByDate(applyQueryFilters([...byId.values()], filters))
+}
+
+function workerUpdateNotification(worker = {}) {
+  const requestedAt = getDateMs(worker.correctionRequestedAt || worker.profileCorrectionRequest?.requestedAt || worker.partnerAppPopup?.requestedAt)
+  const updatedAt = getDateMs(worker.correctionSubmittedAt || worker.resubmittedAt || worker.profileUpdatedAt || worker.updatedAt)
+  if (!requestedAt || !updatedAt || updatedAt <= requestedAt) return null
+
+  const fields = worker.correctionFields || worker.correctionItems || worker.profileCorrectionRequest?.fields || []
+  const fieldText = Array.isArray(fields) && fields.length ? fields.join(', ') : 'requested profile fields'
+  const workerName = nameOf(worker, 'Serviceman')
+  const latestVersion = Array.isArray(worker.verificationVersions)
+    ? Math.max(...worker.verificationVersions.map((item) => Number(item.version) || 0), 1)
+    : 1
+
+  return {
+    id: `worker-update-${worker.id}-${updatedAt}`,
+    type: 'worker_profile_update',
+    channel: 'push',
+    audience: 'admin',
+    title: `${workerName} updated profile corrections`,
+    body: `${workerName} updated ${fieldText}. Review Version ${latestVersion} before approval.`,
+    workerId: worker.id,
+    workerName,
+    correctionFields: fields,
+    version: latestVersion,
+    sent: 1,
+    delivered: 1,
+    opened: 0,
+    sentAt: worker.correctionSubmittedAt || worker.resubmittedAt || worker.profileUpdatedAt || worker.updatedAt,
+    createdAt: worker.correctionSubmittedAt || worker.resubmittedAt || worker.profileUpdatedAt || worker.updatedAt,
+    read: Boolean(worker.adminCorrectionNotificationRead),
+  }
 }
 
 async function listAccountDeletionRequests(filters = {}) {
@@ -1123,6 +1302,11 @@ async function getRelatedByField(name, field, value) {
   return snapshots.flatMap((snapshot) => snapshot.docs.map(docToJson))
 }
 
+async function getRelatedByAnyField(name, fields = [], value) {
+  const groups = await Promise.all(fields.map((field) => getRelatedByField(name, field, value).catch(() => [])))
+  return Array.from(new Map(groups.flat().map((item) => [item.id || `${item.__path}:${item.bookingId || item.booking_id || item.booking}`, item])).values())
+}
+
 async function resolveCurrentAdmin() {
   const firebaseUser = auth.currentUser
   const storedId = typeof window !== 'undefined' ? window.sessionStorage.getItem('currentAdminUserId') : ''
@@ -1222,6 +1406,10 @@ async function handleAdmin(path, method, body) {
     return getRecord('settings', id, 'Setting')
   }
 
+  if (section === 'credential-email' && method === 'POST') {
+    return sendAdminCredentialsEmail(body)
+  }
+
   if (section === 'users') {
     if (method === 'POST') return createAdminUser(body)
     if (!id) return listAdminUsers()
@@ -1265,6 +1453,12 @@ async function handleWorkers(parts, method, body, queryOptions) {
           read: false,
         }
       : null
+    const current = await findRecord('workers', id)
+    const versionNote = correctionNote || body?.reason || `${status} by admin`
+    const verificationVersions = appendWorkerVersion(current.data, status, versionNote, {
+      changedFields: correctionFields,
+      requestedFields: correctionFields,
+    })
     return updateRecord('workers', id, {
       Approved: status === 'Approved',
       approvalStatus: status,
@@ -1283,9 +1477,53 @@ async function handleWorkers(parts, method, body, queryOptions) {
       correctionStatus: isCorrection ? 'Pending' : null,
       partnerAppPopup: correctionRequest,
       profileCorrectionRequest: correctionRequest,
+      verificationVersions,
     })
   }
-  if (method === 'PATCH') return updateRecord('workers', id, body)
+  if (method === 'PATCH') {
+    const current = await findRecord('workers', id)
+    const isResubmission = isWorkerCorrectionResubmission(current.data, body)
+    const correctionFields = current.data.correctionFields || current.data.correctionItems || current.data.profileCorrectionRequest?.fields || []
+    const workerName = nameOf({ ...current.data, ...body }, 'Serviceman')
+    const updates = isResubmission
+      ? {
+          ...body,
+          approvalStatus: 'Pending',
+          reviewStatus: 'Pending',
+          correctionStatus: 'Submitted',
+          correctionRequired: false,
+          requiresCorrection: false,
+          needsCorrection: false,
+          correctionSubmittedAt: new Date().toISOString(),
+          adminCorrectionNotificationRead: false,
+          verificationVersions: appendWorkerVersion(current.data, 'Pending', `${workerName} resubmitted requested corrections.`, {
+            changedFields: correctionFields,
+            requestedFields: correctionFields,
+            snapshotSource: body,
+          }),
+        }
+      : body
+    const updated = await updateRecord('workers', id, updates)
+    if (isResubmission) {
+      await createRecord('notifications', {
+        type: 'worker_profile_update',
+        channel: 'push',
+        audience: 'admin',
+        title: `${workerName} updated profile corrections`,
+        body: `${workerName} updated ${(correctionFields || []).join(', ') || 'requested profile fields'}. Review the latest version before approval.`,
+        workerId: id,
+        workerName,
+        correctionFields,
+        version: updated.verificationVersions?.length || 1,
+        sent: 1,
+        delivered: 1,
+        opened: 0,
+        read: false,
+        sentAt: new Date().toISOString(),
+      }).catch(() => null)
+    }
+    return updated
+  }
   if (method === 'DELETE') return deleteRecord('workers', id)
   return getRecord('workers', id, 'Worker')
 }
@@ -1296,13 +1534,21 @@ async function handleBookings(parts, method, body, queryOptions) {
 
   if (!id) return method === 'POST' ? createRecord('bookings', body) : listCollection('bookings', queryOptions)
   if (action === 'timeline') return getRelatedByField('bookingTimeline', 'bookingId', id)
-  if (action === 'payments') return getRelatedByField('payments', 'bookingId', id)
+  if (action === 'payments') return getRelatedByAnyField('payments', ['bookingId', 'booking_id', 'BookingId', 'booking', 'orderId', 'requestId'], id)
   if (action === 'assign-worker') return updateRecord('bookings', id, { workerId: body.workerId, workerName: body.workerName, status: body.status || 'Assigned', assignedAt: new Date().toISOString() })
   if (action === 'status') return updateRecord('bookings', id, { status: body.status })
   if (action === 'cancel') return updateRecord('bookings', id, { status: 'Cancelled' })
   if (action === 'reschedule') return updateRecord('bookings', id, body)
   if (method === 'PATCH') return updateRecord('bookings', id, body)
   if (method === 'DELETE') return deleteRecord('bookings', id)
+  const enrichedBookings = await listBookings()
+  const matchedBooking = enrichedBookings.find((booking) => (
+    booking.id === id
+    || booking.bookingId === id
+    || booking.orderId === id
+    || booking.requestId === id
+  ))
+  if (matchedBooking) return matchedBooking
   return getRecord('bookings', id, 'Booking')
 }
 
@@ -1414,11 +1660,42 @@ export async function firebaseRequest(path, options = {}) {
   if (parts[0] === 'customers') return handleCustomers(parts, method, body, queryOptions)
   if (parts[0] === 'locations') return handleLocations(parts, method, body, queryOptions)
   if (parts[0] === 'to-let') return handleToLet(parts, method, body, queryOptions)
+  if (parts[0] === 'notifications' && parts[1] === 'campaigns' && parts[2] === 'send' && method === 'POST') {
+    const now = new Date().toISOString()
+    const workerIds = Array.isArray(body.workerIds) ? body.workerIds : []
+    const records = workerIds.length ? workerIds : [body.audience || 'all']
+    const created = await Promise.all(records.map((target) => createRecord('notifications', {
+      ...body,
+      id: undefined,
+      workerId: workerIds.length ? target : body.workerId || '',
+      targetId: workerIds.length ? target : body.targetId || '',
+      channel: body.channels?.push ? 'push' : body.channels?.whatsapp ? 'whatsapp' : body.channels?.sms ? 'sms' : body.channel || 'push',
+      sent: 1,
+      delivered: 0,
+      opened: 0,
+      read: false,
+      sentAt: now,
+      createdAt: now,
+    }).catch(() => null)))
+    return {
+      id: `campaign-${Date.now()}`,
+      sent: created.filter(Boolean).length,
+      records: created.filter(Boolean),
+    }
+  }
 
   const collectionName = COLLECTION_ROUTES[parts[0]]
   if (collectionName) {
     const id = parts[1]
+    const action = parts[2]
     if (!id) return method === 'POST' ? createRecord(collectionName, body) : listCollection(collectionName, queryOptions)
+    if (collectionName === 'notifications' && action === 'read' && method === 'POST') {
+      if (String(id).startsWith('worker-update-') && body.workerId) {
+        await updateRecord('workers', body.workerId, { adminCorrectionNotificationRead: true })
+        return { id, read: true }
+      }
+      return updateRecord(collectionName, id, { read: true, opened: 1, readAt: new Date().toISOString() })
+    }
     if (collectionName === 'controlVersions' && (method === 'PATCH' || method === 'PUT')) return upsertRecord(collectionName, id, body)
     if (method === 'PATCH' || method === 'PUT') return updateRecord(collectionName, id, body)
     if (method === 'DELETE') return deleteRecord(collectionName, id)

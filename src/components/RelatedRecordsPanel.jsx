@@ -2,6 +2,15 @@ import Badge from './Badge'
 import Btn from './Btn'
 import Icon from './Icon'
 
+function displayValue(value) {
+  if (value == null || value === '') return ''
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  if (value instanceof Date) return value.toLocaleString('en-IN')
+  if (typeof value?.toDate === 'function') return value.toDate().toLocaleString('en-IN')
+  if (typeof value === 'object' && Number.isFinite(value.seconds)) return new Date(value.seconds * 1000).toLocaleString('en-IN')
+  return String(value)
+}
+
 export default function RelatedRecordsPanel({
   summaryItems = [],
   records = [],
@@ -10,12 +19,12 @@ export default function RelatedRecordsPanel({
   return (
     <div className="grid gap-4">
       {summaryItems.length > 0 ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(145px,1fr))] gap-3">
           {summaryItems.map((item) => (
-            <div key={item.label} className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4">
-              <div className="text-label mb-2">{item.label}</div>
-              <div className="text-2xl font-extrabold" style={{ color: item.color || 'var(--text-main)' }}>{item.value}</div>
-              {item.meta ? <div className="mt-1 text-xs text-[var(--text-muted)]">{item.meta}</div> : null}
+            <div key={item.label} className="min-w-0 rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4">
+              <div className="text-label mb-2 break-words leading-5">{displayValue(item.label)}</div>
+              <div className="text-2xl font-extrabold" style={{ color: item.color || 'var(--text-main)' }}>{displayValue(item.value)}</div>
+              {item.meta ? <div className="mt-1 text-xs text-[var(--text-muted)]">{displayValue(item.meta)}</div> : null}
             </div>
           ))}
         </div>
@@ -26,15 +35,15 @@ export default function RelatedRecordsPanel({
           {emptyMessage}
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-3">
           {records.map((record) => (
             <div
               key={record.id}
               className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4"
               style={record.color ? { borderLeft: `4px solid ${record.color}` } : undefined}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex min-w-0 flex-1 gap-3">
+              <div className="grid gap-3">
+                <div className="flex min-w-0 gap-3">
                   {record.iconName ? (
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]">
                       <Icon name={record.iconName} size={16} />
@@ -43,18 +52,18 @@ export default function RelatedRecordsPanel({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       {record.badges?.map((badge) => (
-                        <Badge key={`${record.id}-${badge.label}`} label={badge.label} color={badge.color} size="xs" dot={badge.dot ?? true} />
+                        <Badge key={`${record.id}-${displayValue(badge.label)}`} label={displayValue(badge.label)} color={badge.color} size="xs" dot={badge.dot ?? true} />
                       ))}
-                      <span className="text-sm font-bold text-[var(--text-main)]">{record.title}</span>
-                      {record.date ? <span className="text-xs text-[var(--text-muted)]">{record.date}</span> : null}
                     </div>
-                    {record.description ? <p className="mt-2 text-sm text-[var(--text-main)]">{record.description}</p> : null}
-                    {record.meta ? <p className="mt-1 text-xs text-[var(--text-muted)]">{record.meta}</p> : null}
+                    <div className="mt-2 break-words text-sm font-bold text-[var(--text-main)]">{displayValue(record.title)}</div>
+                    {record.date ? <div className="mt-1 text-xs text-[var(--text-muted)]">{displayValue(record.date)}</div> : null}
+                    {record.description ? <p className="mt-2 break-words text-sm leading-6 text-[var(--text-main)]">{displayValue(record.description)}</p> : null}
+                    {record.meta ? <p className="mt-1 break-words text-xs leading-5 text-[var(--text-muted)]">{displayValue(record.meta)}</p> : null}
                   </div>
                 </div>
 
                 {record.actions?.length ? (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 pl-0 sm:pl-[52px]">
                     {record.actions.map((action) => (
                       <Btn
                         key={`${record.id}-${action.label}`}

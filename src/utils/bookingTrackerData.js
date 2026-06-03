@@ -6,7 +6,7 @@ export const TRACKER = {
   info: '#3B82F6',
 }
 
-export const STATUS_ORDER = ['Pending', 'Accepted', 'In Progress', 'Completed', 'Cancelled', 'No Response']
+export const STATUS_ORDER = ['Pending', 'Assigned', 'Accepted', 'In Progress', 'Completed', 'Rejected', 'No Response']
 
 export const SUMMARY_CARDS = [
   { key: 'Pending', label: 'Pending', color: TRACKER.warning, icon: 'clock' },
@@ -53,11 +53,16 @@ export function statusColor(status) {
   return {
     Pending: TRACKER.warning,
     pending: TRACKER.warning,
+    Assigned: TRACKER.info,
+    assigned: TRACKER.info,
     Accepted: TRACKER.info,
+    accepted: TRACKER.info,
     'In Progress': '#F97316',
     Completed: TRACKER.success,
     completed: TRACKER.success,
     Cancelled: TRACKER.danger,
+    Rejected: TRACKER.danger,
+    rejected: TRACKER.danger,
     'No Response': TRACKER.danger,
   }[status] || '#64748B'
 }
@@ -66,10 +71,11 @@ export function normalizeStatusLabel(status = '') {
   const value = String(status || '').trim().toLowerCase()
   if (!value) return ''
   if (value === 'pending') return 'Pending'
+  if (value === 'booked' || value === 'created' || value === 'new') return 'Pending'
   if (value === 'completed' || value === 'done') return 'Completed'
-  if (value === 'cancelled' || value === 'canceled') return 'Cancelled'
+  if (value === 'cancelled' || value === 'canceled' || value === 'rejected') return 'Rejected'
   if (value === 'accepted') return 'Accepted'
-  if (value === 'assigned') return 'Accepted'
+  if (value === 'assigned') return 'Assigned'
   if (value.includes('progress') || value === 'active') return 'In Progress'
   return status || ''
 }
@@ -102,7 +108,8 @@ export function buildActivityLog(booking) {
     booking.assignedAt && makeActivityEntry(`${booking.id}-assigned`, 'Worker assigned', booking.assignedAt, booking.worker ? `Assigned to ${booking.worker}` : 'Worker assigned by admin'),
     booking.acceptedAt && makeActivityEntry(`${booking.id}-accepted`, 'Worker accepted booking', booking.acceptedAt, booking.worker ? `${booking.worker} accepted the job` : 'Accepted by worker'),
     booking.startedAt && makeActivityEntry(`${booking.id}-started`, 'Work started', booking.startedAt, 'Worker started service execution'),
-    booking.completedAt && makeActivityEntry(`${booking.id}-completed`, 'Booking completed', booking.completedAt, booking.paid ? 'Payment collected' : 'Pending payment closure'),
+    booking.completedAt && makeActivityEntry(`${booking.id}-completed`, 'Booking completed', booking.completedAt, booking.invoiceGenerated ? 'Invoice generated' : booking.paid ? 'Payment collected' : 'Pending payment closure'),
+    booking.rejectedAt && makeActivityEntry(`${booking.id}-rejected`, 'Booking rejected', booking.rejectedAt, 'Booking was cancelled or rejected'),
   ].filter(Boolean)
 }
 
@@ -131,7 +138,46 @@ export function buildIssueList(booking, now) {
 }
 
 export function deriveBookingStatus(booking, now) {
-  return booking.status
+  const value = String(booking.rawStatus || booking.status || '').trim().toLowerCase()
+  if (booking.invoiceGenerated || booking.invoiceId || booking.invoiceNumber || booking.completedAt) return 'Completed'
+  if (value === 'cancelled' || value === 'canceled' || value === 'rejected') return 'Rejected'
+  if (value === 'accepted') return 'Accepted'
+  if (value === 'assigned') return 'Assigned'
+  if (value.includes('progress') || value === 'started' || value === 'active') return 'In Progress'
+  return 'Pending'
+}
+
+export function getBookingCurrentStage(booking = {}) {
+  const status = deriveBookingStatus(booking)
+  if (status === 'Completed') return 'Completed'
+  if (status === 'Rejected') return 'Rejected'
+  if (booking.startedAt || status === 'In Progress') return 'Started'
+  if (booking.acceptedAt || status === 'Accepted') return 'Accepted'
+  if (booking.assignedAt || status === 'Assigned') return 'Assigned'
+  return 'Booking Created'
+}
+
+export function buildBookingTimelineSteps(booking = {}) {
+  const status = deriveBookingStatus(booking)
+  const isCompleted = status === 'Completed'
+  const isRejected = status === 'Rejected'
+  const isInProgress = status === 'In Progress'
+  const isAccepted = isCompleted || isInProgress || status === 'Accepted' || Boolean(booking.acceptedAt)
+  const isAssigned = isAccepted || status === 'Assigned' || Boolean(booking.assignedAt)
+  const terminalTime = booking.completedAt || booking.invoiceCreatedAt || booking.invoiceGeneratedAt || booking.rejectedAt || booking.cancelledAt || booking.updatedAt
+
+  return [
+    { key: 'requestedAt', label: 'Booking Created', time: booking.requestedAt || booking.bookedAt || booking.bookingDate, done: true },
+    { key: 'assignedAt', label: 'Assigned', time: booking.assignedAt, done: !isRejected && isAssigned },
+    { key: 'acceptedAt', label: 'Accepted', time: booking.acceptedAt, done: !isRejected && isAccepted },
+    { key: 'startedAt', label: 'Started', time: booking.startedAt, done: !isRejected && (isInProgress || isCompleted || Boolean(booking.startedAt)) },
+    {
+      key: isRejected ? 'rejectedAt' : 'completedAt',
+      label: isRejected ? 'Rejected' : 'Completed',
+      time: terminalTime,
+      done: isRejected || isCompleted,
+    },
+  ]
 }
 
 export function buildSeedBookings() {
@@ -169,6 +215,9 @@ export function updateBookingStatus(booking, nextStatus, timestamp) {
   if (nextStatus === 'Pending') {
     updated = { ...updated, acceptedAt: null, startedAt: null, completedAt: null }
   }
+  if (nextStatus === 'Assigned') {
+    updated = { ...updated, assignedAt: updated.assignedAt || timestamp }
+  }
   if (nextStatus === 'Accepted') {
     updated = { ...updated, assignedAt: updated.assignedAt || timestamp, acceptedAt: updated.acceptedAt || timestamp }
   }
@@ -190,8 +239,8 @@ export function updateBookingStatus(booking, nextStatus, timestamp) {
       finalPrice: updated.finalPrice || updated.amount || updated.estimatedPrice,
     }
   }
-  if (nextStatus === 'Cancelled') {
-    updated = { ...updated, completedAt: null }
+  if (nextStatus === 'Rejected' || nextStatus === 'Cancelled') {
+    updated = { ...updated, status: 'Rejected', completedAt: null, rejectedAt: updated.rejectedAt || timestamp, cancelledAt: updated.cancelledAt || timestamp }
   }
 
   return appendActivity(updated, `Status changed to ${nextStatus}`, timestamp, 'Updated by admin from booking detail')

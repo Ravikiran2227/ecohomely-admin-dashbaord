@@ -2,12 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card } from '../components/Card'
 import PageHeader from '../components/PageHeader'
-import FilterPills from '../components/FilterPills'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import EmptyState from '../components/EmptyState'
 import Icon from '../components/Icon'
-import ListToolbar from '../components/ListToolbar'
 import { DataTable, TableRow, TD } from '../components/Table'
 import { C } from '../theme'
 import { loadCustomers } from '../utils/customerStorage'
@@ -84,6 +82,141 @@ function ActionMenu({ customer, navigate, onDelete }) {
 const STATUS_COLOR = { Active: C.success, Blocked: C.danger, Inactive: C.danger }
 const PAGE_SIZE = 15
 
+const SORT_OPTIONS = [
+  { id: 'createdDate', name: 'Sort By Created Date' },
+  { id: 'name', name: 'Sort By Name' },
+  { id: 'email', name: 'Sort By Email' },
+  { id: 'phone', name: 'Sort By Phone' },
+  { id: 'bookings', name: 'Sort By Bookings' },
+  { id: 'complaints', name: 'Sort By Complaints' },
+]
+
+const STATUS_OPTIONS = [
+  { id: 'all', name: 'All Status' },
+  { id: 'Active', name: 'Active' },
+  { id: 'Inactive', name: 'Inactive' },
+  { id: 'Blocked', name: 'Blocked' },
+]
+
+const PERIOD_OPTIONS = [
+  { id: 'total', name: 'Total' },
+  { id: 'today', name: 'Today' },
+  { id: 'last7', name: 'Last 7 Days' },
+  { id: 'month', name: 'This Month' },
+]
+
+function parseCustomerDate(value) {
+  if (!value) return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+  if (typeof value?.toDate === 'function') return value.toDate()
+  if (typeof value?.seconds === 'number') return new Date(value.seconds * 1000)
+  if (typeof value?._seconds === 'number') return new Date(value._seconds * 1000)
+  const parsed = new Date(String(value))
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function startOfDay(date) {
+  const next = new Date(date)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+function endOfDay(date) {
+  const next = new Date(date)
+  next.setHours(23, 59, 59, 999)
+  return next
+}
+
+function getCustomerCreatedDate(customer = {}) {
+  return parseCustomerDate(customer.dateJoined || customer.joinedAt || customer.createdAt || customer.registeredAt || customer.updatedAt)
+}
+
+function matchesPeriod(date, period) {
+  if (!period || period === 'total') return true
+  if (!date) return false
+
+  const now = new Date()
+  if (period === 'today') {
+    return date >= startOfDay(now) && date <= endOfDay(now)
+  }
+  if (period === 'last7') {
+    const start = startOfDay(now)
+    start.setDate(start.getDate() - 6)
+    return date >= start && date <= endOfDay(now)
+  }
+  if (period === 'month') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1)
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+    return date >= start && date <= end
+  }
+  return true
+}
+
+function matchesDateRange(date, dateFrom, dateTo) {
+  if (!dateFrom && !dateTo) return true
+  if (!date) return false
+  const from = dateFrom ? startOfDay(new Date(dateFrom)) : null
+  const to = dateTo ? endOfDay(new Date(dateTo)) : null
+  return (!from || date >= from) && (!to || date <= to)
+}
+
+function FilterDropdown({ value, onChange, options, ariaLabel, minWidth = 'min-w-[160px]' }) {
+  const [open, setOpen] = useState(false)
+  const selected = options.find((option) => String(option.id) === String(value)) || options[0]
+
+  return (
+    <div className={`relative ${minWidth}`}>
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        onClick={() => setOpen((current) => !current)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        className="flex h-11 w-full items-center justify-between gap-3 rounded-lg border border-[var(--border-main)] bg-[var(--card-bg)] px-4 text-left text-sm font-bold text-[var(--text-main)] shadow-sm transition-all hover:border-[var(--color-primary)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-4 focus:ring-brand-500/15"
+      >
+        <span className="truncate">{selected?.name}</span>
+        <span className={`text-sm text-[var(--color-primary)] transition-transform ${open ? 'rotate-180' : ''}`}>v</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-[calc(100%+8px)] z-[120] max-h-72 w-full min-w-[190px] overflow-auto rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,0.22)]">
+          {options.map((option) => {
+            const active = String(option.id) === String(value)
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  onChange(option.id)
+                  setOpen(false)
+                }}
+                className={`mt-1 first:mt-0 w-full rounded-lg px-3 py-2.5 text-left text-sm font-bold transition-colors ${
+                  active
+                    ? 'bg-[var(--color-primary)] text-white'
+                    : 'text-[var(--text-main)] hover:bg-[color:color-mix(in_srgb,var(--color-primary)_10%,var(--card-bg))] hover:text-[var(--color-primary)]'
+                }`}
+              >
+                {option.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CustomerDateInput({ value, onChange, label }) {
+  return (
+    <input
+      type="date"
+      value={value}
+      aria-label={label}
+      onChange={(event) => onChange(event.target.value)}
+      className="h-11 min-w-[150px] rounded-lg border border-[var(--border-main)] bg-[var(--card-bg)] px-4 text-sm font-bold text-[var(--text-main)] shadow-sm transition-all placeholder:text-[var(--text-muted)] hover:border-[var(--color-primary)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-4 focus:ring-brand-500/15"
+    />
+  )
+}
+
 function csvCell(value) {
   const text = String(value ?? '')
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
@@ -111,7 +244,11 @@ const COLS = [
 
 export default function CustomerList() {
   const navigate = useNavigate()
-  const [statusFilter, setStatusFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [sortBy, setSortBy] = useState('createdDate')
+  const [periodFilter, setPeriodFilter] = useState('total')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
   const [customerRecords, setCustomerRecords] = useState([])
   const [loading, setLoading] = useState(true)
@@ -137,16 +274,29 @@ export default function CustomerList() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, statusFilter])
+  }, [search, statusFilter, sortBy, periodFilter, dateFrom, dateTo])
 
-  const filtered = customerRecords.filter(c => {
-    const matchStatus = statusFilter === 'All' || c.status === statusFilter
-    const matchSearch = String(c.name || '').toLowerCase().includes(search.toLowerCase()) ||
-      String(c.email || '').toLowerCase().includes(search.toLowerCase()) ||
-      String(c.area || '').toLowerCase().includes(search.toLowerCase()) ||
-      String(c.phone || '').includes(search)
-    return matchStatus && matchSearch
-  })
+  const filtered = customerRecords
+    .filter(c => {
+      const createdDate = getCustomerCreatedDate(c)
+      const matchStatus = statusFilter === 'all' || c.status === statusFilter
+      const query = search.trim().toLowerCase()
+      const matchSearch = !query ||
+        String(c.name || '').toLowerCase().includes(query) ||
+        String(c.email || '').toLowerCase().includes(query) ||
+        String(c.area || '').toLowerCase().includes(query) ||
+        String(c.phone || '').toLowerCase().includes(query) ||
+        String(c.device || '').toLowerCase().includes(query)
+      return matchStatus && matchSearch && matchesPeriod(createdDate, periodFilter) && matchesDateRange(createdDate, dateFrom, dateTo)
+    })
+    .sort((left, right) => {
+      if (sortBy === 'name') return String(left.name || '').localeCompare(String(right.name || ''))
+      if (sortBy === 'email') return String(left.email || '').localeCompare(String(right.email || ''))
+      if (sortBy === 'phone') return String(left.phone || '').localeCompare(String(right.phone || ''))
+      if (sortBy === 'bookings') return Number(right.bookings || 0) - Number(left.bookings || 0)
+      if (sortBy === 'complaints') return Number(right.complaints || 0) - Number(left.complaints || 0)
+      return (getCustomerCreatedDate(right)?.getTime() || 0) - (getCustomerCreatedDate(left)?.getTime() || 0)
+    })
   const pageCount = Math.max(Math.ceil(filtered.length / PAGE_SIZE), 1)
   const safePage = Math.min(page, pageCount)
   const pagedCustomers = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
@@ -181,14 +331,20 @@ export default function CustomerList() {
     loadCustomerRecords()
   }
 
+  const resetFilters = () => {
+    setSearch('')
+    setStatusFilter('all')
+    setSortBy('createdDate')
+    setPeriodFilter('total')
+    setDateFrom('')
+    setDateTo('')
+  }
+
   return (
     <div className="w-full space-y-5">
       <PageHeader
         title="Customers"
         sub={`${customerRecords.length} total customers registered`}
-        action={
-          <Btn v="primary" icon={<Icon n="edit" sz={14} cl="#fff" />} onClick={exportCustomers} disabled={filtered.length === 0}>Export CSV</Btn>
-        }
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -205,22 +361,34 @@ export default function CustomerList() {
         ))}
       </div>
 
-      <ListToolbar
-        title="Browse customers"
-        subtitle="Use the status pills and quick search to move between active, blocked, and complaint-heavy accounts."
-        resultLabel={`${pagedCustomers.length} of ${filtered.length} customers shown`}
-        searchValue={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search name, email, phone, or area..."
-        actions={<Btn v="ghost" size="sm" onClick={() => { setSearch(''); setStatusFilter('All') }}>Reset</Btn>}
-        filters={(
-          <FilterPills
-            options={['All', 'Active', 'Inactive', 'Blocked']}
-            active={statusFilter}
-            onChange={setStatusFilter}
-          />
-        )}
-      />
+      <Card className="p-4.5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <h2 className="text-lg font-black text-[var(--text-main)]">Customers List</h2>
+            <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+              {pagedCustomers.length} of {filtered.length} customers shown
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="relative min-w-[260px] flex-1 xl:flex-none">
+              <Icon n="search" sz={15} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by name, email, customer, phone..."
+                className="h-11 w-full rounded-lg border border-[var(--border-main)] bg-[var(--card-bg)] pl-11 pr-4 text-sm font-semibold text-[var(--text-main)] shadow-sm outline-none transition-all placeholder:text-[var(--text-muted)] hover:border-[var(--color-primary)] focus:border-[var(--color-primary)] focus:ring-4 focus:ring-brand-500/15"
+              />
+            </div>
+            <FilterDropdown value={sortBy} onChange={setSortBy} options={SORT_OPTIONS} ariaLabel="Sort customers" minWidth="min-w-[190px]" />
+            <FilterDropdown value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} ariaLabel="Filter customer status" minWidth="min-w-[150px]" />
+            <CustomerDateInput value={dateFrom} onChange={setDateFrom} label="From date" />
+            <CustomerDateInput value={dateTo} onChange={setDateTo} label="To date" />
+            <FilterDropdown value={periodFilter} onChange={setPeriodFilter} options={PERIOD_OPTIONS} ariaLabel="Filter customer period" minWidth="min-w-[135px]" />
+            <Btn v="primary" icon={<Icon n="edit" sz={14} cl="#fff" />} onClick={exportCustomers} disabled={filtered.length === 0}>Export</Btn>
+            <Btn v="ghost" size="sm" onClick={resetFilters}>Reset</Btn>
+          </div>
+        </div>
+      </Card>
 
       {loading ? (
         <EmptyState
@@ -314,7 +482,7 @@ export default function CustomerList() {
         <EmptyState
           title="No customers found"
           description="Adjust the search or switch the status filter to restore matching customers."
-          action={<Btn v="outline" onClick={() => { setSearch(''); setStatusFilter('All') }}>Clear filters</Btn>}
+          action={<Btn v="outline" onClick={resetFilters}>Clear filters</Btn>}
         />
       )}
     </div>

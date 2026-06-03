@@ -63,6 +63,121 @@ function correctionValue(value) {
   return value
 }
 
+function snapshotValue(value) {
+  if (value === undefined || value === null || value === '') return ''
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean)
+  if (typeof value === 'object') return JSON.parse(JSON.stringify(value))
+  return value
+}
+
+function titleCaseField(value) {
+  return String(value || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatSnapshotValue(value) {
+  if (value === undefined || value === null || value === '') return '-'
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '-'
+  if (typeof value === 'object') {
+    const entries = Object.entries(value).filter(([, entryValue]) => (
+      entryValue !== undefined && entryValue !== null && String(entryValue).trim() !== ''
+    ))
+    return entries.length
+      ? entries.map(([key, entryValue]) => `${titleCaseField(key)}: ${formatSnapshotValue(entryValue)}`).join('\n')
+      : '-'
+  }
+  return String(value)
+}
+
+function buildVersionSnapshot(worker = {}, profile = {}) {
+  const primary = getPrimaryProfession(worker) || {}
+  return {
+    name: worker.name || profile.name || '',
+    phone: worker.phone || profile.phone || '',
+    profession: primary.profession || worker.profession || profile.profession || '',
+    experience: profile.experience || worker.experience || primary.experienceYears || '',
+    languages: profile.languages || worker.languages || [],
+    services: primary.services || profile.services || worker.services || [],
+    pricing: primary.price || worker.price || worker.basePrice || '',
+    location: getLocationLabel(worker) || profile.area || '',
+    image: worker.profilePhoto || worker.profilePhotoUrl || worker.profilePhotoURL || worker.imageUrl || worker.image || '',
+    aadhaar: worker.aadhaarUrl || worker.aadhaarImage || worker.aadharUrl || worker.aadharImage || '',
+  }
+}
+
+function normalizeVersionItem(version = {}, index = 0) {
+  const versionNumber = Number(version.version || version.versionNumber || version.id || index + 1) || index + 1
+  return {
+    ...version,
+    version: versionNumber,
+    status: version.status || version.approvalStatus || 'Pending',
+    updatedAt: version.updatedAt || version.createdAt || version.submittedAt || version.date || '',
+    notes: version.notes || version.note || version.message || '',
+    data: version.data || version.snapshot || version.profile || {},
+    changedFields: version.changedFields || version.requestedFields || [],
+  }
+}
+
+function normalizeProfileVersions(worker = {}, profile = {}) {
+  const rawVersions = [
+    ...(Array.isArray(worker.verificationVersions) ? worker.verificationVersions : []),
+    ...(Array.isArray(worker.profileVersions) ? worker.profileVersions : []),
+    ...(Array.isArray(worker.versions) ? worker.versions : []),
+  ]
+  const currentSnapshot = buildVersionSnapshot(worker, profile)
+  const correctionValues = worker.correctionFieldValues || worker.profileCorrectionRequest?.fieldValues || {}
+  const byVersion = new Map()
+
+  rawVersions.map(normalizeVersionItem).forEach((version) => {
+    byVersion.set(version.version, {
+      ...version,
+      data: Object.keys(version.data || {}).length ? version.data : currentSnapshot,
+    })
+  })
+
+  if (byVersion.size === 0) {
+    const previousData = Object.keys(correctionValues).length
+      ? { ...currentSnapshot, ...Object.fromEntries(Object.entries(correctionValues).map(([key, value]) => [key, snapshotValue(value)])) }
+      : currentSnapshot
+    byVersion.set(1, {
+      version: 1,
+      status: worker.approvalStatus || 'Pending',
+      updatedAt: worker.correctionRequestedAt || worker.createdAt || worker.updatedAt || '',
+      notes: Object.keys(correctionValues).length ? 'Previous profile before correction update.' : 'Initial worker profile.',
+      data: previousData,
+      changedFields: Object.keys(correctionValues),
+    })
+  }
+
+  const latestVersion = Math.max(...byVersion.keys())
+  const latest = byVersion.get(latestVersion)
+  const latestData = latest?.data || {}
+  const submittedAt = worker.correctionSubmittedAt || worker.resubmittedAt || worker.profileUpdatedAt || worker.updatedAt
+  const currentChanged = Object.keys(currentSnapshot).some((key) => (
+    JSON.stringify(snapshotValue(currentSnapshot[key])) !== JSON.stringify(snapshotValue(latestData[key]))
+  ))
+
+  if (currentChanged && submittedAt) {
+    byVersion.set(latestVersion + 1, {
+      version: latestVersion + 1,
+      status: worker.approvalStatus || 'Pending',
+      updatedAt: submittedAt,
+      notes: 'Current profile submitted by serviceman.',
+      data: currentSnapshot,
+      changedFields: latest?.changedFields || worker.correctionFields || worker.correctionItems || Object.keys(correctionValues),
+    })
+  } else if (latest) {
+    byVersion.set(latestVersion, {
+      ...latest,
+      data: { ...currentSnapshot, ...latestData },
+    })
+  }
+
+  return [...byVersion.values()].sort((left, right) => Number(left.version) - Number(right.version))
+}
+
 function buildCorrectionFieldValues(profile, worker, fields) {
   const primary = getPrimaryProfession(worker) || {}
   const values = {
@@ -84,6 +199,161 @@ function buildCorrectionFieldValues(profile, worker, fields) {
 function isPdfDocument(document = {}) {
   const value = `${document.url || ''} ${document.path || ''} ${document.fileName || ''} ${document.name || ''}`
   return /\.pdf(\?|#|$)/i.test(value) || /application\/pdf/i.test(document.type || document.mimeType || '')
+}
+
+function documentText(document = {}) {
+  return `${document.key || ''} ${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`.toLowerCase()
+}
+
+function isUploadedStatus(status = '') {
+  return ['uploaded', 'verified', 'added', 'approved'].includes(String(status || '').toLowerCase())
+}
+
+function proofDocumentName(document = {}) {
+  const kind = proofDocumentKind(document)
+  if (kind === 'aadhaar') return 'Aadhaar'
+  if (kind === 'drivingLicense') return 'Driving License'
+  if (kind === 'profilePhoto') return 'Profile Photo'
+  if (kind === 'certification') return 'Certification'
+  const name = document.name || document.fileName || document.key || 'Document'
+  return titleCaseField(String(name).replace(/\.(png|jpe?g|webp|gif|heic|pdf|docx?|xlsx?|pptx?)$/i, ''))
+}
+
+function proofDocumentKind(document = {}) {
+  const key = String(document.key || document.type || '').toLowerCase()
+  const name = String(document.name || '').toLowerCase()
+  const text = documentText(document)
+  if (/license|licence|driving|driver|(^|[-_ ])dl($|[-_ ])/.test(text) || /drivinglicense|drivinglicence/.test(key)) return 'drivingLicense'
+  if (/aadhaar|aadhar|adhaar|adhar/.test(text)) return 'aadhaar'
+  if (/profilephoto|profile_photo|profile[-_ ]?picture|profile[-_ ]?image|avatar/.test(text) || key === 'photo' || key === 'profilephoto' || name === 'profile photo') return 'profilePhoto'
+  if (/certificat|certification|experience|govt|government|skill|training/.test(text)) return 'certification'
+  return ''
+}
+
+function normalizeProofDocuments(documents = []) {
+  const slots = [
+    { key: 'aadhaar', name: 'Aadhaar', pattern: /aadhaar|aadhar|adhaar|adhar/ },
+    { key: 'drivingLicense', name: 'Driving License', pattern: /license|licence|driving|driver|(^|[-_ ])dl($|[-_ ])/ },
+    { key: 'profilePhoto', name: 'Profile Photo', pattern: /profilephoto|profile[-_ ]?photo|profile[-_ ]?picture|profile[-_ ]?image|avatar/ },
+    { key: 'certification', name: 'Certification', pattern: /certificat|certification|experience|govt|government|skill|training/ },
+  ]
+  const byKind = new Map(slots.map((slot) => [slot.key, {
+    key: slot.key,
+    name: slot.name,
+    status: 'Missing',
+    url: '',
+    isImage: false,
+    description: `${slot.name} is not uploaded.`,
+  }]))
+
+  documents.forEach((document) => {
+    let kind = proofDocumentKind(document)
+    if (!kind) {
+      const text = documentText(document)
+      kind = slots.find((slot) => slot.pattern.test(text))?.key || ''
+    }
+    if (!kind || !byKind.has(kind)) return
+    const slot = byKind.get(kind)
+    const hasFile = Boolean(document.url || document.path || document.filePath || document.fileName)
+    const shouldReplace = hasFile && (!slot.url || slot.status === 'Missing')
+    if (shouldReplace) {
+      byKind.set(kind, {
+        ...document,
+        key: kind,
+        name: slots.find((slotItem) => slotItem.key === kind)?.name || proofDocumentName(document),
+        status: document.status || 'Uploaded',
+        description: '',
+      })
+    }
+  })
+
+  return slots.map((slot) => byKind.get(slot.key))
+}
+
+function hasProofDocument(documents = [], pattern) {
+  return documents.some((document) => pattern.test(documentText(document)) && (document.url || isUploadedStatus(document.status)))
+}
+
+function getNumberField(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+const AREA_COORDINATE_FALLBACKS = {
+  gopalapatnam: { lat: 17.7497, lng: 83.2299 },
+  madhurawada: { lat: 17.7731, lng: 83.3712 },
+  gajuwaka: { lat: 17.6812, lng: 83.2123 },
+  maddilapalem: { lat: 17.7356, lng: 83.3204 },
+  seethammadhara: { lat: 17.7463, lng: 83.3186 },
+  kancharapalem: { lat: 17.7242, lng: 83.2765 },
+  allipuram: { lat: 17.7102, lng: 83.3004 },
+  autanagar: { lat: 17.7022, lng: 83.2035 },
+  autonagar: { lat: 17.7022, lng: 83.2035 },
+  yendada: { lat: 17.7751, lng: 83.3633 },
+  pendurthi: { lat: 17.8199, lng: 83.2032 },
+  kommadi: { lat: 17.8085, lng: 83.3445 },
+  'beach road': { lat: 17.7156, lng: 83.3234 },
+  'nad junction': { lat: 17.7089, lng: 83.2456 },
+}
+
+function findNestedCoordinates(source = {}) {
+  const stack = [source]
+  const seen = new Set()
+  while (stack.length) {
+    const current = stack.shift()
+    if (!current || typeof current !== 'object' || seen.has(current)) continue
+    seen.add(current)
+    const lat = getNumberField(current.lat, current.latitude, current.Latitude, current._lat)
+    const lng = getNumberField(current.lng, current.lon, current.long, current.longitude, current.Longitude, current._long)
+    if (lat !== null && lng !== null) return { lat, lng }
+    Object.values(current).forEach((value) => {
+      if (value && typeof value === 'object') stack.push(value)
+    })
+  }
+  return null
+}
+
+function resolveWorkerCoordinates(worker = {}, area = '') {
+  const direct = findNestedCoordinates({
+    gps: worker.gps,
+    location: worker.location,
+    currentLocation: worker.currentLocation,
+    servicemanLocation: worker.servicemanLocation,
+    serviceLocation: worker.serviceLocation,
+    coordinates: worker.coordinates,
+    geoPoint: worker.geoPoint,
+    lat: worker.lat ?? worker.latitude,
+    lng: worker.lng ?? worker.longitude,
+  })
+  if (direct) return direct
+
+  const areaKey = String(area || worker.areaName || worker.area || worker.serviceArea || '').toLowerCase()
+  const matched = Object.entries(AREA_COORDINATE_FALLBACKS).find(([key]) => areaKey.includes(key))
+  return matched?.[1] || null
+}
+
+function buildVerificationChecklist(worker = {}, profile = {}) {
+  const primary = getPrimaryProfession(worker) || {}
+  const documents = profile.documents || worker.documents || []
+  const aadhaarOk = hasProofDocument(documents, /aadhaar|aadhar|adhaar|adhar/)
+  const photoOk = !!firstText(worker.profilePhoto, worker.profilePhotoUrl, worker.profilePhotoURL, worker.photoUrl, worker.imageUrl, worker.image) || hasProofDocument(documents, /profile|photo|avatar|image/)
+  const pricingOk = Number(firstText(primary.price, worker.price, worker.basePrice, worker.servicePrice)) > 0 || !!profile.pricing?.minimalCharge
+  const servicesOk = (primary.services || profile.services || worker.services || []).length > 0 || !!firstText(primary.profession, worker.profession, profile.profession)
+  const mediaOk = (worker.professionMedia || worker.workPhotos || []).length > 0
+  const baseItems = [
+    { label: 'Aadhaar', done: aadhaarOk },
+    { label: 'Profile Photo', done: photoOk },
+    { label: 'Pricing', done: pricingOk },
+    { label: 'Services', done: servicesOk },
+    { label: 'Document Proofs', done: documents.length > 0, optional: true },
+    { label: 'Profession Media', done: mediaOk, optional: true },
+  ]
+  const extraItems = (worker.verificationChecklist || []).filter((item) => !baseItems.some((base) => base.label === item.label))
+  return [...baseItems, ...extraItems.map((item) => ({ label: item.label, done: item.done, optional: item.optional }))]
 }
 
 function SmallDocumentThumb({ doc }) {
@@ -187,55 +457,57 @@ export default function WorkerVerificationProfile() {
       }
     }
 
+    const area = getLocationLabel(worker)
+    const location = resolveWorkerCoordinates(worker, area)
+
     return {
       ...worker,
       name: worker.name,
       phone: worker.phone,
       profession: primary?.profession,
-      area: getLocationLabel(worker),
+      area,
       experience: experienceYears > 0 ? `${experienceYears} ${experienceYears === 1 ? 'year' : 'years'}` : '',
       languages,
-      location: worker.gps,
+      location,
       about: worker.professions?.[0]?.description || worker.about || '',
       specializations: (worker.professions || []).flatMap((item) => item.services || []),
       services: (worker.professions || []).flatMap((item) => item.services || []),
       workPhotos: worker.workPhotos || [],
       pricing: firebasePricing,
-      documents: worker.documents || [],
-      currentVersion: worker.verificationVersions?.length || 1,
-      versions: (worker.verificationVersions || []).map((version) => ({
-        version: version.version,
-        status: version.status,
-        data: {
-          aadhaar: worker.documents?.some((doc) => doc.key === 'aadhaar' && doc.status === 'Verified') ? 'verified' : 'pending',
-          photo: worker.profilePhoto,
-          pricing: (worker.professions || []).every((item) => item.price > 0),
-        },
-        updatedAt: version.updatedAt,
-        notes: version.note,
-      })),
+      documents: normalizeProofDocuments(worker.documents || []),
     }
   }, [worker])
 
-  const selectedVersion = profile ? selectedVersions[profile.id] ?? profile.currentVersion : 1
+  const profileVersions = useMemo(() => (
+    worker && profile ? normalizeProfileVersions(worker, profile) : []
+  ), [profile, worker])
+  const currentProfileVersion = profileVersions.reduce((max, item) => Math.max(max, Number(item.version) || 0), 1)
+  const selectedVersion = profile ? selectedVersions[profile.id] ?? currentProfileVersion : 1
   const currentVersionData = profile
-    ? profile.versions.find(v => v.version === selectedVersion) || profile.versions[0]
+    ? profileVersions.find(v => Number(v.version) === Number(selectedVersion)) || profileVersions[profileVersions.length - 1]
     : null
   const previousVersion = profile
-    ? profile.versions.find(v => v.version === selectedVersion - 1)
+    ? [...profileVersions].reverse().find(v => Number(v.version) < Number(selectedVersion))
     : null
   const changes = currentVersionData && previousVersion
     ? Object.keys(currentVersionData.data)
-      .filter(key => currentVersionData.data[key] !== previousVersion.data[key])
+      .filter(key => JSON.stringify(currentVersionData.data[key]) !== JSON.stringify(previousVersion.data[key]))
       .map(key => `${key} updated`)
     : []
-
-  const checklistItems = worker && profile
-    ? [
-        ...(worker.verificationChecklist || []).map((item) => ({ label: item.label, done: item.done })),
-        { label: 'Work Photos', done: profile.workPhotos.length > 0, optional: true },
-      ]
+  const versionDetails = currentVersionData?.data && typeof currentVersionData.data === 'object'
+    ? Object.entries(currentVersionData.data)
+      .filter(([, value]) => value !== undefined && value !== null && String(Array.isArray(value) ? value.join(', ') : value).trim() !== '')
+      .slice(0, 10)
     : []
+  const comparisonFields = currentVersionData
+    ? Array.from(new Set([
+      ...Object.keys(previousVersion?.data || {}),
+      ...Object.keys(currentVersionData.data || {}),
+      ...(currentVersionData.changedFields || []),
+    ])).filter((key) => currentVersionData.data?.[key] !== undefined || previousVersion?.data?.[key] !== undefined)
+    : []
+
+  const checklistItems = worker && profile ? buildVerificationChecklist(worker, profile) : []
 
   const canApprove = checklistItems.filter(item => !item.optional).every(item => item.done)
   const statusKey = profile && currentVersionData ? `${profile.id}:${currentVersionData.version}` : null
@@ -348,20 +620,74 @@ export default function WorkerVerificationProfile() {
       />
 
       <div className="flex gap-4 items-center flex-wrap">
-        <VersionSelector versions={profile.versions} selectedVersion={selectedVersion} onVersionChange={handleVersionChange} />
+        <VersionSelector versions={profileVersions} selectedVersion={selectedVersion} onVersionChange={handleVersionChange} />
         {selectedVersion > 1 && (
-          <Btn v="outline" size="sm" onClick={() => alert(`Comparing V${selectedVersion - 1} vs V${selectedVersion}`)}>
-            Compare V{selectedVersion - 1} vs V{selectedVersion}
-          </Btn>
+          <Badge label={`Comparing V${previousVersion?.version || '-'} to V${selectedVersion}`} color={C.primary} />
         )}
-        {selectedVersion === profile.currentVersion && profile.versions.length > 1 && (
-          <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl px-3.5 py-2 text-emerald-900 dark:text-emerald-400 text-sm font-medium">
-            New update received from worker
+        {selectedVersion === currentProfileVersion && profileVersions.length > 1 && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-bold text-emerald-600">
+            Current version from Firebase
           </div>
+        )}
+        {selectedVersion !== currentProfileVersion && (
+          <Btn v="outline" size="sm" onClick={() => handleVersionChange(currentProfileVersion)}>
+            Show Current Version
+          </Btn>
         )}
       </div>
 
       {changes.length > 0 && <ChangeHighlighter changes={changes} />}
+
+      {versionDetails.length > 0 && (
+        <SectionCard title={`Version ${selectedVersion} Updated Information`} subtitle={currentVersionData.notes || 'Latest submitted profile details from Firebase'}>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {versionDetails.map(([key, value]) => (
+              <InfoRow
+                key={key}
+                label={key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ')}
+                value={Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value)}
+              />
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {currentVersionData && comparisonFields.length > 0 && (
+        <SectionCard
+          title="Current vs Previous Version"
+          subtitle={previousVersion ? `Version ${selectedVersion} compared with Version ${previousVersion.version}` : 'Current Firebase profile snapshot'}
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border-main)] text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                  <th className="px-3 py-3">Field</th>
+                  <th className="px-3 py-3">Previous Version</th>
+                  <th className="px-3 py-3">Present Version</th>
+                  <th className="px-3 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparisonFields.map((field) => {
+                  const previousValue = previousVersion?.data?.[field]
+                  const currentValue = currentVersionData.data?.[field]
+                  const changed = JSON.stringify(snapshotValue(previousValue)) !== JSON.stringify(snapshotValue(currentValue))
+                  return (
+                    <tr key={field} className="border-b border-[var(--border-main)] last:border-b-0">
+                      <td className="px-3 py-3 font-bold text-[var(--text-main)]">{titleCaseField(field)}</td>
+                      <td className="whitespace-pre-wrap px-3 py-3 text-[var(--text-muted)]">{previousVersion ? formatSnapshotValue(previousValue) : '-'}</td>
+                      <td className="whitespace-pre-wrap px-3 py-3 font-semibold text-[var(--text-main)]">{formatSnapshotValue(currentValue)}</td>
+                      <td className="px-3 py-3">
+                        <Badge label={changed ? 'Updated' : 'Same'} color={changed ? C.warning : C.success} size="xs" />
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
 
       {alert && (
         <div className={`p-4 rounded-2xl border ${
@@ -492,7 +818,7 @@ export default function WorkerVerificationProfile() {
                   <div className="flex min-w-0 items-center gap-3">
                     <SmallDocumentThumb doc={doc} />
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-[var(--text-main)]">{doc.name}</p>
+                      <p className="truncate text-sm font-bold text-[var(--text-main)]">{proofDocumentName(doc)}</p>
                       <p className="mt-0.5 text-[10px] font-bold uppercase text-[var(--text-muted)]">Preview before opening</p>
                     </div>
                   </div>
@@ -510,14 +836,14 @@ export default function WorkerVerificationProfile() {
             subtitle="History of profile updates"
             icon={<Icon name="clock" size={20} />}
           >
-            <VersionTimeline versions={profile.versions} />
+            <VersionTimeline versions={profileVersions} />
           </SectionCard>
         </div>
       </div>
 
       <Modal
         isOpen={docModal.isOpen}
-        title={docModal.doc?.name || 'Document preview'}
+        title={docModal.doc ? proofDocumentName(docModal.doc) : 'Document preview'}
         onClose={closeDoc}
         size="lg"
         footer={(
@@ -529,13 +855,13 @@ export default function WorkerVerificationProfile() {
             <p className="text-sm text-[var(--text-muted)] font-medium">Status: {docModal.doc.status}</p>
             {docModal.doc.url ? (
               docModal.doc.isImage ? (
-                <img src={docModal.doc.url} alt={docModal.doc.name} className="max-h-[520px] w-full rounded-2xl border border-[var(--border-main)] object-contain bg-slate-50 dark:bg-slate-900/50" />
+                <img src={docModal.doc.url} alt={proofDocumentName(docModal.doc)} className="max-h-[520px] w-full rounded-2xl border border-[var(--border-main)] object-contain bg-slate-50 dark:bg-slate-900/50" />
               ) : isPdfDocument(docModal.doc) ? (
-                <iframe title={docModal.doc.name || 'Document preview'} src={docModal.doc.url} className="h-[520px] w-full rounded-2xl border border-[var(--border-main)] bg-white" />
+                <iframe title={proofDocumentName(docModal.doc)} src={docModal.doc.url} className="h-[520px] w-full rounded-2xl border border-[var(--border-main)] bg-white" />
               ) : (
                 <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--border-main)] bg-slate-50 text-center dark:bg-slate-900/50">
                   <Icon name="file-text" size={36} />
-                  <div className="mt-3 text-sm font-bold text-[var(--text-main)]">{docModal.doc.name}</div>
+                  <div className="mt-3 text-sm font-bold text-[var(--text-main)]">{proofDocumentName(docModal.doc)}</div>
                   <a href={docModal.doc.url} target="_blank" rel="noreferrer" className="mt-4 rounded-xl border border-brand-500/30 bg-brand-500/10 px-4 py-2 text-sm font-bold text-brand-600">
                     Open Original
                   </a>

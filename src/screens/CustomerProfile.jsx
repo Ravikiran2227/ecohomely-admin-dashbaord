@@ -11,7 +11,7 @@ import SectionCard from '../components/SectionCard'
 import { CustomerAvatar, CustomerMetricTile, CustomerProfileField } from '../components/customer/CustomerProfilePieces'
 import RelatedRecordsPanel from '../components/RelatedRecordsPanel'
 import { C } from '../theme'
-import { PinMap } from '../components/LeafletMap'
+import { CustomerLocationHeatmap } from '../components/LeafletMap'
 import { buildCustomerActivity, formatTimelineStamp, getSortableDate, toSortedRecords } from '../utils/customerProfileActivity'
 import { buildPersonTrackingProfile } from '../utils/toLetProfiles'
 import { loadCustomerProfile, loadCustomers, upsertStoredCustomerRecord } from '../utils/customerStorage'
@@ -22,6 +22,63 @@ const BOOKING_STATUS_COLOR = { Completed: C.success, 'In Progress': C.primary, P
 const COMPLAINT_STATUS_COLOR = { Open: C.danger, 'In Progress': C.warning, Resolved: C.success }
 const PAYMENT_STATUS_COLOR = { Paid: C.success, Completed: C.success, Success: C.success, Pending: C.warning, Failed: C.danger, Refunded: C.info }
 
+function displayText(value) {
+  if (value == null || value === '') return ''
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  if (value instanceof Date || typeof value?.toDate === 'function' || Number.isFinite(value?.seconds)) return formatTimelineStamp(value)
+  return String(value)
+}
+
+function displayDate(...values) {
+  const value = values.find((item) => item != null && item !== '')
+  return value ? formatTimelineStamp(value) : ''
+}
+
+function firstText(record = {}, keys = [], fallback = '') {
+  for (const key of keys) {
+    const value = record?.[key]
+    if (value !== undefined && value !== null && value !== '') return displayText(value)
+  }
+  return fallback
+}
+
+function moneyValue(record = {}, keys = []) {
+  const value = keys.map((key) => record?.[key]).find((item) => item !== undefined && item !== null && item !== '' && !Number.isNaN(Number(item)))
+  return value ? `Rs ${Number(value).toLocaleString('en-IN')}` : ''
+}
+
+function statusLabel(value, fallback = 'Not recorded') {
+  const text = displayText(value).trim()
+  return text || fallback
+}
+
+function mapPointFromRecord(record = {}) {
+  const candidates = [record.userLocation, record.customerLocation, record.location, record.customerDetails, record]
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue
+    const lat = Number(candidate.lat ?? candidate.latitude)
+    const lng = Number(candidate.lng ?? candidate.longitude ?? candidate.long)
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return {
+        lat,
+        lng,
+        area: candidate.area || candidate.city || record.area || record.city || '',
+        label: record.service || record.profession || record.bookingId || record.id || '',
+      }
+    }
+  }
+  return null
+}
+
+function DetailCell({ label, value }) {
+  const text = displayText(value)
+  return (
+    <div className="min-w-0 rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3">
+      <div className="text-label mb-1">{label}</div>
+      <div className="break-words text-[14px] font-semibold leading-6 text-[var(--text-main)]">{text || 'Not recorded'}</div>
+    </div>
+  )
+}
 
 export default function CustomerProfile() {
   const { id } = useParams()
@@ -88,6 +145,26 @@ export default function CustomerProfile() {
   const totalSpend = completedBookings.reduce((sum, booking) => sum + Number(booking.amount || booking.total || booking.finalPrice || booking.price || 0), 0)
   const paidBookings = completedBookings.filter((booking) => booking.paid).length
   const uniqueWorkers = new Set(customerBookings.map((booking) => booking.worker).filter(Boolean)).size
+  const latestBooking = useMemo(() => {
+    return [...customerBookings]
+      .sort((left, right) => {
+        const rightDate = getSortableDate(right.completedAt || right.startedAt || right.requestedAt || right.bookingDate || right.bookedAt || right.createdAt)
+        const leftDate = getSortableDate(left.completedAt || left.startedAt || left.requestedAt || left.bookingDate || left.bookedAt || left.createdAt)
+        return (rightDate?.getTime() || 0) - (leftDate?.getTime() || 0)
+      })[0] || null
+  }, [customerBookings])
+  const activityTotalBookings = Math.max(customerBookings.length, Number(data?.bookings || 0))
+  const activityCompletedBookings = Math.max(completedBookings.length, Number(data?.completedBookings || 0))
+  const activityActiveRequests = Math.max(activeBookings.length, Number(data?.activeRequests || data?.pendingBookings || 0))
+  const activityComplaints = Math.max(customerComplaints.length, Number(data?.complaints || 0))
+  const activityTotalSpend = totalSpend || Number(data?.totalSpend || data?.spend || 0)
+  const latestBookingDate = latestBooking
+    ? formatTimelineStamp(latestBooking.completedAt || latestBooking.startedAt || latestBooking.requestedAt || latestBooking.bookingDate || latestBooking.bookedAt || latestBooking.createdAt)
+    : (data?.lastBooking || '')
+  const locationPoints = useMemo(
+    () => customerBookings.map(mapPointFromRecord).filter(Boolean),
+    [customerBookings],
+  )
   const favoriteService = useMemo(() => {
     const serviceCounts = customerBookings.reduce((accumulator, booking) => {
       accumulator[booking.service] = (accumulator[booking.service] || 0) + 1
@@ -170,11 +247,11 @@ export default function CustomerProfile() {
     return toSortedRecords([...ownedListingRecords, ...enquiryMadeRecords, ...enquiryReceivedRecords]).slice(0, 10)
   }, [customerToLetProfile.enquiryRecords, customerToLetProfile.ownedListings, customerToLetProfile.receivedEnquiries, navigate, toLetEnquiryRecords, toLetListingRecords])
   const overviewRelatedSummary = useMemo(() => ([
-    { label: 'Bookings Logged', value: customerBookings.length, color: C.primary },
-    { label: 'Completed Jobs', value: completedBookings.length, color: C.success },
+    { label: 'Bookings Logged', value: activityTotalBookings, color: C.primary },
+    { label: 'Completed Jobs', value: activityCompletedBookings, color: C.success },
     { label: 'Open Support Issues', value: customerComplaints.filter((item) => item.status !== 'Resolved').length, color: C.warning },
     { label: 'Resolved / Closed', value: customerComplaints.filter((item) => item.status === 'Resolved').length, color: C.info },
-  ]), [completedBookings.length, customerBookings.length, customerComplaints])
+  ]), [activityCompletedBookings, activityTotalBookings, customerComplaints])
   const overviewRelatedRecords = useMemo(() => {
     const bookingRecords = customerBookings.map((booking) => ({
       id: `booking-${booking.id}`,
@@ -345,14 +422,12 @@ export default function CustomerProfile() {
                     <CustomerProfileField label="Phone" value={cur.phone} editMode onChange={set('phone')} />
                     <CustomerProfileField label="Email" value={cur.email} editMode onChange={set('email')} type="email" />
                     <CustomerProfileField label="Area" value={cur.area} editMode onChange={set('area')} />
-                    <InfoRow label="Last Booking" value={data.lastBooking || ''} icon="calendar" />
                   </>
                 ) : (
                   <>
                     <InfoRow label="Phone" value={cur.phone} icon="phone" />
                     <InfoRow label="Email" value={cur.email} icon="message" />
                     <InfoRow label="Area" value={cur.area} icon="mappin" />
-                    <InfoRow label="Last Booking" value={data.lastBooking || ''} icon="calendar" />
                   </>
                 )}
               </div>
@@ -362,8 +437,8 @@ export default function CustomerProfile() {
           <div className="grid gap-4">
             <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4">
               <div className="grid grid-cols-2 gap-4">
-                <CustomerMetricTile label="Bookings" value={data.bookings} accent={C.primary} />
-                <CustomerMetricTile label="Complaints" value={data.complaints} accent={data.complaints > 0 ? C.danger : C.success} />
+                <CustomerMetricTile label="Bookings" value={activityTotalBookings} accent={C.primary} />
+                <CustomerMetricTile label="Complaints" value={activityComplaints} accent={activityComplaints > 0 ? C.danger : C.success} />
               </div>
               {referrer && (
                 <div className="mt-4 border-t border-[var(--border-main)] pt-4 text-[13px] font-medium text-[var(--text-muted)]">
@@ -415,12 +490,11 @@ export default function CustomerProfile() {
             }
           >
             <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-              <InfoRow label="Total Bookings" value={data.bookings} icon="calendar" />
-              <InfoRow label="Completed Services" value={completedBookings.length} icon="check" />
-              <InfoRow label="Active Requests" value={activeBookings.length} icon="clock" />
-              <InfoRow label="Complaints Filed" value={data.complaints} icon="alert" />
-              <InfoRow label="Total Spend" value={totalSpend > 0 ? `Rs ${totalSpend}` : ''} icon="dollar" />
-              <InfoRow label="Last Booking" value={data.lastBooking || ''} icon="calendar" />
+              <InfoRow label="Total Bookings" value={activityTotalBookings} icon="calendar" />
+              <InfoRow label="Completed Services" value={activityCompletedBookings} icon="check" />
+              <InfoRow label="Active Requests" value={activityActiveRequests} icon="clock" />
+              <InfoRow label="Complaints Filed" value={activityComplaints} icon="alert" />
+              <InfoRow label="Last Booking" value={latestBookingDate} icon="calendar" />
               <InfoRow label="Referred By" value={referrer?.name || ''} icon="referral" />
             </div>
           </SectionCard>
@@ -428,10 +502,10 @@ export default function CustomerProfile() {
           <SectionCard title="Account Metrics" subtitle="A compact view of status, activity, support load, and payment history" className="xl:col-span-2">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
               {[
-                { label: 'Total Bookings', value: data.bookings, color: C.primary },
-                { label: 'Complaints', value: data.complaints, color: data.complaints > 0 ? C.danger : C.success },
+                { label: 'Total Bookings', value: activityTotalBookings, color: C.primary },
+                { label: 'Complaints', value: activityComplaints, color: activityComplaints > 0 ? C.danger : C.success },
                 { label: 'Status', value: data.status, color: STATUS_COLOR[data.status] || C.muted },
-                { label: 'Last Activity', value: data.lastBooking || '', color: C.teal },
+                { label: 'Last Activity', value: latestBookingDate, color: C.teal },
                 { label: 'Paid Jobs', value: paidBookings, color: C.success },
                 { label: 'Favorite Service', value: favoriteService, color: C.info },
               ].map((item) => (
@@ -518,7 +592,7 @@ export default function CustomerProfile() {
       )}
 
       {tab === 'activity' && (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.4fr)_360px] xl:items-start">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.7fr)] xl:items-start">
           <SectionCard title="Customer Activity Timeline" subtitle="Joined account, service requests, assignments, payments, and complaint actions" className="h-full">
             {recentActivity.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[var(--border-main)] px-6 py-12 text-center text-[14px] text-[var(--text-muted)]">No activity available for this customer.</div>
@@ -555,23 +629,22 @@ export default function CustomerProfile() {
           </SectionCard>
 
           <div className="grid gap-6">
-            <SectionCard title="History Snapshot" subtitle="Key profile-level history at a glance" className="h-full">
-              <div className="grid gap-4">
-                <InfoRow label="Joined" value={data.dateJoined} icon="calendar" />
-                <InfoRow label="Latest Booking" value={data.lastBooking || ''} icon="clock" />
-                <InfoRow label="Total Spend" value={totalSpend > 0 ? `Rs ${totalSpend}` : ''} icon="dollar" />
-                <InfoRow label="Different Workers Used" value={uniqueWorkers} icon="worker" />
-                <InfoRow label="Preferred Service" value={favoriteService} icon="star" />
-                <InfoRow label="Support Notes" value={customerComplaints.reduce((count, complaint) => count + (complaint.notes?.length || 0), 0)} icon="message" />
-              </div>
-            </SectionCard>
-
             <SectionCard title="Related Records" subtitle="Connected booking and support history" className="h-full">
               <RelatedRecordsPanel
                 summaryItems={overviewRelatedSummary}
                 records={overviewRelatedRecords}
                 emptyMessage="No connected bookings or support records were found for this customer yet."
               />
+            </SectionCard>
+
+            <SectionCard title="History Snapshot" subtitle="Key profile-level history at a glance" className="h-full">
+              <div className="grid gap-4">
+                <InfoRow label="Joined" value={data.dateJoined} icon="calendar" />
+                <InfoRow label="Latest Booking" value={latestBookingDate} icon="clock" />
+                <InfoRow label="Different Workers Used" value={uniqueWorkers} icon="worker" />
+                <InfoRow label="Preferred Service" value={favoriteService} icon="star" />
+                <InfoRow label="Support Notes" value={customerComplaints.reduce((count, complaint) => count + (complaint.notes?.length || 0), 0)} icon="message" />
+              </div>
             </SectionCard>
           </div>
         </div>
@@ -590,7 +663,7 @@ export default function CustomerProfile() {
                     <div className="text-[15px] font-semibold text-[var(--text-main)] break-words">{payment.bookingId || payment.booking || ''}</div>
                     {(payment.method || payment.mode) && <div className="mt-1 text-[13px] text-[var(--text-muted)] break-words">{payment.method || payment.mode}</div>}
                   </div>
-                  <div className="text-[13px] font-medium text-[var(--text-muted)]">{payment.paidAt || payment.createdAt || payment.date || ''}</div>
+                  <div className="text-[13px] font-medium text-[var(--text-muted)]">{displayDate(payment.paidAt, payment.createdAt, payment.date)}</div>
                   <div className="flex items-center gap-3">
                     {payment.status && <Badge label={payment.status} color={PAYMENT_STATUS_COLOR[payment.status] || C.muted} />}
                     <div className="text-[15px] font-bold" style={{ color: PAYMENT_STATUS_COLOR[payment.status] || C.success }}>
@@ -606,29 +679,32 @@ export default function CustomerProfile() {
 
       {/* LOCATION TAB */}
       {tab === 'location' && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
-          <Card className="min-h-[360px] overflow-hidden">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+          <Card className="min-h-[420px] overflow-hidden p-4">
             {data.location ? (
-              <PinMap
-                lat={data.location.lat}
-                lng={data.location.lng}
-                label={`${data.name} - ${data.area}`}
-                height={340}
+              <CustomerLocationHeatmap
+                location={data.location}
+                points={locationPoints}
+                label={`${data.name || 'Customer'} - ${data.area || data.location.area || 'Location'}`}
+                height={390}
               />
             ) : (
-              <div className="flex h-[360px] flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, #10B981 10%, var(--card-bg)) 0%, color-mix(in srgb, #0EA5E9 10%, var(--bg-main)) 100%)' }}>
+              <div className="flex h-[390px] flex-col items-center justify-center gap-3 rounded-2xl px-6 text-center" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, #10B981 10%, var(--card-bg)) 0%, color-mix(in srgb, #0EA5E9 10%, var(--bg-main)) 100%)' }}>
                 <Icon n="mappin" sz={40} cl={C.primary} />
                 <div className="text-[16px] font-bold text-[var(--text-main)]">
-                  Last Known Location - {data.area}
+                  GPS coordinates not recorded
                 </div>
+                <div className="max-w-sm text-sm text-[var(--text-muted)]">{data.area || data.address || 'No customer location is available in Firebase yet.'}</div>
               </div>
             )}
           </Card>
           <SectionCard title="Location Details" subtitle="Stored service area and coordinate summary" className="h-full">
             <div className="grid gap-4">
               <InfoRow label="Area" value={data.area} icon="mappin" />
-              <InfoRow label="Coordinates" value={data.location ? `${data.location.lat.toFixed(5)}, ${data.location.lng.toFixed(5)}` : ''} icon="map" />
-              <InfoRow label="Last Booking" value={data.lastBooking || ''} icon="clock" />
+              <InfoRow label="Address" value={data.address || data.location?.address || ''} icon="home" />
+              <InfoRow label="Latitude" value={data.location ? data.location.lat.toFixed(6) : ''} icon="map" />
+              <InfoRow label="Longitude" value={data.location ? data.location.lng.toFixed(6) : ''} icon="map" />
+              <InfoRow label="Heat Points" value={locationPoints.length || (data.location ? 1 : 0)} icon="activity" />
             </div>
           </SectionCard>
         </div>
@@ -642,23 +718,38 @@ export default function CustomerProfile() {
           ) : (
             <div className="grid gap-4">
               {customerBookings.map((b) => (
-                <div key={b.id} className="grid gap-4 rounded-2xl border border-[var(--border-main)] p-4 md:grid-cols-[88px_minmax(0,1fr)_140px_auto_auto] md:items-center">
-                  <div className="text-[12px] font-bold uppercase tracking-[0.08em] text-emerald-600">{b.id}</div>
-                  <div className="min-w-0">
-                    <div className="text-[15px] font-semibold text-[var(--text-main)] break-words">{b.service}</div>
-                    <div className="mt-1 text-[13px] text-[var(--text-muted)] break-words">
-                      {[b.worker ? `Worker: ${b.worker}` : '', b.area].filter(Boolean).join(' - ')}
+                <div key={b.id} className="rounded-3xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-main)] pb-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] text-emerald-600">
+                        <Icon n="calendar" sz={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="break-words text-[16px] font-bold text-[var(--text-main)]">
+                          {firstText(b, ['service', 'profession', 'category', 'serviceName'], 'Service not recorded')}
+                        </div>
+                        <div className="mt-1 break-words text-[12px] font-bold uppercase tracking-[0.08em] text-emerald-600">
+                          {firstText(b, ['bookingId', 'id', 'orderId', 'requestId'], 'Booking')}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-[12px] font-medium text-[var(--text-muted)]">
+                        {displayDate(b.requestedAt, b.bookingDate, b.bookedAt, b.scheduledDate, b.createdAt) || 'Not recorded'}
+                      </div>
+                      <Badge label={statusLabel(b.status)} color={BOOKING_STATUS_COLOR[statusLabel(b.status)] || C.muted} />
                     </div>
                   </div>
-                  <div className="text-[13px] font-medium text-[var(--text-muted)]">{b.requestedAt}</div>
-                  <Badge label={b.status} color={BOOKING_STATUS_COLOR[b.status] || C.muted} />
-                  {b.amount > 0 ? (
-                    <div className="text-[15px] font-bold" style={{ color: b.paid ? C.success : C.warning }}>
-                      Rs {b.amount}
-                    </div>
-                  ) : (
-                    <div className="text-[13px] font-medium text-[var(--text-muted)]" />
-                  )}
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <DetailCell label="Worker" value={firstText(b, ['worker', 'workerName', 'servicemanName'])} />
+                    <DetailCell label="Area" value={firstText(b, ['area', 'city', 'cityName'])} />
+                    <DetailCell label="Address" value={firstText(b, ['address', 'customerAddress', 'location'])} />
+                    <DetailCell label="Payment" value={firstText(b, ['paymentStatus', 'paymentState', 'paymentMode', 'payment'], b.paid ? 'Paid' : '')} />
+                    <DetailCell label="Scheduled" value={displayDate(b.scheduledDate, b.bookingDate)} />
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <Btn size="sm" v="outline" onClick={() => navigate(`/bookings/${b.id}`)}>Open Booking</Btn>
+                  </div>
                 </div>
               ))}
             </div>
@@ -677,18 +768,39 @@ export default function CustomerProfile() {
           ) : (
             <div className="grid gap-4">
               {customerComplaints.map((cp) => (
-                <div key={cp.id} className="rounded-2xl border border-[var(--border-main)] p-4">
-                  <div className="mb-3 flex flex-wrap items-center gap-3">
-                    <div className="text-[12px] font-bold uppercase tracking-[0.08em] text-red-600">{cp.id}</div>
-                    <Badge label={cp.status} color={COMPLAINT_STATUS_COLOR[cp.status] || C.muted} />
-                    <div className="ml-auto text-[12px] font-medium text-[var(--text-muted)]">{cp.date}</div>
+                <div key={cp.id} className="rounded-3xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-main)] pb-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] text-red-600">
+                        <Icon n="alert" sz={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="break-words text-[16px] font-bold text-[var(--text-main)]">
+                          {firstText(cp, ['issue', 'reason', 'description', 'message', 'title', 'complaint'], 'Issue not recorded')}
+                        </div>
+                        <div className="mt-1 break-words text-[12px] font-bold uppercase tracking-[0.08em] text-red-600">
+                          {firstText(cp, ['complaintId', 'id', 'ticketId'], 'Complaint')}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-[12px] font-medium text-[var(--text-muted)]">{displayDate(cp.date, cp.createdAt, cp.updatedAt) || 'Not recorded'}</div>
+                      <Badge label={statusLabel(cp.status)} color={COMPLAINT_STATUS_COLOR[statusLabel(cp.status)] || C.muted} />
+                    </div>
                   </div>
-                  <div className="mb-2 text-[15px] font-semibold leading-6 text-[var(--text-main)] break-words">{cp.issue}</div>
-                  <div className="text-[13px] leading-6 text-[var(--text-muted)] break-words">
-                    Against: <span className="font-semibold text-[var(--text-main)]">{cp.worker}</span>
-                    {cp.assignedTo && <> - Assigned to: <span className="font-semibold text-[var(--text-main)]">{cp.assignedTo}</span></>}
-                    {' - '}Booking: {cp.booking}
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <DetailCell label="Against Worker" value={firstText(cp, ['worker', 'workerName', 'servicemanName'])} />
+                    <DetailCell label="Booking" value={firstText(cp, ['booking', 'bookingId', 'booking_id'])} />
+                    <DetailCell label="Assigned To" value={firstText(cp, ['assignedTo', 'owner', 'assignee'])} />
+                    <DetailCell label="Category" value={firstText(cp, ['category', 'type', 'complaintType'])} />
+                    <DetailCell label="Priority" value={firstText(cp, ['priority', 'severity'])} />
+                    <DetailCell label="Resolution" value={firstText(cp, ['resolution', 'resolutionNote', 'resolvedBy'])} />
                   </div>
+                  {firstText(cp, ['notes', 'adminNote', 'customerNote']) ? (
+                    <div className="mt-3 rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-[13px] leading-6 text-[var(--text-muted)]">
+                      {firstText(cp, ['notes', 'adminNote', 'customerNote'])}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>

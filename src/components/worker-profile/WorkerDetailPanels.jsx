@@ -1,4 +1,5 @@
 import { memo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertTriangle, Eye, FileText, Image, PencilLine, Plus, Trash2, Users } from 'lucide-react'
 import Btn from '../Btn'
 import { Stars } from './ProfessionWorkspace'
@@ -98,40 +99,41 @@ function DocumentPreviewModal({ document, onClose }) {
   if (!document?.url) return null
   const pdf = isPdfDocument(document)
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-5xl overflow-hidden rounded-[28px] border border-white/10 bg-slate-950 shadow-[0_24px_80px_rgba(15,23,42,0.45)]" onClick={(event) => event.stopPropagation()}>
-        <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-[var(--border-main)] bg-[var(--card-bg)] shadow-[0_24px_80px_rgba(15,23,42,0.35)]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex flex-col gap-3 border-b border-[var(--border-main)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <div className="text-xs font-bold uppercase tracking-[0.08em] text-slate-400">Preview</div>
-            <div className="mt-1 truncate text-lg font-black">{document.name || document.fileName || 'Document'}</div>
+            <div className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Preview</div>
+            <div className="mt-1 truncate text-lg font-black text-[var(--text-main)]">{document.name || document.fileName || 'Document'}</div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <a href={document.url} target="_blank" rel="noreferrer" className="rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/25">
+            <a href={document.url} target="_blank" rel="noreferrer" className="rounded-xl border border-brand-500/30 bg-brand-500/10 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-500/15 dark:text-brand-300">
               Open Original
             </a>
-            <button type="button" onClick={onClose} className="rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-white/90 hover:bg-white/10">
+            <button type="button" onClick={onClose} className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-semibold text-[var(--text-main)] hover:bg-[var(--card-hover)]">
               Close
             </button>
           </div>
         </div>
-        <div className="p-5">
+        <div className="min-h-0 flex-1 overflow-auto p-4">
           {document.isImage ? (
-            <img src={document.url} alt={document.name} loading="lazy" decoding="async" className="max-h-[70vh] w-full rounded-[24px] object-contain bg-black/25" />
+            <img src={document.url} alt={document.name} loading="eager" decoding="async" className="mx-auto max-h-[78vh] w-full rounded-[24px] object-contain bg-black/25" />
           ) : pdf ? (
-            <iframe title={document.name || 'Document preview'} src={document.url} className="h-[70vh] w-full rounded-[24px] border border-white/10 bg-white" />
+            <iframe title={document.name || 'Document preview'} src={document.url} className="h-[78vh] w-full rounded-[24px] border border-white/10 bg-white" />
           ) : (
-            <div className="flex h-[48vh] flex-col items-center justify-center rounded-[24px] border border-white/10 bg-white/5 text-center text-white">
-              <div className="flex h-20 w-20 items-center justify-center rounded-[24px] border border-white/10 bg-white/10">
+            <div className="flex h-[48vh] flex-col items-center justify-center rounded-[24px] border border-[var(--border-main)] bg-[var(--bg-main)] text-center text-[var(--text-main)]">
+              <div className="flex h-20 w-20 items-center justify-center rounded-[24px] border border-[var(--border-main)] bg-[var(--card-bg)]">
                 <FileText className="h-10 w-10" />
               </div>
               <div className="mt-5 text-2xl font-black">Preview not available</div>
-              <div className="mt-2 max-w-md text-sm leading-6 text-white/70">This file type can be opened in a new tab after checking the file name and status here.</div>
+              <div className="mt-2 max-w-md text-sm leading-6 text-[var(--text-muted)]">This file type can be opened in a new tab after checking the file name and status here.</div>
             </div>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    globalThis.document.body,
   )
 }
 

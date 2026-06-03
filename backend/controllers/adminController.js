@@ -109,9 +109,13 @@ export function createAdminController(db) {
       const temporaryPassword = generateTemporaryPassword()
       const userRef = await adminCollection().add(payload)
       const emailResult = await sendCredentialsEmail({
+        db,
+        adminUserId: userRef.id,
         email: payload.email,
         name: payload.name,
+        username: payload.username || payload.email,
         password: temporaryPassword,
+        role: payload.role,
       })
 
       await writeActivityLog(request, {
@@ -130,6 +134,34 @@ export function createAdminController(db) {
           emailDelivery: emailResult,
         },
       })
+    },
+
+    async sendCredentialEmail(request, response) {
+      const body = request.body || {}
+
+      if (!body.email || !body.password) {
+        sendError(response, 400, 'Email and password are required')
+        return
+      }
+
+      const emailResult = await sendCredentialsEmail({
+        db,
+        adminUserId: body.adminUserId || body.userId || '',
+        email: body.email,
+        name: body.name || '',
+        username: body.username || body.email,
+        password: body.password,
+        role: body.role || '',
+      })
+
+      await writeActivityLog(request, {
+        action: 'Send Admin Credentials',
+        description: `Sent login credentials for ${body.name || body.email}.`,
+        module: 'Admin Access',
+        targetId: body.adminUserId || body.userId || '',
+      }).catch(() => null)
+
+      response.status(emailResult.status === 'sent' ? 200 : 202).json(emailResult)
     },
 
     async updateUser(request, response) {

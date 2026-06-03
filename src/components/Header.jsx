@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff } from 'lucide-react'
 import Icon from './Icon'
@@ -8,6 +8,7 @@ import { BREADCRUMBS, HEADER_ALERTS, ROUTE_ITEMS, ROUTE_LABELS } from '../config
 import { useAuth } from '../context/authContextValue'
 import { ROLES } from '../config/rbac'
 import adminApi from '../services/adminApi'
+import notificationsApi from '../services/notificationsApi'
 
 export default function Header() {
   const location = useLocation()
@@ -21,6 +22,7 @@ export default function Header() {
   const [savingPassword, setSavingPassword] = useState(false)
   const [logoutModalOpen, setLogoutModalOpen] = useState(false)
   const [visiblePasswordFields, setVisiblePasswordFields] = useState({})
+  const [notificationCount, setNotificationCount] = useState(0)
 
   const label = Object.entries(ROUTE_LABELS).find(([path]) =>
     location.pathname === path || location.pathname.startsWith(path + '/')
@@ -41,6 +43,21 @@ export default function Header() {
     setPasswordSuccess('')
     setVisiblePasswordFields({})
   }
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadNotifications() {
+      const rows = await notificationsApi.listNotifications().catch(() => [])
+      if (cancelled) return
+      setNotificationCount((Array.isArray(rows) ? rows : []).filter((item) => !item.read && (item.workerId || item.type === 'worker_profile_update')).length)
+    }
+    loadNotifications()
+    const timer = window.setInterval(loadNotifications, 60000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [])
 
   const changePassword = async () => {
     setPasswordError('')
@@ -153,7 +170,13 @@ export default function Header() {
           className="relative w-10 h-10 flex items-center justify-center rounded-2xl border border-[var(--border-main)] hover:bg-dark-50 dark:hover:bg-dark-900 transition-colors group"
         >
           <Icon n="bell" sz={20} cl="var(--color-dark-500)" className="group-hover:text-brand-600 transition-colors" />
-          <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-red-500 border-2 border-[var(--card-bg)]" />
+          {notificationCount > 0 ? (
+            <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-black leading-none text-white shadow-lg">
+              {notificationCount > 99 ? '99+' : notificationCount}
+            </span>
+          ) : (
+            <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-red-500 border-2 border-[var(--card-bg)]" />
+          )}
         </button>
 
         {/* User Profile */}

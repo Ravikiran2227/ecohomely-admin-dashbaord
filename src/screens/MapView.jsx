@@ -42,9 +42,11 @@ export default function MapView({ customerLocation, workers = [], selectedIds = 
   }, [workers.length])
 
   useEffect(() => {
-    if (!ref.current || !customerLocation) return
+    if (!ref.current || !customerLocation || !Number.isFinite(Number(customerLocation.lat)) || !Number.isFinite(Number(customerLocation.lng))) return
 
     loadLeaflet().then((Leaflet) => {
+      const customerLat = Number(customerLocation.lat)
+      const customerLng = Number(customerLocation.lng)
       if (!mapRef.current) {
         const map = Leaflet.map(ref.current, { scrollWheelZoom: false, zoomControl: true })
         Leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -58,7 +60,7 @@ export default function MapView({ customerLocation, workers = [], selectedIds = 
 
       const layer = Leaflet.layerGroup().addTo(mapRef.current)
       layerRef.current = layer
-      mapRef.current.setView([customerLocation.lat, customerLocation.lng], 13)
+      mapRef.current.setView([customerLat, customerLng], 13)
 
       const customerIcon = Leaflet.divIcon({
         className: '',
@@ -70,11 +72,11 @@ export default function MapView({ customerLocation, workers = [], selectedIds = 
         iconAnchor: [9, 9],
       })
 
-      Leaflet.marker([customerLocation.lat, customerLocation.lng], { icon: customerIcon })
+      Leaflet.marker([customerLat, customerLng], { icon: customerIcon })
         .addTo(layer)
         .bindPopup(`<strong>Customer</strong><br/>${customerLocation.area || ''}`)
 
-      Leaflet.circle([customerLocation.lat, customerLocation.lng], {
+      Leaflet.circle([customerLat, customerLng], {
         radius: 3500,
         color: '#0F5C37',
         fillColor: '#0F5C37',
@@ -83,12 +85,21 @@ export default function MapView({ customerLocation, workers = [], selectedIds = 
         dashArray: '6,4',
       }).addTo(layer)
 
-      displayedWorkers.forEach((worker) => {
-        if (!worker.location) return
+      displayedWorkers.forEach((worker, index) => {
+        const lat = Number(worker.location?.lat ?? worker.latitude ?? worker.lat)
+        const lng = Number(worker.location?.lng ?? worker.longitude ?? worker.lng)
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
         const selected = selectedIds.includes(worker.id)
         const fill = selected ? '#0F5C37' : worker.available ? '#16A34A' : '#94A3B8'
         const border = selected ? '#D1FAE5' : 'var(--card-bg)'
         const initials = String(worker.name || 'W').split(' ').map((part) => part[0]).join('').slice(0, 2)
+        Leaflet.circle([lat, lng], {
+          radius: Math.max(650, 1300 - (index * 45)),
+          color: fill,
+          fillColor: fill,
+          fillOpacity: selected ? 0.18 : 0.11,
+          weight: selected ? 2 : 1,
+        }).addTo(layer)
         const icon = Leaflet.divIcon({
           className: '',
           html: `
@@ -100,7 +111,7 @@ export default function MapView({ customerLocation, workers = [], selectedIds = 
           iconAnchor: [17, 17],
         })
 
-        Leaflet.marker([worker.location.lat, worker.location.lng], { icon })
+        Leaflet.marker([lat, lng], { icon })
           .addTo(layer)
           .bindPopup(`
             <div style="font-family:inherit;min-width:160px">

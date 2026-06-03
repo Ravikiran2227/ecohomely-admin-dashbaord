@@ -1,12 +1,12 @@
-import React from 'react';
-import Icon from './Icon';
+import React from 'react'
+import Icon from './Icon'
 
 /**
- * Reusable InfoRow component for Label + Value pairs
- * Adheres to 8px grid system and specific typography requirements.
+ * Reusable InfoRow component for label and value pairs.
  */
-export default function InfoRow({ label, value, icon, className = "", vertical = false }) {
-  // Professional alignment, 8px grid, and typography hierarchy
+export default function InfoRow({ label, value, icon, className = '', vertical = false }) {
+  const displayValue = value === 0 ? 0 : (value || '-')
+
   return (
     <div
       className={`flex ${vertical ? 'flex-col gap-2' : 'items-center gap-3'} mb-4 last:mb-0 ${className}`}
@@ -35,11 +35,11 @@ export default function InfoRow({ label, value, icon, className = "", vertical =
               className="block text-[16px] font-normal text-[var(--text-main)] leading-snug break-words whitespace-pre-wrap"
               style={{ minHeight: 20 }}
             >
-              {value || '—'}
+              {displayValue}
             </span>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }

@@ -63,7 +63,7 @@ export default function RecentBookingsTable({ bookings, onOpenBooking }) {
           <thead>
             <tr className="bg-[var(--bg-main)]">
               {['Booking', 'Customer', 'Service', 'Status', 'Issues'].map((heading) => (
-                <th key={heading} className="border-b border-[var(--border-main)] px-5 py-3 text-left text-[11px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+                <th key={heading} className="border-b border-[var(--border-main)] px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                   {heading}
                 </th>
               ))}
@@ -83,7 +83,7 @@ export default function RecentBookingsTable({ bookings, onOpenBooking }) {
 
               return (
                 <tr key={booking.id} className={issues.length ? 'bg-amber-50/40' : 'bg-transparent'}>
-                  <td className="px-5 py-4 align-top">
+                  <td className="px-4 py-3 align-top">
                     <button
                       type="button"
                       onClick={() => onOpenBooking(booking.id)}
@@ -94,18 +94,18 @@ export default function RecentBookingsTable({ bookings, onOpenBooking }) {
                     <p className="mt-1 text-xs text-[var(--text-muted)]">{formatBookingTime(bookingDate) || bookingLabel}</p>
                     {formatBookingTime(bookingDate) && <p className="mt-1 max-w-44 truncate text-[10px] font-medium text-[var(--text-muted)]">{bookingLabel}</p>}
                   </td>
-                  <td className="px-5 py-4 align-top text-sm font-semibold text-[var(--text-main)]">
+                  <td className="px-4 py-3 align-top text-sm font-semibold text-[var(--text-main)]">
                     <p>{customerLabel}</p>
                     <p className="mt-1 text-xs font-medium text-[var(--text-muted)]">{booking.area || booking.city || booking.address || '-'}</p>
                   </td>
-                  <td className="px-5 py-4 align-top text-sm font-semibold text-[var(--text-main)]">{serviceLabel}</td>
-                  <td className="px-5 py-4 align-top">
+                  <td className="px-4 py-3 align-top text-sm font-semibold text-[var(--text-main)]">{serviceLabel}</td>
+                  <td className="px-4 py-3 align-top">
                     <div className="flex flex-col gap-2">
                       <Badge label={booking.status || 'Unknown'} color={bookingStatusColor(booking.status)} size="xs" />
                       <span className="text-xs text-[var(--text-muted)]">{workerLabel || 'No worker assigned'}</span>
                     </div>
                   </td>
-                  <td className="px-5 py-4 align-top">
+                  <td className="px-4 py-3 align-top">
                     {issues.length ? (
                       <div className="flex flex-wrap gap-2">
                         {issues.map((issue) => (
@@ -121,7 +121,7 @@ export default function RecentBookingsTable({ bookings, onOpenBooking }) {
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">
+                <td colSpan={5} className="px-4 py-5 text-center text-sm font-semibold text-[var(--text-muted)]">
                   No recent bookings found.
                 </td>
               </tr>

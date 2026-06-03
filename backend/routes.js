@@ -592,6 +592,7 @@ export function registerBackendRoutes(app, db) {
 
   register(app, 'get', '/admins/users', admins.listUsers)
   register(app, 'post', '/admins/users', requireBodyObject, admins.createUser)
+  register(app, 'post', '/admins/credential-email', requireBodyObject, admins.sendCredentialEmail)
   register(app, 'get', '/admins/users/:userId', requireParam('userId'), admins.getUser)
   register(app, 'patch', '/admins/users/:userId', requireParam('userId'), requireBodyObject, admins.updateUser)
   register(app, 'delete', '/admins/users/:userId', requireParam('userId'), admins.deleteUser)
@@ -603,6 +604,7 @@ export function registerBackendRoutes(app, db) {
 
   register(app, 'get', '/admin/users', admins.listUsers)
   register(app, 'post', '/admin/users', requireBodyObject, admins.createUser)
+  register(app, 'post', '/admin/credential-email', requireBodyObject, admins.sendCredentialEmail)
   register(app, 'get', '/admin/users/:userId', requireParam('userId'), admins.getUser)
   register(app, 'patch', '/admin/users/:userId', requireParam('userId'), requireBodyObject, admins.updateUser)
   register(app, 'delete', '/admin/users/:userId', requireParam('userId'), admins.deleteUser)

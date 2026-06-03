@@ -81,6 +81,56 @@ function Indicator({ ok, label }) {
   )
 }
 
+function documentText(document = {}) {
+  return `${document.key || ''} ${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`.toLowerCase()
+}
+
+function isUploadedStatus(status = '') {
+  return ['uploaded', 'verified', 'added', 'approved'].includes(String(status || '').toLowerCase())
+}
+
+function hasDocument(worker = {}, pattern) {
+  return (worker.documents || []).some((document) => pattern.test(documentText(document)) && (document.url || isUploadedStatus(document.status)))
+}
+
+function maxVersion(worker = {}) {
+  const versionPools = [
+    ...(Array.isArray(worker.verificationVersions) ? worker.verificationVersions : []),
+    ...(Array.isArray(worker.profileVersions) ? worker.profileVersions : []),
+    ...(Array.isArray(worker.versions) ? worker.versions : []),
+  ]
+  return versionPools.reduce((max, item) => Math.max(max, Number(item.version || item.versionNumber || 0) || 0), Number(worker.currentVersion || 0) || 1)
+}
+
+function latestVersion(worker = {}) {
+  const versionPools = [
+    ...(Array.isArray(worker.verificationVersions) ? worker.verificationVersions : []),
+    ...(Array.isArray(worker.profileVersions) ? worker.profileVersions : []),
+    ...(Array.isArray(worker.versions) ? worker.versions : []),
+  ].sort((left, right) => (Number(right.version || right.versionNumber || 0) || 0) - (Number(left.version || left.versionNumber || 0) || 0))
+  return versionPools[0] || null
+}
+
+function changedFieldLabels(worker = {}) {
+  const version = latestVersion(worker)
+  const fields = version?.changedFields || version?.requestedFields || worker.correctionFields || worker.correctionItems || worker.profileCorrectionRequest?.fields || []
+  return fields.map(correctionLabel).filter(Boolean)
+}
+
+function buildChecklist(worker = {}) {
+  const primary = getPrimaryProfession(worker) || {}
+  const aadhaarOk = hasDocument(worker, /aadhaar|aadhar|adhaar|adhar/)
+  const photoOk = !!firstValue(worker.profilePhoto, worker.profilePhotoUrl, worker.profilePhotoURL, worker.photoUrl, worker.imageUrl, worker.image) || hasDocument(worker, /profile|photo|image|avatar/)
+  const pricingOk = Number(firstValue(primary.price, worker.price, worker.basePrice, worker.servicePrice)) > 0
+  const servicesOk = (primary.services || worker.services || []).length > 0 || !!firstValue(primary.profession, worker.profession, worker.primaryProfession)
+  return [
+    { key: 'aadhaar', label: 'Aadhaar', ok: aadhaarOk },
+    { key: 'photo', label: 'Photo', ok: photoOk },
+    { key: 'pricing', label: 'Pricing', ok: pricingOk },
+    { key: 'services', label: 'Services', ok: servicesOk },
+  ]
+}
+
 function correctionValue(value) {
   if (value === undefined || value === null) return ''
   if (Array.isArray(value)) return value.map((item) => (typeof item === 'object' ? item : String(item || '').trim())).filter(Boolean)
@@ -114,10 +164,9 @@ function buildCorrectionFieldValues(worker, fields) {
 
 function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onRequestFix }) {
   const [expanded, setExpanded] = useState(false)
-  const aadhaarOk = worker.aadhaar === 'verified'
-  const photoOk = !!worker.photo
-  const pricingOk = worker.amount > 0
-  const servicesOk = worker.profession && worker.profession.length > 0
+  const checklist = worker.checklist || buildChecklist(worker)
+  const aadhaarOk = checklist.find((item) => item.key === 'aadhaar')?.ok
+  const changedFields = worker.changedFields || []
 
   return (
     <Card className="overflow-hidden border-t-4" style={{ borderTopColor: worker.statusColor }}>
@@ -129,6 +178,7 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
             <h3 className="text-base font-extrabold text-[var(--text-main)]">{worker.name}</h3>
             <Badge label="Pending" color={C.warning} />
             <Badge label={aadhaarOk ? 'Aadhaar Verified' : 'No Aadhaar'} color={aadhaarOk ? C.success : C.danger} />
+            <Badge label={`Version ${worker.versionNumber}`} color={C.primary} />
           </div>
           <div className="flex gap-3 flex-wrap text-xs font-medium text-[var(--text-muted)]">
             <span className="flex items-center gap-1"><Icon n="briefcase" sz={12} /> {worker.profession}</span>
@@ -136,11 +186,13 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
             <span className="flex items-center gap-1"><Icon n="map-pin" sz={12} /> {worker.area}</span>
             <span className="flex items-center gap-1"><Icon n="calendar" sz={12} /> Applied {worker.dateAdded}</span>
           </div>
+          {changedFields.length > 0 && (
+            <div className="mt-2 text-xs font-bold text-[var(--text-main)]">
+              Updated in version {worker.versionNumber}: <span className="font-medium text-[var(--text-muted)]">{changedFields.join(', ')}</span>
+            </div>
+          )}
           <div className="flex flex-wrap gap-3.5 mt-3.5 p-3 rounded-xl bg-[var(--bg-main)]/50 border border-[var(--border-main)]/50">
-            <Indicator ok={aadhaarOk} label="Aadhaar" />
-            <Indicator ok={photoOk} label="Photo" />
-            <Indicator ok={pricingOk} label="Pricing" />
-            <Indicator ok={servicesOk} label="Services" />
+            {checklist.map((item) => <Indicator key={item.key} ok={item.ok} label={item.label} />)}
           </div>
         </div>
 
@@ -200,15 +252,18 @@ export default function WorkerApproval() {
     ...worker,
     profession: getPrimaryProfession(worker)?.profession,
     area: getLocationLabel(worker),
-    dateAdded: formatDate(worker.verificationVersions?.[0]?.updatedAt) || formatDate(worker.createdAt),
+    dateAdded: formatDate(latestVersion(worker)?.updatedAt) || formatDate(worker.createdAt),
     status: worker.approvalStatus,
-    aadhaar: worker.documents?.some(doc => doc.key === 'aadhaar' && doc.status === 'Verified') ? 'verified' : 'pending',
+    aadhaar: hasDocument(worker, /aadhaar|aadhar|adhaar|adhar/) ? 'verified' : 'pending',
     photo: worker.profilePhoto,
     amount: getPrimaryProfession(worker)?.price || 0,
+    checklist: buildChecklist(worker),
+    versionNumber: maxVersion(worker),
+    changedFields: changedFieldLabels(worker),
     experience: firstValue(getPrimaryProfession(worker)?.experienceRange, getPrimaryProfession(worker)?.experienceYears, getPrimaryProfession(worker)?.experience, worker.experienceRange, worker.experienceYears, worker.experience),
     languages: normalizeLanguages(firstValue(worker.languages, worker.language, worker.knownLanguages, worker.knownLanguage, worker.spokenLanguages, worker.spokenLanguage, worker.preferredLanguages)),
     location: worker.gps,
-    statusColor: worker.documents?.some(doc => doc.key === 'aadhaar' && doc.status === 'Verified') ? '#14b8a6' : '#ef4444',
+    statusColor: hasDocument(worker, /aadhaar|aadhar|adhaar|adhar/) ? '#14b8a6' : '#ef4444',
   })
 
   const loadQueue = async () => {

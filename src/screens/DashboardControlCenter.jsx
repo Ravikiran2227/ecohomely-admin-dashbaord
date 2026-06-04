@@ -48,6 +48,49 @@ function getBookingService(booking = {}) {
   return booking.service || booking.profession || booking.category || booking.subService || booking.sub_service || 'Service'
 }
 
+function getBookingDateValue(booking = {}) {
+  return booking.bookingDate
+    || booking.BookingDate
+    || booking.booking_date
+    || booking.bookedAt
+    || booking.booked_at
+    || booking.requestedAt
+    || booking.requested_at
+    || booking.createdAt
+    || booking.created_at
+    || booking.scheduledDate
+    || booking.scheduledAt
+    || booking.scheduled_at
+    || booking.date
+    || booking.timestamp
+}
+
+function parseDashboardDate(value) {
+  if (!value) return null
+  if (value instanceof Date) return value
+  if (typeof value === 'number') return new Date(value)
+  if (typeof value === 'object') {
+    if (typeof value.toDate === 'function') return value.toDate()
+    if (typeof value.seconds === 'number') return new Date(value.seconds * 1000)
+    if (typeof value._seconds === 'number') return new Date(value._seconds * 1000)
+  }
+  const raw = String(value).trim()
+  const normalized = raw
+    .replace(/\s+at\s+/i, ' ')
+    .replace(/UTC([+-])(\d{1,2}):?(\d{2})/i, (_, sign, hour, minute) => `GMT${sign}${String(hour).padStart(2, '0')}${minute}`)
+  const date = new Date(normalized.includes('T') ? normalized : normalized.replace(/^(\d{4}-\d{2}-\d{2})\s+/, '$1T'))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function getBookingStatusGroup(booking = {}) {
+  if (booking.invoiceGenerated || booking.invoiceId || booking.invoiceNumber || booking.completedAt) return 'completed'
+  const status = String(booking.status || booking.bookingStatus || booking.Status || '').trim().toLowerCase()
+  if (['completed', 'complete', 'paid'].includes(status)) return 'completed'
+  if (['cancelled', 'canceled', 'rejected'].includes(status)) return 'cancelled'
+  if (['pending', 'created', 'booking created', 'new'].includes(status)) return 'pending'
+  return status || 'pending'
+}
+
 function toDateInputValue(date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -258,9 +301,18 @@ export default function DashboardControlCenter() {
     setHoveredPoint(null)
   }, [activeTab, activeRange, activeDate])
 
-  const pendingCount = records.bookings.filter((booking) => statusIs(booking, ['Pending'])).length
-  const unassignedBookings = records.bookings.filter((booking) => !getBookingWorkerId(booking) && statusIn(booking, ['Pending', 'Created', 'Booking Created']))
-  const cancelledCount = records.bookings.filter((booking) => statusIs(booking, ['Cancelled', 'Canceled'])).length
+  const activeDateObject = parseDateValue(activeDate)
+  const monthStart = new Date(activeDateObject.getFullYear(), activeDateObject.getMonth(), 1)
+  const monthEnd = new Date(activeDateObject.getFullYear(), activeDateObject.getMonth() + 1, 1)
+  const monthBookings = records.bookings.filter((booking) => {
+    const bookingDate = parseDashboardDate(getBookingDateValue(booking))
+    return bookingDate && bookingDate >= monthStart && bookingDate < monthEnd
+  })
+  const selectedBookingRows = activeTab === 'bookings' && selectedPointKey ? (selectedPoint?.items || []) : monthBookings
+  const selectedCompletedCount = selectedBookingRows.filter((booking) => getBookingStatusGroup(booking) === 'completed').length
+  const pendingCount = selectedBookingRows.filter((booking) => getBookingStatusGroup(booking) === 'pending').length
+  const unassignedBookings = monthBookings.filter((booking) => !getBookingWorkerId(booking) && getBookingStatusGroup(booking) === 'pending')
+  const cancelledCount = selectedBookingRows.filter((booking) => getBookingStatusGroup(booking) === 'cancelled').length
   const workerApprovalQueue = records.workers.filter(workerNeedsApproval)
   const openComplaints = records.complaints.filter((item) => statusIn(item, ['Open', 'Pending', 'In Progress', 'Under Review']))
   const pendingToLet = records.toLetListings.filter((listing) => statusIn(listing, ['Pending', 'Under Review']))
@@ -307,7 +359,7 @@ export default function DashboardControlCenter() {
   ]
 
   const statusCards = [
-    { label: 'Completed', value: completedInRange, color: '#10B981' },
+    { label: 'Completed', value: selectedCompletedCount, color: '#10B981' },
     { label: 'Pending', value: pendingCount, color: '#F59E0B' },
     { label: 'Cancelled', value: cancelledCount, color: '#EF4444' },
   ]

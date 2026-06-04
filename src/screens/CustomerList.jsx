@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card } from '../components/Card'
 import PageHeader from '../components/PageHeader'
@@ -162,30 +162,42 @@ function matchesDateRange(date, dateFrom, dateTo) {
 
 function FilterDropdown({ value, onChange, options, ariaLabel, minWidth = 'min-w-[160px]' }) {
   const [open, setOpen] = useState(false)
+  const dropdownRef = useRef(null)
   const selected = options.find((option) => String(option.id) === String(value)) || options[0]
 
+  useEffect(() => {
+    if (!open) return undefined
+
+    const closeOnOutsideClick = (event) => {
+      if (!dropdownRef.current?.contains(event.target)) {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+  }, [open])
+
   return (
-    <div className={`relative ${minWidth}`}>
+    <div ref={dropdownRef} className={`relative ${open ? 'z-[200]' : 'z-10'} ${minWidth}`}>
       <button
         type="button"
         aria-label={ariaLabel}
         onClick={() => setOpen((current) => !current)}
-        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
         className="flex h-11 w-full items-center justify-between gap-3 rounded-lg border border-[var(--border-main)] bg-[var(--card-bg)] px-4 text-left text-sm font-bold text-[var(--text-main)] shadow-sm transition-all hover:border-[var(--color-primary)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-4 focus:ring-brand-500/15"
       >
         <span className="truncate">{selected?.name}</span>
         <span className={`text-sm text-[var(--color-primary)] transition-transform ${open ? 'rotate-180' : ''}`}>v</span>
       </button>
       {open && (
-        <div className="absolute left-0 top-[calc(100%+8px)] z-[120] max-h-72 w-full min-w-[190px] overflow-auto rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,0.22)]">
+        <div className="absolute left-0 top-[calc(100%+8px)] z-[220] max-h-72 w-full min-w-[190px] overflow-y-auto rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,0.32)]">
           {options.map((option) => {
             const active = String(option.id) === String(value)
             return (
               <button
                 key={option.id}
                 type="button"
-                onMouseDown={(event) => {
-                  event.preventDefault()
+                onClick={() => {
                   onChange(option.id)
                   setOpen(false)
                 }}
@@ -361,7 +373,7 @@ export default function CustomerList() {
         ))}
       </div>
 
-      <Card className="p-4.5">
+      <Card className="relative z-50 overflow-visible p-4.5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <h2 className="text-lg font-black text-[var(--text-main)]">Customers List</h2>
@@ -405,7 +417,7 @@ export default function CustomerList() {
         />
       ) : filtered.length > 0 ? (
         <>
-        <DataTable cols={COLS}>
+        <DataTable cols={COLS} className="relative z-0">
           {pagedCustomers.map((c, i) => (
             <TableRow
               key={c.id}

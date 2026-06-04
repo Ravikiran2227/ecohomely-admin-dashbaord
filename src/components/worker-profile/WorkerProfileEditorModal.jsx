@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Btn from '../Btn'
 import { areas, cities, clusters, districts, mandals, states } from '../../data/locationExpansion'
 
@@ -20,10 +20,34 @@ function joinListInput(value) {
   return Array.isArray(value) ? value.join(', ') : ''
 }
 
+function formatDateInput(value) {
+  if (!value) return ''
+  if (typeof value?.toDate === 'function') return value.toDate().toISOString().slice(0, 10)
+  if (typeof value?.seconds === 'number') return new Date(value.seconds * 1000).toISOString().slice(0, 10)
+  if (typeof value?._seconds === 'number') return new Date(value._seconds * 1000).toISOString().slice(0, 10)
+  const text = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(text)) {
+    const [day, month, year] = text.split('/')
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+  }
+  if (/^\d{9,}(\.\d+)?$/.test(text)) return ''
+  const parsed = new Date(text)
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10)
+}
+
 function buildDraft(worker) {
   return {
     name: worker?.name || '',
+    email: worker?.email || worker?.emailId || worker?.mail || '',
     phone: worker?.phone || '',
+    gender: worker?.gender || '',
+    dateOfBirth: formatDateInput(worker?.dateOfBirth || worker?.dob || worker?.birthDate),
+    address: worker?.address || worker?.fullAddress || worker?.location?.address || '',
+    areaName: worker?.areaName || worker?.mainArea || worker?.primaryArea || worker?.area || '',
+    deviceType: worker?.deviceType || worker?.device || worker?.platform || worker?.os || '',
+    membership: worker?.membership || 'gold',
+    experienceYears: Number(worker?.experienceYears || worker?.experience || worker?.workExperience) || 0,
     status: worker?.status || 'Active',
     approvalStatus: worker?.approvalStatus || 'Pending',
     availability: worker?.availability || 'Available',
@@ -52,7 +76,15 @@ function buildDraft(worker) {
 function sanitizeDraft(draft) {
   return {
     name: draft.name.trim(),
+    email: draft.email.trim(),
     phone: draft.phone.replace(/\D/g, '').slice(0, 10),
+    gender: draft.gender.trim(),
+    dateOfBirth: draft.dateOfBirth,
+    address: draft.address.trim(),
+    areaName: draft.areaName.trim(),
+    deviceType: draft.deviceType.trim(),
+    membership: String(draft.membership || 'gold').trim().toLowerCase(),
+    experienceYears: Math.max(0, Number(draft.experienceYears) || 0),
     status: draft.status,
     approvalStatus: draft.approvalStatus,
     availability: draft.availability,
@@ -81,6 +113,11 @@ function sanitizeDraft(draft) {
 export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSave }) {
   const [draft, setDraft] = useState(() => buildDraft(worker))
 
+  useEffect(() => {
+    if (!isOpen) return
+    setDraft(buildDraft(worker))
+  }, [isOpen, worker])
+
   const availableDistricts = useMemo(
     () => districts.filter((item) => item.state_id === draft.state_id),
     [draft.state_id],
@@ -104,6 +141,10 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
 
   const savePayload = useMemo(() => sanitizeDraft(draft), [draft])
   const canSave = Boolean(savePayload.name && savePayload.phone.length === 10)
+
+  const handleSave = () => {
+    onSave(savePayload)
+  }
 
   const updateDraft = (field, value) => {
     setDraft((current) => ({
@@ -202,8 +243,44 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
                   <input type="text" value={draft.name} onChange={(event) => updateDraft('name', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
                 </label>
                 <label className="grid gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Email</span>
+                  <input type="email" value={draft.email} onChange={(event) => updateDraft('email', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+                </label>
+                <label className="grid gap-2">
                   <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Phone Number</span>
                   <input type="tel" inputMode="numeric" value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Gender</span>
+                  <input type="text" value={draft.gender} onChange={(event) => updateDraft('gender', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Date of Birth</span>
+                  <input type="date" value={draft.dateOfBirth} onChange={(event) => updateDraft('dateOfBirth', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+                </label>
+                <label className="grid gap-2 md:col-span-2">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Address</span>
+                  <textarea rows={3} value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Area Name</span>
+                  <input type="text" value={draft.areaName} onChange={(event) => updateDraft('areaName', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Device Type</span>
+                  <input type="text" value={draft.deviceType} onChange={(event) => updateDraft('deviceType', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Experience Years</span>
+                  <input type="number" min="0" value={draft.experienceYears} onChange={(event) => updateDraft('experienceYears', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Membership</span>
+                  <select value={draft.membership} onChange={(event) => updateDraft('membership', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40">
+                    <option value="gold">Gold</option>
+                    <option value="silver">Silver</option>
+                    <option value="bronze">Bronze</option>
+                  </select>
                 </label>
                 <label className="grid gap-2">
                   <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Worker Status</span>
@@ -368,7 +445,7 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
           <p className="text-sm text-[var(--text-muted)]">Required fields: worker name and a valid 10-digit phone number.</p>
           <div className="flex items-center gap-3">
             <Btn v="outline" onClick={onClose}>Cancel</Btn>
-            <Btn v="primary" disabled={!canSave} onClick={() => onSave(savePayload)}>Save Worker</Btn>
+            <Btn v="primary" disabled={!canSave} onClick={handleSave}>Save Worker</Btn>
           </div>
         </div>
       </div>

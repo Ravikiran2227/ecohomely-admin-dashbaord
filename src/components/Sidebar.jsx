@@ -112,7 +112,7 @@ export default function Sidebar({ collapsed, onCollapse }) {
   return (
     <aside
       className={`sticky top-0 h-[calc(100vh/var(--dashboard-ui-scale))] shrink-0 flex flex-col transition-all duration-300 ease-in-out border-r border-[var(--border-main)] bg-[var(--card-bg)] shadow-xl z-50 ${
-        collapsed ? 'w-[4.5rem]' : 'w-[13.75rem]'
+        collapsed ? 'w-[4.5rem]' : 'w-[15rem]'
       }`}
     >
       {/* Brand Section */}

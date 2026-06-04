@@ -234,40 +234,56 @@ function buildAdminCredentialEmail(payload = {}) {
   return { subject, text, html, role }
 }
 
+const EMAILJS_ADMIN_CREDENTIALS = {
+  serviceId: 'service_y4qkkls',
+  templateId: 'template_cwtq1yn',
+  publicKey: 'x9q5Lmu5BByPavky1',
+}
+
 async function sendAdminCredentialsEmail(payload = {}) {
   if (!payload.email || !payload.username || !payload.password) {
     throw Object.assign(new Error('Email, username, and password are required.'), { status: 400 })
   }
 
   const email = buildAdminCredentialEmail(payload)
-  const now = new Date()
-  const mailPayload = {
-    to: [payload.email],
-    message: {
-      subject: email.subject,
-      text: email.text,
-      html: email.html,
-    },
-    createdAt: now,
-    createdBy: payload.createdBy || 'admin-dashboard',
-    category: 'admin_credentials',
-    adminUserId: payload.adminUserId || '',
-    delivery: { status: 'queued' },
+  const templateParams = {
+    email: payload.email,
+    to_email: payload.email,
+    name: payload.name || payload.username || 'Admin',
+    username: payload.username,
+    password: payload.password,
+    role: email.role,
   }
 
-  const mailRef = await addDoc(collection(db, 'mail'), mailPayload)
+  const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      service_id: EMAILJS_ADMIN_CREDENTIALS.serviceId,
+      template_id: EMAILJS_ADMIN_CREDENTIALS.templateId,
+      user_id: EMAILJS_ADMIN_CREDENTIALS.publicKey,
+      template_params: templateParams,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '')
+    throw Object.assign(new Error(errorText || `EmailJS failed with status ${response.status}`), { status: response.status })
+  }
+
+  const now = new Date()
   await addDoc(collection(db, 'adminCredentialEmails'), {
     adminUserId: payload.adminUserId || '',
     name: payload.name || '',
     email: payload.email,
     username: payload.username,
     role: email.role,
-    mailId: mailRef.id,
-    status: 'queued',
+    status: 'sent',
+    provider: 'emailjs',
     createdAt: now,
   }).catch(() => null)
 
-  return { id: mailRef.id, status: 'queued', to: payload.email }
+  return { status: 'sent', provider: 'emailjs', to: payload.email }
 }
 
 async function updateAdminUser(id, payload = {}) {

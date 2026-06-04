@@ -9,20 +9,22 @@ import Btn from '../components/Btn'
 import ListToolbar from '../components/ListToolbar'
 import EmptyState from '../components/EmptyState'
 import { DataTable, TableRow, TD } from '../components/Table'
-import bookingsApi from '../services/bookingsApi'
 import paymentsApi from '../services/paymentsApi'
 import workersApi from '../services/workersApi'
 
-const STATUS_COLORS = { Verified: '#16A34A', 'Pending Verify': '#F59E0B', Failed: '#DC2626' }
-const METHOD_COLORS = { UPI: '#0F766E', Cash: '#2563EB', 'Bank Transfer': '#7C3AED' }
+const STATUS_COLORS = { Paid: '#16A34A', 'Not Paid': '#F59E0B', Verified: '#16A34A', 'Pending Verify': '#F59E0B', Failed: '#DC2626' }
+const METHOD_COLORS = { UPI: '#0F766E', 'Bank Transfer': '#7C3AED' }
+const PAGE_SIZE = 15
+const SUBSCRIPTION_CHARGE = 199
 const COLS = [
   { label: 'Pay ID' },
   { label: 'Serviceman' },
   { label: 'Profession' },
+  { label: 'Payment Status' },
   { label: 'Amount' },
   { label: 'Method' },
   { label: 'Date' },
-  { label: 'Status' },
+  { label: 'Time' },
   { label: 'Action' },
 ]
 
@@ -100,10 +102,126 @@ function formatDate(value) {
   })
 }
 
+function formatDateOnly(value) {
+  const date = parseFirestoreDate(value)
+  if (!date) return '-'
+  return date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatTimeOnly(value) {
+  const date = parseFirestoreDate(value)
+  if (!date) return '-'
+  return date.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 function displayText(value, fallback = '-') {
   if (value === undefined || value === null || value === '') return fallback
   if (typeof value === 'object') return formatDate(value)
   return String(value)
+}
+
+function firstText(...values) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
+}
+
+function numberFrom(value) {
+  if (typeof value === 'boolean') return null
+  if (value === undefined || value === null || value === '') return null
+  const cleaned = String(value).replace(/[^\d.-]/g, '')
+  if (!/\d/.test(cleaned)) return null
+  const parsed = Number(cleaned)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function findPaymentAmount(source = {}) {
+  const seen = new Set()
+  const stack = [source]
+  const blockedKeys = /phone|mobile|date|time|count|latitude|longitude|rating|year|month|day|pin|mpin|otp|id|status/i
+  const amountKeys = /amount|price|fee|charge|cost|value|paid/i
+
+  while (stack.length) {
+    const current = stack.pop()
+    if (!current || typeof current !== 'object' || seen.has(current)) continue
+    seen.add(current)
+
+    for (const [key, value] of Object.entries(current)) {
+      if (value && typeof value === 'object') {
+        stack.push(value)
+        continue
+      }
+      if (!amountKeys.test(key) || blockedKeys.test(key)) continue
+      const parsed = numberFrom(value)
+      if (parsed !== null && parsed >= 0) return parsed
+    }
+  }
+
+  return null
+}
+
+function paymentAmountFrom(record = {}) {
+  const direct = numberFrom(firstText(
+    record.amt,
+    record.amount,
+    record.total,
+    record.value,
+    record.price,
+    record.fee,
+    record.paymentAmount,
+    record.payment_amount,
+    record.amountPaid,
+    record.amount_paid,
+    record.paidAmount,
+    record.collectionAmount,
+    record.collectedAmount,
+    record.subscriptionAmount,
+    record.subscriptionPrice,
+    record.subscriptionFee,
+    record.planAmount,
+    record.planPrice,
+    record.planFee,
+    record.packageAmount,
+    record.selectedPlanAmount,
+    record.membershipAmount,
+    record.membershipPrice,
+    readPath(record, 'payment.amount'),
+    readPath(record, 'payment.price'),
+    readPath(record, 'payment.fee'),
+    readPath(record, 'payment.total'),
+    readPath(record, 'payment.amountPaid'),
+    readPath(record, 'payment.paidAmount'),
+    readPath(record, 'paymentDetails.amount'),
+    readPath(record, 'paymentDetails.price'),
+    readPath(record, 'subscription.amount'),
+    readPath(record, 'subscription.price'),
+    readPath(record, 'subscription.fee'),
+    readPath(record, 'subscription.amountPaid'),
+    readPath(record, 'subscription.planAmount'),
+    readPath(record, 'subscriptionDetails.amount'),
+    readPath(record, 'subscriptionDetails.price'),
+    readPath(record, 'plan.amount'),
+    readPath(record, 'plan.price'),
+    readPath(record, 'plan.fee'),
+    readPath(record, 'membership.amount'),
+    readPath(record, 'membership.price'),
+  ))
+  return direct ?? findPaymentAmount(record)
+}
+
+function formatAmount(amount) {
+  return amount === null || amount === undefined ? '-' : `Rs.${amount}`
+}
+
+function readPath(source = {}, path = '') {
+  return String(path)
+    .split('.')
+    .reduce((current, key) => (current && current[key] !== undefined ? current[key] : undefined), source)
 }
 
 function normalizeName(value) {
@@ -132,33 +250,165 @@ function isLooseNameMatch(left, right) {
 }
 
 function findWorkerByPayment(payment, workerList) {
-  if (payment.workerId) return workerList.find((worker) => [worker.id, worker.uid, worker.workerId, worker.servicemanId].includes(payment.workerId)) || null
+  if (payment.workerId) {
+    return workerList.find((worker) => [
+      worker.id,
+      worker.uid,
+      worker.userId,
+      worker.workerId,
+      worker.partnerId,
+      worker.servicemanId,
+      worker.authId,
+    ].filter(Boolean).includes(payment.workerId)) || null
+  }
+  if (payment.phone) return workerList.find((worker) => String(worker.phone || worker.phoneNumber || '').replace(/\D/g, '') === String(payment.phone).replace(/\D/g, '')) || null
   return workerList.find((worker) => isLooseNameMatch(worker.name, payment.worker) && normalizeProfession(worker.profession) === normalizeProfession(payment.job)) || null
 }
 
-function findBookingByPayment(payment, workerId, bookingList) {
-  return bookingList.find((booking) => {
-    if (workerId && booking.workerId === workerId) return true
-    return isLooseNameMatch(booking.worker, payment.worker) && normalizeProfession(booking.service) === normalizeProfession(payment.job)
-  }) || null
+function toTitle(value) {
+  return String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function normalizePayment(record = {}) {
-  const amount = Number(record.amt ?? record.amount ?? record.total ?? record.value ?? 0)
-  const rawDate = record.date || record.paidAt || record.paymentDate || record.createdAt || record.updatedAt
+function normalizeStatus(value, record = {}) {
+  const raw = String(value || record.paymentStatus || record.subscriptionStatus || '').toLowerCase()
+  if (record.verified === true || ['verified', 'completed', 'complete', 'success', 'successful', 'paid', 'active'].includes(raw)) return 'Paid'
+  if (['failed', 'failure', 'rejected', 'reject', 'cancelled', 'canceled'].includes(raw)) return 'Failed'
+  if (['no', 'not paid', 'unpaid', 'false', 'inactive'].includes(raw) || record.paid === false || record.isPaid === false || record.havePaid === false) return 'Not Paid'
+  return 'Pending Verify'
+}
+
+function normalizeMethod(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return '-'
+  if (/upi/i.test(raw)) return 'UPI'
+  if (/cash/i.test(raw)) return 'Cash'
+  if (/bank|transfer/i.test(raw)) return 'Bank Transfer'
+  return toTitle(raw)
+}
+
+function isSubscriptionPayment(record = {}, forcedSource = '') {
+  const path = String(record.__path || record.collectionName || forcedSource || '').toLowerCase()
+  if (path.includes('subscription')) return true
+
+  const searchable = [
+    record.type,
+    record.paymentType,
+    record.paymentFor,
+    record.purpose,
+    record.category,
+    record.source,
+    record.plan,
+    record.planId,
+    record.planName,
+    record.subscriptionId,
+    record.subscriptionPlan,
+    record.membership,
+  ].map((value) => String(value || '').toLowerCase()).join(' ')
+
+  const hasSubscriptionMarker = /\b(subscription|membership|plan|app fee|platform fee)\b/.test(searchable)
+  const looksLikeBookingPayment = Boolean(record.bookingId || record.booking_id || record.requestId || record.orderId || record.invoiceId || record.customerId || record.userId)
+  return hasSubscriptionMarker && !looksLikeBookingPayment
+}
+
+function normalizePayment(record = {}, sourceType = '') {
+  const rawDate = record.date || record.paidAt || record.paymentDate || record.startDate || record.createdAt || record.updatedAt
+  const status = normalizeStatus(record.status, record)
   return {
     ...record,
     id: displayText(record.id || record.paymentId || record.payId),
-    worker: displayText(record.worker || record.workerName || record.serviceman || record.servicemanName || record.providerName, 'Unknown worker'),
-    workerId: record.workerId || record.providerId || record.servicemanId || null,
+    sourceType,
+    worker: displayText(record.worker || record.workerName || record.serviceman || record.servicemanName || record.providerName || record.name, 'Unknown worker'),
+    workerId: record.workerId || record.providerId || record.servicemanId || record.partnerId || record.userId || record.authId || null,
+    phone: record.phone || record.phoneNumber || record.mobile || '',
     job: displayText(record.job || record.profession || record.service || record.serviceName),
     area: displayText(record.area || record.areaName || record.city),
-    plan: displayText(record.plan || record.planName || record.subscriptionPlan),
-    amt: Number.isNaN(amount) ? 0 : amount,
-    method: displayText(record.method || record.paymentMethod || record.mode),
+    plan: displayText(record.plan || record.planName || record.subscriptionPlan || record.membership || record.planId),
+    amt: status === 'Paid' || status === 'Verified' ? SUBSCRIPTION_CHARGE : null,
+    method: normalizeMethod(record.method || record.paymentMethod || record.mode || record.paymentMode),
     date: formatDate(rawDate),
+    dateOnly: formatDateOnly(rawDate),
+    timeOnly: formatTimeOnly(rawDate),
     dateValue: parseFirestoreDate(rawDate),
-    status: displayText(record.status || (record.verified ? 'Verified' : 'Pending Verify')),
+    status,
+  }
+}
+
+function getWorkerName(worker = {}) {
+  return displayText(firstText(worker.name, worker.fullName, worker.displayName, worker.workerName, worker.servicemanName), 'Unknown worker')
+}
+
+function getWorkerProfession(worker = {}) {
+  return displayText(firstText(
+    worker.profession,
+    worker.primaryProfession,
+    worker.primaryProfessionName,
+    worker.service,
+    worker.serviceName,
+    worker.category,
+    worker.categoryName,
+    worker.workType,
+    worker.skill,
+  ))
+}
+
+function getWorkerPaymentStatus(worker = {}, amount = null) {
+  const value = firstText(
+    worker.paid,
+    worker.isPaid,
+    worker.havePaid,
+    worker.hasPaid,
+    worker.paymentDone,
+    worker.subscriptionPaid,
+    worker.paymentStatus,
+    worker.planStatus,
+    worker.subscriptionStatus,
+  )
+  const raw = String(value ?? '').toLowerCase()
+  if (value === true || ['paid', 'yes', 'true', 'success', 'successful', 'completed', 'complete', 'active', 'verified'].includes(raw)) return 'Paid'
+  if (['failed', 'failure', 'rejected', 'reject', 'cancelled', 'canceled'].includes(raw)) return 'Failed'
+  if (value === false || ['no', 'false', 'not paid', 'unpaid', 'inactive'].includes(raw)) return 'Not Paid'
+  return amount && amount > 0 ? 'Paid' : 'Not Paid'
+}
+
+function getWorkerPaymentDate(worker = {}) {
+  return firstText(
+    worker.paymentDate,
+    worker.paidAt,
+    worker.paymentUpdatedAt,
+    worker.subscriptionPaidAt,
+    worker.subscriptionStartedAt,
+    worker.planStartedAt,
+    worker.updatedAt,
+    worker.profileUpdatedAt,
+    worker.createdAt,
+    worker.joinedAt,
+    worker.dateAdded,
+  )
+}
+
+function normalizeWorkerPayment(worker = {}, index = 0) {
+  const rawDate = getWorkerPaymentDate(worker)
+  const workerId = firstText(worker.id, worker.uid, worker.userId, worker.workerId, worker.partnerId, worker.servicemanId, worker.authId)
+  const status = getWorkerPaymentStatus(worker, paymentAmountFrom(worker))
+  return {
+    id: displayText(firstText(worker.paymentId, worker.payId, worker.transactionId, worker.subscriptionPaymentId), `PAY-${String(workerId || index + 1).slice(-6).toUpperCase()}`),
+    sourceType: 'worker',
+    worker: getWorkerName(worker),
+    workerId: workerId || null,
+    phone: worker.phone || worker.phoneNumber || worker.mobile || '',
+    job: getWorkerProfession(worker),
+    area: displayText(firstText(worker.areaName, worker.mainArea, worker.area, worker.city, worker.location)),
+    plan: displayText(firstText(worker.plan, worker.planName, worker.subscriptionPlan, worker.membership, worker.planType)),
+    amt: status === 'Paid' ? SUBSCRIPTION_CHARGE : null,
+    method: normalizeMethod(firstText(worker.paymentMethod, worker.method, worker.mode, worker.paymentMode, readPath(worker, 'payment.method'), readPath(worker, 'subscription.method'))),
+    date: formatDate(rawDate),
+    dateOnly: formatDateOnly(rawDate),
+    timeOnly: formatTimeOnly(rawDate),
+    dateValue: parseFirestoreDate(rawDate),
+    status,
   }
 }
 
@@ -166,10 +416,10 @@ function buildMonthly(paymentsList) {
   const buckets = new Map()
 
   paymentsList
-    .filter((item) => item.status === 'Verified')
+    .filter((item) => item.status === 'Paid' || item.status === 'Verified')
     .forEach((item) => {
       const parsed = item.dateValue || parseFirestoreDate(item.date)
-      if (Number.isNaN(parsed.getTime())) return
+      if (!parsed || Number.isNaN(parsed.getTime())) return
       const key = parsed.toLocaleString('en-US', { month: 'short', year: '2-digit' })
       const current = buckets.get(key) || { month: key, rev: 0, count: 0 }
       buckets.set(key, { ...current, rev: current.rev + item.amt, count: current.count + 1 })
@@ -182,34 +432,34 @@ export default function Payments() {
   const navigate = useNavigate()
   const [list, setList] = useState([])
   const [workerList, setWorkerList] = useState([])
-  const [bookingList, setBookingList] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [verifyingId, setVerifyingId] = useState(null)
   const [statusFilter, setStatusFilter] = useState('All')
-  const [methodFilter, setMethodFilter] = useState('All')
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState(null)
+  const [page, setPage] = useState(1)
 
   const loadPayments = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const [records, workersResult, bookingsResult] = await Promise.all([
-        paymentsApi.listPayments(),
-        workersApi.listWorkers(),
-        bookingsApi.listBookings(),
-      ])
-      const normalized = Array.isArray(records) ? records.map(normalizePayment) : []
+      const workersResult = await workersApi.listWorkers()
+      const workers = Array.isArray(workersResult) ? workersResult : []
+      const workerPayments = workers.map((worker, index) => normalizeWorkerPayment(worker, index)).filter(Boolean)
+      const normalized = workerPayments
+        .filter((item, index, current) => current.findIndex((other) => (
+          other.id === item.id
+          || (other.workerId && item.workerId && other.workerId === item.workerId && other.plan === item.plan && other.date === item.date)
+        )) === index)
+        .sort((left, right) => (right.dateValue?.getTime?.() || 0) - (left.dateValue?.getTime?.() || 0))
       setList(normalized)
-      setWorkerList(Array.isArray(workersResult) ? workersResult : [])
-      setBookingList(Array.isArray(bookingsResult) ? bookingsResult : [])
+      setWorkerList(workers)
       setSelectedId((current) => current || normalized[0]?.id || null)
     } catch (loadError) {
       setError(loadError.message || 'Unable to load payments.')
       setList([])
       setWorkerList([])
-      setBookingList([])
       setSelectedId(null)
     } finally {
       setLoading(false)
@@ -224,15 +474,23 @@ export default function Payments() {
     const query = search.trim().toLowerCase()
     const matchesSearch = !query || [item.worker, item.id, item.job, item.area].some((value) => String(value).toLowerCase().includes(query))
     const matchesStatus = statusFilter === 'All' || item.status === statusFilter
-    const matchesMethod = methodFilter === 'All' || item.method === methodFilter
-    return matchesSearch && matchesStatus && matchesMethod
-  }), [list, methodFilter, search, statusFilter])
+    return matchesSearch && matchesStatus
+  }), [list, search, statusFilter])
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, statusFilter])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart = filtered.length ? (currentPage - 1) * PAGE_SIZE : 0
+  const pageEnd = Math.min(pageStart + PAGE_SIZE, filtered.length)
+  const visiblePayments = filtered.slice(pageStart, pageEnd)
 
   const selectedPayment = filtered.find((item) => item.id === selectedId) || filtered[0] || null
   const selectedWorker = selectedPayment ? findWorkerByPayment(selectedPayment, workerList) : null
-  const relatedBooking = selectedPayment ? findBookingByPayment(selectedPayment, selectedWorker?.id, bookingList) : null
-  const pendingCount = list.filter((item) => item.status === 'Pending Verify').length
-  const totalRevenue = list.filter((item) => item.status === 'Verified').reduce((sum, item) => sum + item.amt, 0)
+  const pendingCount = list.filter((item) => item.status === 'Not Paid' || item.status === 'Pending Verify').length
+  const totalRevenue = list.filter((item) => item.status === 'Paid' || item.status === 'Verified').reduce((sum, item) => sum + (item.amt || 0), 0)
   const monthly = useMemo(() => buildMonthly(list), [list])
 
   async function verify(id) {
@@ -257,15 +515,15 @@ export default function Payments() {
     <div className="grid gap-5">
       <PageHeader
         title="Payment History"
-        sub="Subscription collections, verification queue, and payment-quality review across all servicemen"
+        sub="Serviceman app subscription payments synced from Firebase"
         action={<Btn v="outline"><ArrowUpRight className="h-4 w-4" /> Export CSV</Btn>}
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Verified Revenue" value={`Rs.${totalRevenue.toLocaleString()}`} sub="All verified subscription collections" tone="emerald" />
-        <Metric label="Pending Verification" value={pendingCount} sub="Needs manual review or worker confirmation" tone="amber" />
+        <Metric label="Paid Revenue" value={`Rs.${totalRevenue.toLocaleString()}`} sub="All paid serviceman subscription collections" tone="emerald" />
+        <Metric label="Not Paid" value={pendingCount} sub="Workers without paid subscription status" tone="amber" />
         <Metric label={monthly.at(-1)?.month || 'Current'} value={`Rs.${(monthly.at(-1)?.rev || 0).toLocaleString()}`} sub={`${monthly.at(-1)?.count || 0} transactions in the latest month`} tone="brand" />
-        <Metric label="All Transactions" value={list.length} sub="Historic payment records" tone="blue" />
+        <Metric label="Subscription Payments" value={list.length} sub="Serviceman app subscription records only" tone="blue" />
       </div>
 
       {loading ? <StateCard title="Loading payments" message="Fetching live payment records from the backend." /> : null}
@@ -278,66 +536,77 @@ export default function Payments() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Revenue Trend</div>
-                  <div className="mt-2 text-xl font-black text-[var(--text-main)]">Monthly verified collections</div>
+                  <div className="mt-2 text-xl font-black text-[var(--text-main)]">Monthly paid collections</div>
                   <div className="mt-1 text-sm text-[var(--text-muted)]">Last seven months of subscription flow, including the current partial month.</div>
                 </div>
-                <Badge label="Verified only" color="#16A34A" />
+                <Badge label="Paid only" color="#16A34A" />
               </div>
-              {monthly.length > 0 ? <MiniChart data={monthly} /> : <EmptyState title="No revenue trend yet" description="Verified payment records with dates will populate this chart." />}
+              {monthly.length > 0 ? <MiniChart data={monthly} /> : <EmptyState title="No revenue trend yet" description="Paid payment records with dates will populate this chart." />}
             </Card>
 
             <ListToolbar
               title="Payments Ledger"
-              subtitle="Search by worker, payment ID, profession, or area and inspect each payment in a profile-style detail panel"
-              resultLabel={`${filtered.length} payment records`}
+              subtitle="Search serviceman subscription payment records from Firebase"
+              resultLabel={filtered.length ? `${pageStart + 1}-${pageEnd} of ${filtered.length} payment records` : '0 payment records'}
               searchValue={search}
               onSearchChange={setSearch}
               searchPlaceholder="Search worker, pay ID, profession, or area"
               filters={(
                 <>
-                  <FilterPills options={['All', 'Verified', 'Pending Verify', 'Failed']} active={statusFilter} onChange={setStatusFilter} />
-                  <FilterPills options={['All', 'UPI', 'Cash', 'Bank Transfer']} active={methodFilter} onChange={setMethodFilter} color="#0F766E" />
+                  <FilterPills options={['All', 'Paid', 'Not Paid']} active={statusFilter} onChange={setStatusFilter} />
                 </>
               )}
             />
 
             {filtered.length > 0 ? (
-              <DataTable cols={COLS}>
-                {filtered.map((item) => (
-                  <TableRow key={item.id} selected={item.id === selectedPayment?.id} onClick={() => setSelectedId(item.id)} highlight={item.status === 'Pending Verify'}>
-                    <TD className="font-bold text-brand-700 dark:text-brand-300">{item.id}</TD>
-                    <TD>
-                      {findWorkerByPayment(item, workerList) ? (
-                        <button
-                          type="button"
-                          className="font-bold text-[var(--text-main)] transition hover:text-brand-700 dark:hover:text-brand-300"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            navigate(`/workers/${findWorkerByPayment(item, workerList).id}`)
-                          }}
-                        >
-                          {item.worker}
-                        </button>
-                      ) : (
-                        <div className="font-bold text-[var(--text-main)]">{item.worker}</div>
-                      )}
-                      <div className="mt-1 text-xs text-[var(--text-muted)]">{item.plan}</div>
-                    </TD>
-                    <TD>{item.job}</TD>
-                    <TD className="font-black">Rs.{item.amt}</TD>
-                    <TD><Badge label={item.method} color={METHOD_COLORS[item.method] || '#64748B'} /></TD>
-                    <TD>{item.date}</TD>
-                    <TD><Badge label={item.status} color={STATUS_COLORS[item.status] || '#64748B'} /></TD>
-                    <TD>
-                      {item.status === 'Pending Verify' ? (
-                        <Btn v="success" size="xs" disabled={verifyingId === item.id} onClick={(event) => { event.stopPropagation(); verify(item.id) }}><CheckCircle2 className="h-3.5 w-3.5" /> {verifyingId === item.id ? 'Saving' : 'Verify'}</Btn>
-                      ) : (
-                        <span className="text-xs font-semibold text-[var(--text-muted)]">Closed</span>
-                      )}
-                    </TD>
-                  </TableRow>
-                ))}
-              </DataTable>
+              <>
+                <DataTable cols={COLS}>
+                  {visiblePayments.map((item, index) => (
+                    <TableRow key={`${item.sourceType}-${item.id}-${pageStart + index}`} selected={item.id === selectedPayment?.id} onClick={() => setSelectedId(item.id)} highlight={item.status === 'Pending Verify'}>
+                      <TD className="font-bold text-brand-700 dark:text-brand-300">{item.id}</TD>
+                      <TD>
+                        {findWorkerByPayment(item, workerList) ? (
+                          <button
+                            type="button"
+                            className="font-bold text-[var(--text-main)] transition hover:text-brand-700 dark:hover:text-brand-300"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              navigate(`/workers/${findWorkerByPayment(item, workerList).id}`)
+                            }}
+                          >
+                            {item.worker}
+                          </button>
+                        ) : (
+                          <div className="font-bold text-[var(--text-main)]">{item.worker}</div>
+                        )}
+                        <div className="mt-1 text-xs text-[var(--text-muted)]">{item.plan}</div>
+                      </TD>
+                      <TD>{item.job}</TD>
+                      <TD><Badge label={item.status} color={STATUS_COLORS[item.status] || '#64748B'} /></TD>
+                      <TD className="font-black">{formatAmount(item.amt)}</TD>
+                      <TD><Badge label={item.method} color={METHOD_COLORS[item.method] || '#64748B'} /></TD>
+                      <TD>{item.dateOnly || item.date}</TD>
+                      <TD>{item.timeOnly || '-'}</TD>
+                      <TD>
+                        {item.status === 'Pending Verify' ? (
+                          <Btn v="success" size="xs" disabled={verifyingId === item.id} onClick={(event) => { event.stopPropagation(); verify(item.id) }}><CheckCircle2 className="h-3.5 w-3.5" /> {verifyingId === item.id ? 'Saving' : 'Verify'}</Btn>
+                        ) : (
+                          <span className="text-xs font-semibold text-[var(--text-muted)]">Closed</span>
+                        )}
+                      </TD>
+                    </TableRow>
+                  ))}
+                </DataTable>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/80 p-3">
+                  <div className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                    Page {currentPage} of {totalPages} · Showing {pageStart + 1}-{pageEnd} of {filtered.length}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Btn v="outline" size="sm" disabled={currentPage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Btn>
+                    <Btn v="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</Btn>
+                  </div>
+                </div>
+              </>
             ) : (
               <EmptyState title="No payments found" description="No transactions match the selected filters or backend data is not available yet." />
             )}
@@ -357,14 +626,15 @@ export default function Payments() {
 
                 <div className="flex flex-wrap gap-2">
                   <Btn v="outline" size="sm" onClick={() => selectedWorker && navigate(`/workers/${selectedWorker.id}`)} disabled={!selectedWorker}>View Worker</Btn>
-                  <Btn v="primary" size="sm" onClick={() => relatedBooking && navigate(`/bookings/${relatedBooking.id}`)} disabled={!relatedBooking}>Open Booking</Btn>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                   <DetailRow label="Plan" value={selectedPayment.plan} />
                   <DetailRow label="Profession" value={selectedPayment.job} />
-                  <DetailRow label="Collection Amount" value={`Rs.${selectedPayment.amt}`} />
-                  <DetailRow label="Collection Date" value={selectedPayment.date} />
+                  <DetailRow label="Payment Status" value={selectedPayment.status} />
+                  <DetailRow label="Collection Amount" value={formatAmount(selectedPayment.amt)} />
+                  <DetailRow label="Collection Date" value={selectedPayment.dateOnly || selectedPayment.date} />
+                  <DetailRow label="Collection Time" value={selectedPayment.timeOnly || '-'} />
                 </div>
 
                 <div className="rounded-[24px] border border-brand-500/18 bg-gradient-to-br from-brand-500/14 via-brand-500/6 to-transparent p-5">
@@ -373,7 +643,7 @@ export default function Payments() {
                   </div>
                   <div className="mt-4 space-y-3">
                     {[
-                      { icon: Wallet, title: 'Collection method', body: `${selectedPayment.method} was used for this subscription collection.` },
+                      { icon: Wallet, title: 'Collection method', body: selectedPayment.method === '-' ? 'No payment method is stored for this subscription record.' : `${selectedPayment.method} was used for this subscription collection.` },
                       { icon: Landmark, title: 'Verification state', body: selectedPayment.status === 'Pending Verify' ? 'This transaction is still waiting for manual verification.' : 'This transaction is already verified and counted in revenue.' },
                       { icon: CheckCircle2, title: 'Finance rule', body: 'Only verified collections are added to the main revenue summary for dashboard reporting.' },
                     ].map((step) => {

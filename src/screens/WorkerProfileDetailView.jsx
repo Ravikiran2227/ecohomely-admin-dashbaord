@@ -1,5 +1,5 @@
 import { useEffect, useState, useTransition } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
   Medal,
@@ -691,6 +691,7 @@ function buildCorrectionFieldValues(worker, fields) {
 
 function WorkerProfileDetailViewContent({ workerId }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [worker, setWorker] = useState(null)
   const [workerBookings, setWorkerBookings] = useState([])
   const [workerReviews, setWorkerReviews] = useState([])
@@ -711,6 +712,8 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const [notice, setNotice] = useState(null)
   const [correctionModal, setCorrectionModal] = useState({ isOpen: false, items: [], message: '' })
   const [isTabPending, startTabTransition] = useTransition()
+  const returnPage = new URLSearchParams(location.search).get('returnPage') || location.state?.returnPage
+  const backToWorkers = () => navigate(returnPage ? `/workers?page=${encodeURIComponent(returnPage)}` : '/workers')
 
   const loadWorker = async () => {
     setLoading(true)
@@ -846,7 +849,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   }
 
   if (!worker) {
-    return <EmptyState title="Worker not found" description="The selected worker record could not be loaded." action={<Btn v="outline" onClick={() => navigate('/workers')}>Back to Workers</Btn>} />
+    return <EmptyState title="Worker not found" description="The selected worker record could not be loaded." action={<Btn v="outline" onClick={backToWorkers}>Back to Workers</Btn>} />
   }
 
   const primaryProfession = worker ? getPrimaryProfession(worker) : null
@@ -1327,12 +1330,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
             </button>
           ))}
           </div>
-          <Btn v="outline" onClick={() => navigate('/workers')}>Back to Workers</Btn>
+          <Btn v="outline" onClick={backToWorkers}>Back to Workers</Btn>
         </div>
       </div>
 
-      <div className="grid gap-5 xl:h-[calc(100vh-7rem)] xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
-        <aside className="space-y-5 xl:sticky xl:top-5 xl:self-start xl:pr-2">
+      <div className="grid min-h-0 gap-5 xl:h-[calc((100vh/var(--dashboard-ui-scale))-7rem)] xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
+        <aside className="space-y-5 xl:sticky xl:top-5 xl:max-h-[calc((100vh/var(--dashboard-ui-scale))-8rem)] xl:self-start xl:overflow-y-auto xl:pr-2 xl:pb-6">
           <div className="rounded-[28px] border border-[var(--border-main)] bg-[var(--card-bg)] p-5 shadow-[0_18px_44px_rgba(15,23,42,0.06)]">
             <div className="text-center">
               {workerPhotoUrl ? (
@@ -1387,7 +1390,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
 
         </aside>
 
-        <main className="min-w-0 space-y-6 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto xl:pr-2">
+        <main className="min-w-0 space-y-6 pb-8 xl:max-h-[calc((100vh/var(--dashboard-ui-scale))-7rem)] xl:overflow-y-auto xl:pr-2 xl:pb-10">
           {isTabPending && (
             <div className="rounded-xl border border-brand-500/20 bg-brand-500/10 px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">
               Opening tab...

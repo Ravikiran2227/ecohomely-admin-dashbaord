@@ -53,7 +53,7 @@ function findBookingForReview(review, bookings) {
   return null
 }
 
-function parseDate(value) {
+function parseDateTime(value) {
   if (!value) return ''
   let date = value
   if (typeof value?.toDate === 'function') date = value.toDate()
@@ -62,9 +62,15 @@ function parseDate(value) {
   else if (typeof value?.seconds === 'number') date = new Date(value.seconds * 1000)
   else date = new Date(String(value).replace(' ', 'T'))
 
-  return date instanceof Date && !Number.isNaN(date.getTime())
-    ? date.toISOString().slice(0, 10)
-    : ''
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
+
+  return date.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function findByIdentity(rows, ids = []) {
@@ -91,7 +97,7 @@ function normalizeReview(record = {}, customers = [], workers = [], bookings = [
     customerId: record.customerId || record.userId || record.uid || customer?.id || booking?.customerId || '',
     rating,
     review: record.review || record.comment || record.message || record.feedback || record.description || '',
-    date: parseDate(record.date || record.createdAt || record.updatedAt || record.time),
+    date: parseDateTime(record.date || record.createdAt || record.updatedAt || record.time || record.timestamp),
     status: flagged ? 'Flagged' : (record.status || ''),
     flagged,
   }
@@ -320,41 +326,45 @@ export default function Reviews() {
               >
                 <div style={{ display: 'flex', gap: 16 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                       <Stars r={r.rating} />
-                      {matchedWorker ? (
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/workers/${matchedWorker.id}`)}
-                          style={{ background: 'none', border: 'none', padding: 0, fontSize: 13, fontWeight: 700, color: C.text, cursor: 'pointer' }}
-                        >
-                          {r.worker}
-                        </button>
-                      ) : (
-                        <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{r.worker}</span>
-                      )}
-                      <span style={{ fontSize: 11, color: C.muted }}>({r.job})</span>
                       {r.flagged && <Badge label="Flagged" color={C.danger} />}
                     </div>
-                    <div style={{
-                      fontSize: 13, color: C.text, lineHeight: 1.6,
-                      marginBottom: 8, fontStyle: 'italic',
-                      background: C.bg, borderRadius: 8, padding: '9px 12px',
-                    }}>
-                      "{r.review}"
-                    </div>
-                    <div style={{ fontSize: 11, color: C.muted }}>
-                      By {matchedCustomer ? (
+                    <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>
+                      by {matchedCustomer ? (
                         <button
                           type="button"
                           onClick={() => navigate(`/customers/${matchedCustomer.id}`)}
-                          style={{ background: 'none', border: 'none', padding: 0, fontWeight: 700, color: C.text, cursor: 'pointer' }}
+                          style={{ background: 'none', border: 'none', padding: 0, fontWeight: 800, color: C.text, cursor: 'pointer' }}
                         >
-                          {r.customer}
+                          {r.customer || 'Customer'}
                         </button>
                       ) : (
-                        <strong style={{ color: C.text }}>{r.customer}</strong>
-                      )} {r.date ? ` - ${r.date}` : ''}{matchedBooking ? ` - ${matchedBooking.id}` : ''}
+                        <strong style={{ color: C.text }}>{r.customer || 'Customer'}</strong>
+                      )}
+                    </div>
+                    <div style={{
+                      fontSize: 15, color: C.text, lineHeight: 1.65,
+                      marginBottom: 8, fontStyle: 'italic',
+                      background: C.bg, borderRadius: 8, padding: '9px 12px',
+                    }}>
+                      {r.review || 'No review message added.'}
+                    </div>
+                    <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>
+                      to {matchedWorker ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/workers/${matchedWorker.id}`)}
+                          style={{ background: 'none', border: 'none', padding: 0, fontWeight: 800, color: C.text, cursor: 'pointer' }}
+                        >
+                          {r.worker || 'Serviceman'}
+                        </button>
+                      ) : (
+                        <strong style={{ color: C.text }}>{r.worker || 'Serviceman'}</strong>
+                      )}{r.job ? ` - ${r.job}` : ''}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.muted }}>
+                      {r.date || 'Date not recorded'}
                     </div>
                   </div>
                   <div style={{ minWidth: 44, flexShrink: 0 }}>

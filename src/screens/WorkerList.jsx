@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import EmptyState from '../components/EmptyState'
@@ -582,13 +582,18 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onDele
 
 export default function WorkerList() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const didInitPaginationRef = useRef(false)
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState(emptyFilters)
   const [workers, setWorkers] = useState([])
   const [locationRows, setLocationRows] = useState({ states: [], districts: [], cities: [], areas: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(() => {
+    const urlPage = Number(new URLSearchParams(window.location.search).get('page') || 1)
+    return Number.isFinite(urlPage) && urlPage > 0 ? urlPage : 1
+  })
 
   const stateOptions = useMemo(() => {
     const firebaseStates = uniqueOptions(locationRows.states, ['id', 'state_id', 'stateId'], ['name', 'stateName', 'state'])
@@ -652,8 +657,19 @@ export default function WorkerList() {
   }, [loadWorkers])
 
   useEffect(() => {
+    if (!didInitPaginationRef.current) {
+      didInitPaginationRef.current = true
+      return
+    }
     setPage(1)
   }, [filters, search])
+
+  useEffect(() => {
+    const requestedPage = Number(new URLSearchParams(location.search).get('page') || 1)
+    if (Number.isFinite(requestedPage) && requestedPage > 0) {
+      setPage(requestedPage)
+    }
+  }, [location.search])
 
   const sortedWorkers = useMemo(() => workers.slice().sort((left, right) => compareBySort(left, right, filters.sortBy)), [filters.sortBy, workers])
 
@@ -823,7 +839,7 @@ export default function WorkerList() {
             <TableRow
               key={worker.id}
               highlight={worker.approvalStatus !== 'Approved'}
-              onClick={() => navigate(`/workers/${worker.id}`)}
+              onClick={() => navigate(`/workers/${worker.id}?returnPage=${safePage}`, { state: { returnPage: safePage } })}
             >
               <TD className="whitespace-nowrap text-xs font-bold text-[var(--text-muted)]">
                 {(safePage - 1) * PAGE_SIZE + index + 1}

@@ -32,6 +32,7 @@ import customersApi from '../services/customersApi'
 import reviewsApi from '../services/reviewsApi'
 import { resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerMediaFiles, resolveWorkerStorageFiles } from '../services/firebaseClient'
 import { buildBookings, buildLeadRows, buildReviewRows, formatCurrency, formatDate, getLeadBadge } from '../utils/workerProfileDetail'
+import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
 
 const TAB_ITEMS = [
   { id: 'overview', label: 'Profile Overview' },
@@ -1060,6 +1061,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
       title: 'Marked for correction',
       message: `${worker.name} will see the update request in the partner app.`,
     })
+    dispatchProfileUpdatesChanged()
   }
 
   const renderProfessionTab = (type, profession) => (

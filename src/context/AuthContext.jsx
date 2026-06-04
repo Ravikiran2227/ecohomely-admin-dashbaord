@@ -81,6 +81,7 @@ function normalizeStatus(user = {}) {
 
 function normalizeUser(user = {}) {
   const role = normalizeRole(user.role)
+  const profilePhotoUrl = user.profilePhotoUrl || user.profilePhotoURL || user.photoUrl || user.photoURL || user.avatarUrl || user.avatar || user.photo || ''
 
   return {
     ...user,
@@ -93,6 +94,9 @@ function normalizeUser(user = {}) {
     city: user.city || 'Visakhapatnam',
     area: user.area || 'All Areas',
     status: normalizeStatus(user),
+    profilePhotoUrl,
+    photoUrl: user.photoUrl || profilePhotoUrl,
+    avatarUrl: user.avatarUrl || profilePhotoUrl,
     permissions: user.permissions || getPermissionsForRole(role),
     assignedModules: user.assignedModules || moduleNamesForRole(role),
     lastActiveAt: formatTimestamp(user.lastActiveAt || user.lastLogin || user.updatedDate || user.createdDate) || 'Not recorded',
@@ -252,9 +256,21 @@ export function AuthProvider({ children }) {
     setUsers((current) => current.map((user) => (user.id === userId ? updatedUser : user)))
     if (currentUser?.id === userId) {
       setCurrentUser(updatedUser)
+      persistUser(updatedUser)
     }
     await refreshActivityLogs()
-  }, [currentUser?.id, refreshActivityLogs])
+  }, [currentUser?.id, persistUser, refreshActivityLogs])
+
+  const updateCurrentUserProfile = useCallback(async (updates) => {
+    const updatedUser = normalizeUser(await adminApi.updateCurrentUser(updates))
+    const nextUser = normalizeUser({ ...currentUser, ...updatedUser })
+
+    persistUser(nextUser)
+    setCurrentUser(nextUser)
+    setUsers((current) => current.map((user) => (user.id === nextUser.id ? nextUser : user)))
+
+    return nextUser
+  }, [currentUser, persistUser])
 
   const deleteUser = useCallback(async (userId) => {
     await adminApi.deleteUser(userId)
@@ -333,10 +349,11 @@ export function AuthProvider({ children }) {
     switchUser,
     createUser,
     updateUser,
+    updateCurrentUserProfile,
     deleteUser,
     logActivity,
     hasPermission,
-  }), [activityLogs, createUser, currentUser, deleteUser, error, hasPermission, loading, logActivity, login, logout, logsLoading, refreshActivityLogs, refreshAuth, refreshUsers, roles, switchUser, unauthorized, updateUser, users, usersLoading])
+  }), [activityLogs, createUser, currentUser, deleteUser, error, hasPermission, loading, logActivity, login, logout, logsLoading, refreshActivityLogs, refreshAuth, refreshUsers, roles, switchUser, unauthorized, updateCurrentUserProfile, updateUser, users, usersLoading])
 
   return (
     <AuthContext.Provider value={value}>

@@ -19,6 +19,7 @@ function normalizeRole(role, fallback) {
 
 function normalizeAdmin(docSnapshot, data, collectionName, fallbackRole) {
   const role = normalizeRole(data.role, fallbackRole)
+  const profilePhotoUrl = data.profilePhotoUrl || data.profilePhotoURL || data.photoUrl || data.photoURL || data.avatarUrl || data.avatar || data.photo || ''
 
   return {
     ...data,
@@ -28,6 +29,9 @@ function normalizeAdmin(docSnapshot, data, collectionName, fallbackRole) {
     email: data.email || '',
     role,
     status: data.status || 'Active',
+    profilePhotoUrl,
+    photoUrl: data.photoUrl || profilePhotoUrl,
+    avatarUrl: data.avatarUrl || profilePhotoUrl,
     permissions: Array.isArray(data.permissions) && data.permissions.length > 0
       ? data.permissions
       : getPermissionsForRole(role),
@@ -83,6 +87,59 @@ async function findAdminInCollection(source, username, password) {
   } catch {
     return null
   }
+}
+
+function identifierMatches(data = {}, identifier = '') {
+  const login = String(identifier || '').trim().toLowerCase()
+  if (!login) return false
+  const storedId = String(data.id || '').trim().toLowerCase()
+  const storedUsername = String(data.username || '').trim().toLowerCase()
+  const storedUserName = String(data.userName || '').trim().toLowerCase()
+  const storedEmail = String(data.email || '').trim().toLowerCase()
+  return storedUsername === login || storedUserName === login || storedEmail === login || storedId === login
+}
+
+export async function findAdminByIdentifier(identifier) {
+  const normalized = String(identifier || '').trim()
+  if (!normalized) return null
+
+  for (const source of ADMIN_COLLECTIONS) {
+    try {
+      if (normalized.includes('@')) {
+        const emailSnapshot = await getDocs(query(
+          collection(db, source.name),
+          where('email', '==', normalized),
+        ))
+        if (!emailSnapshot.empty) {
+          const docSnapshot = emailSnapshot.docs[0]
+          return normalizeAdmin(docSnapshot, docSnapshot.data(), source.name, source.role)
+        }
+      }
+
+      const usernameSnapshot = await getDocs(query(
+        collection(db, source.name),
+        where('username', '==', normalized),
+      ))
+      if (!usernameSnapshot.empty) {
+        const docSnapshot = usernameSnapshot.docs[0]
+        return normalizeAdmin(docSnapshot, docSnapshot.data(), source.name, source.role)
+      }
+    } catch {
+      // Fall back to collection scan below.
+    }
+
+    try {
+      const snapshot = await getDocs(collection(db, source.name))
+      const docSnapshot = snapshot.docs.find((item) => identifierMatches({ id: item.id, ...item.data() }, normalized))
+      if (docSnapshot) {
+        return normalizeAdmin(docSnapshot, docSnapshot.data(), source.name, source.role)
+      }
+    } catch {
+      // Try next collection.
+    }
+  }
+
+  return null
 }
 
 async function findAdmin(username, password) {

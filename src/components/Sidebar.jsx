@@ -6,7 +6,12 @@ import { NAV_SECTIONS } from '../config/navigation'
 import ecohomelyLogo from '../assets/ecohomely-logo.svg'
 import complaintsApi from '../services/complaintsApi'
 import customersApi from '../services/customersApi'
+import notificationsApi from '../services/notificationsApi'
 import workersApi from '../services/workersApi'
+import {
+  PROFILE_UPDATES_CHANGED_EVENT,
+  countUnreadProfileUpdates,
+} from '../utils/profileUpdateNotifications'
 
 function toBoolean(value) {
   if (typeof value === 'boolean') return value
@@ -49,6 +54,19 @@ function needsApproval(worker = {}) {
   return worker.approved === false || worker.isApproved === false || worker.adminApproved === false
 }
 
+function toMillis(value) {
+  if (!value) return 0
+  if (typeof value === 'number') return value
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  if (typeof value.toDate === 'function') return value.toDate().getTime()
+  if (typeof value.seconds === 'number') return value.seconds * 1000
+  return 0
+}
+
 export default function Sidebar({ collapsed, onCollapse }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -69,10 +87,11 @@ export default function Sidebar({ collapsed, onCollapse }) {
     let cancelled = false
 
     async function loadBadgeCounts() {
-      const [complaintRows, customerRows, workerRows] = await Promise.all([
+      const [complaintRows, customerRows, workerRows, notificationRows] = await Promise.all([
         complaintsApi.listComplaints().catch(() => []),
         customersApi.listCustomers().catch(() => []),
         workersApi.listWorkers().catch(() => []),
+        notificationsApi.listNotifications().catch(() => []),
       ])
 
       if (cancelled) return
@@ -80,9 +99,11 @@ export default function Sidebar({ collapsed, onCollapse }) {
       const complaints = Array.isArray(complaintRows) ? complaintRows : []
       const customers = Array.isArray(customerRows) ? customerRows : []
       const workers = Array.isArray(workerRows) ? workerRows : []
+      const notifications = Array.isArray(notificationRows) ? notificationRows : []
 
       setBadgeCounts({
         approvalQueue: workers.filter(needsApproval).length,
+        profileUpdates: countUnreadProfileUpdates(workers, notifications),
         complaints: complaints.filter(isOpenComplaint).length,
         flagged: [
           ...complaints.filter(complaintNeedsReview),
@@ -94,20 +115,29 @@ export default function Sidebar({ collapsed, onCollapse }) {
 
     loadBadgeCounts()
     const timer = window.setInterval(loadBadgeCounts, 60000)
+    const onProfileUpdatesChanged = () => loadBadgeCounts()
+    window.addEventListener(PROFILE_UPDATES_CHANGED_EVENT, onProfileUpdatesChanged)
 
     return () => {
       cancelled = true
       window.clearInterval(timer)
+      window.removeEventListener(PROFILE_UPDATES_CHANGED_EVENT, onProfileUpdatesChanged)
     }
   }, [])
+
+  const onProfileUpdatesPage = location.pathname.startsWith('/profile-updates')
 
   const navSections = useMemo(() => NAV_SECTIONS.map((section) => ({
     ...section,
     items: section.items.map((item) => ({
       ...item,
-      badge: item.badgeKey ? badgeCounts[item.badgeKey] : item.badge,
+      badge: item.badgeKey === 'profileUpdates' && onProfileUpdatesPage
+        ? 0
+        : item.badgeKey
+          ? badgeCounts[item.badgeKey]
+          : item.badge,
     })),
-  })), [badgeCounts])
+  })), [badgeCounts, onProfileUpdatesPage])
 
   return (
     <aside
@@ -167,6 +197,8 @@ export default function Sidebar({ collapsed, onCollapse }) {
             <div className="space-y-0.5">
               {section.items.map((item) => {
                 const active = isActive(item.path)
+                const badgeValue = Number(item.badge) || 0
+                const badgeText = badgeValue > 999 ? '999+' : String(badgeValue)
                 return (
                   <button
                     key={item.path}
@@ -189,15 +221,23 @@ export default function Sidebar({ collapsed, onCollapse }) {
                         {item.label}
                       </span>
                     )}
-                    {active && !collapsed && (
+                    {active && !collapsed && badgeValue <= 0 && (
                       <div className="absolute right-1.5 w-1.5 h-1.5 rounded-full bg-brand-500 shadow-[0_0_8px_rgba(20,184,166,0.6)]" />
                     )}
-                    {item.badge > 0 && !collapsed && (
+                    {badgeValue > 0 && !collapsed && (
                       <span
                         className="px-1.5 py-0.5 rounded-full text-white text-[10px] font-bold min-w-[20px] text-center"
                         style={{ backgroundColor: item.badgeColor || 'var(--brand-500)' }}
                       >
-                        {item.badge}
+                        {badgeText}
+                      </span>
+                    )}
+                    {badgeValue > 0 && collapsed && (
+                      <span
+                        className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold text-white shadow-lg"
+                        style={{ backgroundColor: item.badgeColor || 'var(--brand-500)' }}
+                      >
+                        {badgeValue > 99 ? '99+' : badgeText}
                       </span>
                     )}
                   </button>

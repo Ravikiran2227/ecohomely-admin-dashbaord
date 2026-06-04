@@ -10,6 +10,17 @@ import { ROLES } from '../config/rbac'
 import adminApi from '../services/adminApi'
 import notificationsApi from '../services/notificationsApi'
 
+function getInitials(name = '') {
+  const letters = String(name || 'Admin')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('')
+
+  return letters || 'AD'
+}
+
 export default function Header() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -29,6 +40,7 @@ export default function Header() {
   )?.[1] || 'Admin'
 
   const crumbs = BREADCRUMBS[location.pathname]
+  const profilePhotoUrl = currentUser?.profilePhotoUrl || currentUser?.photoUrl || currentUser?.avatarUrl || ''
   const query = search.trim().toLowerCase()
   const quickResults = query
     ? ROUTE_ITEMS.filter((item) => (
@@ -181,6 +193,19 @@ export default function Header() {
 
         {/* User Profile */}
         <div className="flex items-center gap-3 pl-3 border-l border-[var(--border-main)]">
+          <button
+            type="button"
+            onClick={() => navigate('/settings')}
+            className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border-main)] bg-brand-50 text-xs font-black text-brand-700 shadow-sm transition hover:scale-105 dark:bg-brand-900/30 dark:text-brand-200"
+            title="Open profile settings"
+            aria-label="Open profile settings"
+          >
+            {profilePhotoUrl ? (
+              <img src={profilePhotoUrl} alt={`${currentUser?.name || 'Admin'} profile`} className="h-full w-full object-cover" />
+            ) : (
+              <span>{getInitials(currentUser?.name || currentUser?.username || currentUser?.email)}</span>
+            )}
+          </button>
           <div className="text-right hidden sm:block">
            
             <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">{currentUser?.role || 'Super Admin'}</p>

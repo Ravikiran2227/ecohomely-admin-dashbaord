@@ -9,6 +9,7 @@ import Modal from '../components/Modal'
 import { C } from '../theme'
 import { getLocationLabel, getPrimaryProfession } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
+import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
 
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
@@ -170,10 +171,10 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
 
   return (
     <Card className="overflow-hidden border-t-4" style={{ borderTopColor: worker.statusColor }}>
-      <div className="flex gap-4.5 items-start flex-wrap lg:flex-nowrap">
+      <div className="flex gap-4 items-start">
         <Avatar name={worker.name} />
 
-        <div className="flex-1 min-w-[220px]">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap mb-2">
             <h3 className="text-base font-extrabold text-[var(--text-main)]">{worker.name}</h3>
             <Badge label="Pending" color={C.warning} />
@@ -194,32 +195,34 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
           <div className="flex flex-wrap gap-3.5 mt-3.5 p-3 rounded-xl bg-[var(--bg-main)]/50 border border-[var(--border-main)]/50">
             {checklist.map((item) => <Indicator key={item.key} ok={item.ok} label={item.label} />)}
           </div>
-        </div>
 
-        <div className="grid grid-cols-2 sm:flex sm:flex-col gap-2 shrink-0 w-full sm:w-auto min-w-[210px]">
-          <Btn v="outline" size="sm" onClick={onReview} className="w-full justify-center">
-            <Icon n="eye" sz={13} className="mr-1.5" /> View Profile
-          </Btn>
-          <Btn v="outline" size="sm" onClick={onProfile} className="w-full justify-center">
-            <Icon n="user" sz={13} className="mr-1.5" /> Service Profile
-          </Btn>
-          <Btn v="success" size="sm" onClick={onApprove} className="w-full justify-center">
-            Approve
-          </Btn>
-          <Btn v="danger" size="sm" onClick={onReject} className="w-full justify-center">
-            Reject
-          </Btn>
-          <Btn v="warning" size="sm" onClick={onRequestFix} className="w-full justify-center">
-            Mark For Correction
-          </Btn>
-          <Btn v="ghost" size="xs" onClick={() => setExpanded(p => !p)} className="w-full justify-center col-span-2">
-            {expanded ? 'Hide details' : 'Show details'}
-          </Btn>
+          <div className="mt-4 flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Btn v="outline" size="sm" onClick={onReview} className="shrink-0 whitespace-nowrap">
+                <Icon n="eye" sz={13} className="mr-1.5" /> View Profile
+              </Btn>
+              <Btn v="outline" size="sm" onClick={onProfile} className="shrink-0 whitespace-nowrap">
+                <Icon n="user" sz={13} className="mr-1.5" /> Service Profile
+              </Btn>
+              <Btn v="success" size="sm" onClick={onApprove} className="shrink-0 whitespace-nowrap">
+                Approve
+              </Btn>
+              <Btn v="danger" size="sm" onClick={onReject} className="shrink-0 whitespace-nowrap">
+                Reject
+              </Btn>
+              <Btn v="warning" size="sm" onClick={onRequestFix} className="shrink-0 whitespace-nowrap">
+                Mark For Correction
+              </Btn>
+            </div>
+            <Btn v="ghost" size="xs" onClick={() => setExpanded((p) => !p)} className="w-fit px-0">
+              {expanded ? 'Hide details' : 'Show details'}
+            </Btn>
+          </div>
         </div>
       </div>
 
-          {expanded && (
-        <div className="mt-4 pt-4 border-t border-[var(--border-main)] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {expanded && (
+        <div className="mt-4 pt-4 border-t border-[var(--border-main)] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 ml-[68px]">
           {[
             { label: 'Experience', value: worker.experience, icon: 'clock' },
             { label: 'Languages', value: worker.languages.join(', '), icon: 'globe' },
@@ -330,6 +333,7 @@ export default function WorkerApproval() {
       correctionFieldValues,
     } : w))
     setHistory(prev => [...prev, { id: modal.worker.id, type: 'correction', name: modal.worker.name, items: correctionFields }])
+    dispatchProfileUpdatesChanged()
     closeModal()
   }
 

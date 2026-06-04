@@ -10,6 +10,7 @@ export const NAV_SECTIONS = [
     items: [
       { path: '/workers', icon: 'worker', label: 'Servicemen', summary: 'Manage worker listings, plans, and quality signals.' },
       { path: '/workers/approval', icon: 'check', label: 'Approval Queue', badgeKey: 'approvalQueue', badgeColor: '#F59E0B', summary: 'Review worker verification and pending approvals.' },
+      { path: '/profile-updates', icon: 'bell', label: 'Profile Updates', badgeKey: 'profileUpdates', badgeColor: '#14B8A6', summary: 'Review worker correction resubmissions.' },
       { path: '/customers', icon: 'users', label: 'Customers', summary: 'View customer records and issue history.' },
       { path: '/subadmins', icon: 'shield', label: 'Sub Admins', summary: 'Control delegated access and admin roles.' },
     ],
@@ -80,6 +81,7 @@ export const ROUTE_LABELS = Object.fromEntries(ROUTE_ITEMS.map((item) => [item.p
 
 export const BREADCRUMBS = {
   '/workers/approval': ['People', 'Approval Queue'],
+  '/profile-updates': ['People', 'Profile Updates'],
   '/heatmap': ['Maps', 'GPS Heatmap'],
   '/expansion': ['Maps', 'Expansion System'],
 }

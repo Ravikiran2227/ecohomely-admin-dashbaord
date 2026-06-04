@@ -15,13 +15,14 @@ function statusColor(status) {
   }[status] || '#64748B'
 }
 
-function ActionMenu({ session, onView, onRenotify, onClose, onOpenCustomer }) {
+function ActionMenu({ session, onView, onRenotify, onClose, onDelete, onOpenCustomer }) {
   const [open, setOpen] = useState(false)
   const actions = [
     session.customerId ? { label: 'Customer', fn: () => onOpenCustomer?.(session.customerId) } : null,
     { label: 'View', fn: () => onView(session.id) },
     { label: 'Remind', fn: () => onRenotify(session.id), disabled: !session.workers.length },
     session.status === 'Active' ? { label: 'Close', fn: () => onClose(session.id) } : null,
+    { label: 'Delete', fn: () => onDelete?.(session.id), danger: true },
   ].filter(Boolean)
 
   return (
@@ -50,7 +51,7 @@ function ActionMenu({ session, onView, onRenotify, onClose, onOpenCustomer }) {
                   action.fn()
                   setOpen(false)
                 }}
-                className="w-full border-b border-[var(--border-main)] px-3 py-2 text-left text-xs font-bold text-[var(--text-main)] last:border-0 hover:bg-[var(--bg-main)] disabled:cursor-not-allowed disabled:opacity-50"
+                className={`w-full border-b border-[var(--border-main)] px-3 py-2 text-left text-xs font-bold last:border-0 hover:bg-[var(--bg-main)] disabled:cursor-not-allowed disabled:opacity-50 ${action.danger ? 'text-red-500' : 'text-[var(--text-main)]'}`}
               >
                 {action.label}
               </button>
@@ -62,7 +63,7 @@ function ActionMenu({ session, onView, onRenotify, onClose, onOpenCustomer }) {
   )
 }
 
-export default function AssistanceHistory({ sessions, loading = false, onView, onRenotify, onClose, onOpenCustomer }) {
+export default function AssistanceHistory({ sessions, loading = false, onView, onRenotify, onClose, onDelete, onOpenCustomer }) {
   const topScrollRef = useRef(null)
   const tableScrollRef = useRef(null)
   const [page, setPage] = useState(1)
@@ -169,6 +170,7 @@ export default function AssistanceHistory({ sessions, loading = false, onView, o
                     onView={onView}
                     onRenotify={onRenotify}
                     onClose={onClose}
+                    onDelete={onDelete}
                     onOpenCustomer={onOpenCustomer}
                   />
                 </td>

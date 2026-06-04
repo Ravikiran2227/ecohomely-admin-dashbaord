@@ -1,4 +1,5 @@
 import { createAdminController } from './controllers/adminController.js'
+import { createAdminPasswordResetHandlers } from './services/adminPasswordResetService.js'
 import { createCollectionController } from './controllers/collectionController.js'
 import { createDashboardController } from './controllers/dashboardController.js'
 import { createLocationController } from './controllers/locationController.js'
@@ -386,6 +387,32 @@ function notificationActions(db) {
     })).filter((recipient) => recipient.mobile)
   }
 
+  async function collectWorkerRecipients(workerIds = [], workers = []) {
+    const explicitWorkers = new Map((workers || []).map((worker) => {
+      const id = String(worker.id || worker.workerId || worker.servicemanId || worker.uid || worker.userId || '').trim()
+      return [id, worker]
+    }).filter(([id]) => id))
+    const uniqueIds = [...new Set((workerIds || []).map((id) => String(id || '').trim()).filter(Boolean))]
+
+    return Promise.all(uniqueIds.map(async (workerId) => {
+      const explicit = explicitWorkers.get(workerId) || {}
+      let data = explicit
+      if (!data.name && !data.phone) {
+        const snapshot = await db.collection('workers').doc(workerId).get().catch(() => null)
+        data = snapshot?.exists ? { id: snapshot.id, ...snapshot.data() } : explicit
+      }
+      return {
+        id: data.id || data.workerId || workerId,
+        workerId: data.workerId || data.id || workerId,
+        servicemanId: data.servicemanId || data.serviceManId || data.id || workerId,
+        uid: data.uid || data.userId || data.authId || data.id || workerId,
+        type: 'worker',
+        name: data.name || data.fullName || data.displayName || '',
+        mobile: recipientPhone(data),
+      }
+    }))
+  }
+
   async function logNotification(payload) {
     const now = new Date().toISOString()
     const record = {
@@ -416,26 +443,55 @@ function notificationActions(db) {
       const payload = request.body || {}
       const channels = payload.channels || {}
       const activeChannels = Object.entries(channels).filter(([, active]) => active).map(([channel]) => channel)
+      const workerIds = Array.isArray(payload.workerIds) ? payload.workerIds.filter(Boolean) : []
 
       if (!payload.title || !payload.body || !payload.audience || activeChannels.length === 0) {
         sendError(response, 400, 'title, body, audience, and at least one channel are required')
         return
       }
 
-      const recipients = await collectAudienceRecipients(payload.audience)
+      const recipients = workerIds.length
+        ? await collectWorkerRecipients(workerIds, payload.workers || [])
+        : await collectAudienceRecipients(payload.audience)
       const smsResult = channels.sms && recipients.length > 0
         ? await msg91.sendBulkSMS(recipients.map((recipient) => ({ mobile: recipient.mobile, message: payload.body })))
         : null
-      const notification = await logNotification({
+      const baseNotification = {
         title: payload.title,
         body: payload.body,
+        message: payload.body,
         audience: payload.audience,
         channels: activeChannels,
         recipientCount: recipients.length,
         sms: smsResult,
         read: false,
-        type: 'campaign',
-      })
+        type: payload.type || 'campaign',
+        category: payload.category || '',
+        requestId: payload.requestId || '',
+        assistanceRequestId: payload.requestId || '',
+        meta: payload.meta || {},
+        data: payload.data || {},
+      }
+      const notification = workerIds.length
+        ? await Promise.all(recipients.map((recipient) => logNotification({
+            ...baseNotification,
+            recipientType: 'worker',
+            recipientId: recipient.id,
+            targetId: recipient.id,
+            userId: recipient.uid || recipient.id,
+            workerId: recipient.workerId || recipient.id,
+            servicemanId: recipient.servicemanId || recipient.id,
+            serviceManId: recipient.servicemanId || recipient.id,
+            worker_id: recipient.workerId || recipient.id,
+            serviceman_id: recipient.servicemanId || recipient.id,
+            workerName: recipient.name,
+            workerPhone: recipient.mobile,
+            channel: channels.push ? 'push' : channels.whatsapp ? 'whatsapp' : channels.sms ? 'sms' : 'push',
+            sent: 1,
+            delivered: channels.push ? 1 : 0,
+            opened: 0,
+          })))
+        : await logNotification(baseNotification)
 
       response.status(201).json({
         notification,
@@ -475,6 +531,7 @@ export function registerBackendRoutes(app, db) {
   const dashboard = createDashboardController(db)
   const workers = createWorkerController(db)
   const admins = createAdminController(db)
+  const passwordReset = createAdminPasswordResetHandlers(db)
   const locations = createLocationController(db)
   const bookings = createCollectionController(db, 'bookings', { label: 'Booking', filterFields: ['status', 'customerId', 'workerId', 'cluster_id'] })
   const complaints = createCollectionController(db, 'complaints', { label: 'Complaint', filterFields: ['status', 'customerId', 'bookingId'] })
@@ -590,6 +647,9 @@ export function registerBackendRoutes(app, db) {
   collectionRoutes(app, '/notifications', notifications, 'notificationId')
   register(app, 'post', '/notifications/:notificationId/read', requireParam('notificationId'), notification.read)
 
+  register(app, 'post', '/admins/forgot-password', requireBodyObject, passwordReset.requestReset)
+  register(app, 'get', '/admins/reset-password/:token', requireParam('token'), passwordReset.validateToken)
+  register(app, 'post', '/admins/reset-password', requireBodyObject, passwordReset.completeReset)
   register(app, 'get', '/admins/users', admins.listUsers)
   register(app, 'post', '/admins/users', requireBodyObject, admins.createUser)
   register(app, 'post', '/admins/credential-email', requireBodyObject, admins.sendCredentialEmail)
@@ -602,6 +662,9 @@ export function registerBackendRoutes(app, db) {
   register(app, 'get', '/admins/me', admins.currentUser)
   register(app, 'patch', '/admins/me', requireBodyObject, admins.updateCurrentUser)
 
+  register(app, 'post', '/admin/forgot-password', requireBodyObject, passwordReset.requestReset)
+  register(app, 'get', '/admin/reset-password/:token', requireParam('token'), passwordReset.validateToken)
+  register(app, 'post', '/admin/reset-password', requireBodyObject, passwordReset.completeReset)
   register(app, 'get', '/admin/users', admins.listUsers)
   register(app, 'post', '/admin/users', requireBodyObject, admins.createUser)
   register(app, 'post', '/admin/credential-email', requireBodyObject, admins.sendCredentialEmail)

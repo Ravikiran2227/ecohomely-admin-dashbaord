@@ -28,18 +28,20 @@ export default function WorkerFinder({
   const [searchTerm, setSearchTerm] = useState('')
   const [page, setPage] = useState(1)
   const maxReached = selectedIds.length >= 5
-  const nearestFirst = [...workers].sort((a, b) => a.distanceKm - b.distanceKm)
-  const highRatedFirst = [...workers].sort((a, b) => b.rating - a.rating)
+  const workerRating = (worker) => Number(worker.rating ?? worker.averageRating ?? worker.avgRating ?? worker.performance?.rating ?? 0) || 0
+  const workerDistance = (worker) => Number.isFinite(worker.distanceKm) ? worker.distanceKm : Number.POSITIVE_INFINITY
+  const nearestFirst = [...workers].sort((a, b) => workerDistance(a) - workerDistance(b))
+  const highRatedFirst = [...workers].sort((a, b) => workerRating(b) - workerRating(a))
   const sortedWorkers = filters.sortBy === 'rating' ? highRatedFirst : nearestFirst
   const filteredWorkers = sortedWorkers.filter((worker) => {
     const matchesAvailability = filters.availability === 'All'
       || (filters.availability === 'Available' && worker.available)
       || (filters.availability === 'Busy' && !worker.available)
     const matchesService = !filters.serviceMatchOnly || worker.serviceMatch
-    const matchesRating = worker.rating >= filters.minRating
+    const matchesRating = workerRating(worker) >= Number(filters.minRating || 0)
     return matchesAvailability && matchesService && matchesRating
   })
-  const visibleWorkers = filteredWorkers.length ? filteredWorkers : sortedWorkers
+  const visibleWorkers = filteredWorkers
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
   const orderedWorkers = useMemo(() => {
     return [...visibleWorkers].sort((left, right) => {
@@ -153,7 +155,7 @@ export default function WorkerFinder({
           <div style={{ display: 'grid', gap: 16 }}>
             {!filteredWorkers.length && (
               <div style={{ border: '1px solid color-mix(in srgb, #F59E0B 30%, var(--border-main))', background: 'color-mix(in srgb, #F59E0B 10%, var(--card-bg))', color: 'var(--text-main)', borderRadius: 14, padding: '12px 14px', fontSize: 13, fontWeight: 700 }}>
-                No workers matched the selected Step 2 filters. Showing the nearest available shortlist below.
+                No nearby servicemen match the selected Step 2 filters. Clear filters or search another area.
               </div>
             )}
             <div style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border-main)' }}>
@@ -205,7 +207,7 @@ export default function WorkerFinder({
                         ) : null}
                         <div style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 10, background: 'color-mix(in srgb, var(--bg-main) 72%, var(--card-bg))' }}>
                           <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Distance</div>
-                          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-main)', marginTop: 4 }}>{worker.distanceKm.toFixed(1)} km</div>
+                          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-main)', marginTop: 4 }}>{Number.isFinite(worker.distanceKm) ? worker.distanceKm.toFixed(1) : 'N/A'} km</div>
                         </div>
                         {worker.minCharge ? (
                           <div style={{ border: '1px solid var(--border-main)', borderRadius: 12, padding: 10, background: 'color-mix(in srgb, var(--bg-main) 72%, var(--card-bg))' }}>

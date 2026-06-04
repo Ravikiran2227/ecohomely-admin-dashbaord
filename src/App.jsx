@@ -9,6 +9,8 @@ import { PERMISSIONS, ROLES } from './config/rbac'
 import { useAuth } from './context/authContextValue'
 
 const Login = lazy(() => import('./screens/Login'))
+const ForgotPassword = lazy(() => import('./screens/ForgotPassword'))
+const ResetPassword = lazy(() => import('./screens/ResetPassword'))
 const Dashboard = lazy(() => import('./screens/Dashboard'))
 const WorkerDashboard = lazy(() => import('./screens/WorkerDashboard'))
 const WorkerList = lazy(() => import('./screens/WorkerList'))
@@ -19,6 +21,7 @@ const WorkerProfile = lazy(() => import('./screens/WorkerProfileDetailView'))
 const WorkerProfessionDetailScreen = lazy(() => import('./screens/WorkerProfessionDetailScreen'))
 const WorkerSecondaryProfession = lazy(() => import('./screens/WorkerSecondaryProfession'))
 const WorkerPublicProfile = lazy(() => import('./screens/WorkerPublicProfile'))
+const ProfileUpdates = lazy(() => import('./screens/ProfileUpdates'))
 const CustomerList = lazy(() => import('./screens/CustomerList'))
 const CustomerProfile = lazy(() => import('./screens/CustomerProfile'))
 const BookingTracker = lazy(() => import('./screens/BookingTracker'))
@@ -73,6 +76,8 @@ export default function App() {
     <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="*" element={!currentUser ? <Navigate to="/login" replace /> : (
           <div className="flex min-h-screen bg-[var(--bg-main)] text-[var(--text-main)]">
       <Sidebar
@@ -94,6 +99,7 @@ export default function App() {
               <Route path="/workers/:id/secondary-profession" element={<WorkerSecondaryProfession />} />
               <Route path="/workers/:id"       element={<WorkerProfile />} />
               <Route path="/worker/public/:id" element={<WorkerPublicProfile />} />
+              <Route path="/profile-updates"   element={<ProfileUpdates />} />
               <Route path="/customers"         element={<CustomerList />} />
               <Route path="/customers/:id"     element={<CustomerProfile />} />
               <Route path="/bookings"          element={<ProtectedRoute requiredPermission={PERMISSIONS.manageBookings}><BookingTracker /></ProtectedRoute>} />

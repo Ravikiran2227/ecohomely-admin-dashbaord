@@ -63,6 +63,7 @@ export function buildReviewUpdate(worker, review) {
     correctionRequested: isCorrection,
     correctionRequestedAt: correctionRequestedAt || worker.correctionRequestedAt || null,
     correctionStatus: isCorrection ? 'Pending' : null,
+    adminCorrectionNotificationRead: isCorrection || nextStatus === 'Approved' || nextStatus === 'Rejected',
     partnerAppPopup: correctionRequest,
     profileCorrectionRequest: correctionRequest,
     verificationVersions: appendVerificationVersion(worker, {

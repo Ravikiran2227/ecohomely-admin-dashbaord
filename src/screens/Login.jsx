@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import Btn from '../components/Btn'
 import Icon from '../components/Icon'
 import { useAuth } from '../context/authContextValue'
@@ -97,6 +97,12 @@ export default function Login() {
               </button>
             </div>
           </label>
+
+          <div className="flex justify-end">
+            <Link to="/forgot-password" className="text-xs font-bold text-brand-600 hover:text-brand-500">
+              Forgot password?
+            </Link>
+          </div>
 
           {error ? (
             <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-600">

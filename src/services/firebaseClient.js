@@ -47,7 +47,7 @@ const COLLECTION_ALIASES = {
   couponRedemptions: ['couponRedemptions'],
   coupons: ['couponCodes', 'coupons'],
   customers: ['users', 'customers'],
-  notifications: ['announcements', 'notifications'],
+  notifications: ['notifications', 'announcements'],
   payments: ['invoices', 'payments'],
   plans: ['plans'],
   referrals: ['referrals', 'Referrals'],
@@ -159,6 +159,14 @@ function normalizeAdminPayload(payload = {}, { create = false } = {}) {
   if (payload.password) body.password = payload.password
   if (payload.city !== undefined) body.city = payload.city
   if (payload.area !== undefined) body.area = payload.area
+  if (payload.profilePhotoUrl !== undefined) body.profilePhotoUrl = payload.profilePhotoUrl
+  if (payload.profilePhotoURL !== undefined) body.profilePhotoURL = payload.profilePhotoURL
+  if (payload.profilePhotoPath !== undefined) body.profilePhotoPath = payload.profilePhotoPath
+  if (payload.photoUrl !== undefined) body.photoUrl = payload.photoUrl
+  if (payload.photoURL !== undefined) body.photoURL = payload.photoURL
+  if (payload.avatarUrl !== undefined) body.avatarUrl = payload.avatarUrl
+  if (payload.avatar !== undefined) body.avatar = payload.avatar
+  if (payload.photo !== undefined) body.photo = payload.photo
   if (create) {
     body.createdDate = now
     body.createdAt = now.toISOString()
@@ -240,6 +248,34 @@ const EMAILJS_ADMIN_CREDENTIALS = {
   publicKey: 'x9q5Lmu5BByPavky1',
 }
 
+const EMAILJS_PASSWORD_RESET = {
+  serviceId: import.meta.env.VITE_EMAILJS_SERVICE_ID || EMAILJS_ADMIN_CREDENTIALS.serviceId,
+  templateId: import.meta.env.VITE_EMAILJS_PASSWORD_RESET_TEMPLATE_ID || '',
+  publicKey: import.meta.env.VITE_EMAILJS_PUBLIC_KEY || EMAILJS_ADMIN_CREDENTIALS.publicKey,
+}
+
+async function sendEmailJsTemplate({ serviceId, templateId, publicKey, templateParams }) {
+  if (!serviceId || !templateId || !publicKey) {
+    throw Object.assign(new Error('EmailJS password reset template is not configured.'), { status: 500 })
+  }
+
+  const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      service_id: serviceId,
+      template_id: templateId,
+      user_id: publicKey,
+      template_params: templateParams,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '')
+    throw Object.assign(new Error(errorText || `EmailJS failed with status ${response.status}`), { status: response.status })
+  }
+}
+
 async function sendAdminCredentialsEmail(payload = {}) {
   if (!payload.email || !payload.username || !payload.password) {
     throw Object.assign(new Error('Email, username, and password are required.'), { status: 400 })
@@ -255,21 +291,12 @@ async function sendAdminCredentialsEmail(payload = {}) {
     role: email.role,
   }
 
-  const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      service_id: EMAILJS_ADMIN_CREDENTIALS.serviceId,
-      template_id: EMAILJS_ADMIN_CREDENTIALS.templateId,
-      user_id: EMAILJS_ADMIN_CREDENTIALS.publicKey,
-      template_params: templateParams,
-    }),
+  await sendEmailJsTemplate({
+    serviceId: EMAILJS_ADMIN_CREDENTIALS.serviceId,
+    templateId: EMAILJS_ADMIN_CREDENTIALS.templateId,
+    publicKey: EMAILJS_ADMIN_CREDENTIALS.publicKey,
+    templateParams,
   })
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '')
-    throw Object.assign(new Error(errorText || `EmailJS failed with status ${response.status}`), { status: response.status })
-  }
 
   const now = new Date()
   await addDoc(collection(db, 'adminCredentialEmails'), {
@@ -282,6 +309,38 @@ async function sendAdminCredentialsEmail(payload = {}) {
     provider: 'emailjs',
     createdAt: now,
   }).catch(() => null)
+
+  return { status: 'sent', provider: 'emailjs', to: payload.email }
+}
+
+async function sendPasswordResetEmail(payload = {}) {
+  if (!payload.email || !payload.resetUrl) {
+    throw Object.assign(new Error('Email and reset link are required.'), { status: 400 })
+  }
+
+  const email = buildPasswordResetEmail(payload)
+  const name = payload.name || payload.username || 'Admin'
+  const templateParams = {
+    email: payload.email,
+    to_email: payload.email,
+    to_name: name,
+    name,
+    username: payload.username || payload.email,
+    role: payload.role || 'Admin',
+    reset_url: payload.resetUrl,
+    reset_link: payload.resetUrl,
+    subject: email.subject,
+    message: email.text,
+    html_message: email.html,
+    expires_in: '1 hour',
+  }
+
+  await sendEmailJsTemplate({
+    serviceId: EMAILJS_PASSWORD_RESET.serviceId,
+    templateId: EMAILJS_PASSWORD_RESET.templateId,
+    publicKey: EMAILJS_PASSWORD_RESET.publicKey,
+    templateParams,
+  })
 
   return { status: 'sent', provider: 'emailjs', to: payload.email }
 }
@@ -1395,10 +1454,274 @@ async function dashboardOverview() {
   }
 }
 
+const ADMIN_RESET_COLLECTIONS = [
+  { name: 'admins', role: ROLES.SUPER_ADMIN },
+  { name: 'managers', role: ROLES.ADMIN },
+  { name: 'sub_managers', role: ROLES.SUB_ADMIN },
+  { name: 'adminUsers', role: ROLES.ADMIN },
+]
+
+const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000
+
+function normalizeAdminAccount(docSnapshot, data, collectionName, fallbackRole) {
+  const roleValue = String(data.role || '').toLowerCase()
+  let role = fallbackRole
+  if (roleValue === 'super_admin' || roleValue === 'super admin') role = ROLES.SUPER_ADMIN
+  else if (roleValue === 'manager' || roleValue === 'admin') role = ROLES.ADMIN
+  else if (roleValue === 'sub_manager' || roleValue.includes('sub')) role = ROLES.SUB_ADMIN
+
+  return {
+    ...data,
+    id: docSnapshot.id,
+    username: data.username || data.userName || data.email || '',
+    name: data.name || data.displayName || data.username || data.userName || data.email || 'Admin',
+    email: data.email || '',
+    role,
+    status: data.status || 'Active',
+    collectionName,
+  }
+}
+
+function adminIdentifierMatches(data = {}, identifier = '') {
+  const login = String(identifier || '').trim().toLowerCase()
+  if (!login) return false
+  const fields = [
+    data.id,
+    data.username,
+    data.userName,
+    data.email,
+  ].map((value) => String(value || '').trim().toLowerCase())
+  return fields.includes(login)
+}
+
+async function findAdminAccountByIdentifier(identifier) {
+  const normalized = String(identifier || '').trim()
+  if (!normalized) return null
+
+  for (const source of ADMIN_RESET_COLLECTIONS) {
+    try {
+      if (normalized.includes('@')) {
+        const emailSnapshot = await getDocs(query(
+          collection(db, source.name),
+          where('email', '==', normalized),
+        ))
+        if (!emailSnapshot.empty) {
+          const docSnapshot = emailSnapshot.docs[0]
+          return normalizeAdminAccount(docSnapshot, docSnapshot.data(), source.name, source.role)
+        }
+      }
+
+      const usernameSnapshot = await getDocs(query(
+        collection(db, source.name),
+        where('username', '==', normalized),
+      ))
+      if (!usernameSnapshot.empty) {
+        const docSnapshot = usernameSnapshot.docs[0]
+        return normalizeAdminAccount(docSnapshot, docSnapshot.data(), source.name, source.role)
+      }
+    } catch {
+      // Fall back to scan.
+    }
+
+    try {
+      const snapshot = await getDocs(collection(db, source.name))
+      const docSnapshot = snapshot.docs.find((item) => adminIdentifierMatches({ id: item.id, ...item.data() }, normalized))
+      if (docSnapshot) {
+        return normalizeAdminAccount(docSnapshot, docSnapshot.data(), source.name, source.role)
+      }
+    } catch {
+      // Continue.
+    }
+  }
+
+  return null
+}
+
+function createPasswordResetToken() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
+}
+
+function getPasswordResetAppOrigin() {
+  if (typeof window !== 'undefined' && window.location?.origin) return window.location.origin
+  return import.meta.env.VITE_APP_URL || 'http://localhost:5173'
+}
+
+function escapeResetHtml(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+function buildPasswordResetEmail({ name, role, resetUrl }) {
+  const subject = 'Reset your Ecohomely Admin password'
+  const text = [
+    `Hello ${name || 'Admin'},`,
+    '',
+    'We received a request to reset your Ecohomely admin dashboard password.',
+    `Role: ${role || 'Admin'}`,
+    '',
+    'Open this link to choose a new password (valid for 1 hour):',
+    resetUrl,
+    '',
+    'If you did not request this, you can ignore this email.',
+  ].join('\n')
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#102033;max-width:560px">
+      <h2 style="color:#0f5c37">Reset your admin password</h2>
+      <p>Hello <strong>${escapeResetHtml(name || 'Admin')}</strong>,</p>
+      <p>We received a request to reset your Ecohomely admin dashboard password.</p>
+      <p><strong>Role:</strong> ${escapeResetHtml(role || 'Admin')}</p>
+      <p style="margin:24px 0">
+        <a href="${escapeResetHtml(resetUrl)}" style="display:inline-block;padding:12px 20px;background:#0f5c37;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">
+          Reset Password
+        </a>
+      </p>
+      <p style="font-size:13px;color:#64748b">This link expires in 1 hour. If you did not request a reset, ignore this email.</p>
+      <p style="font-size:12px;color:#94a3b8;word-break:break-all">${escapeResetHtml(resetUrl)}</p>
+    </div>
+  `
+  return { subject, text, html }
+}
+
+const PASSWORD_RESET_NOT_FOUND = 'Account is not existed.'
+const PASSWORD_RESET_SENT = 'Password reset link has been sent to your email.'
+
+async function requestAdminPasswordReset(body = {}) {
+  const identifier = body.identifier || body.email || body.username || ''
+  const admin = await findAdminAccountByIdentifier(identifier)
+
+  if (!admin || !admin.email) {
+    throw Object.assign(new Error(PASSWORD_RESET_NOT_FOUND), { status: 404 })
+  }
+
+  if (admin.locked === true || admin.locked === 'true' || admin.status === 'Blocked') {
+    throw Object.assign(new Error('Account is locked. Contact your administrator.'), { status: 403 })
+  }
+
+  const token = createPasswordResetToken()
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS).toISOString()
+  const resetUrl = `${getPasswordResetAppOrigin()}/reset-password?token=${encodeURIComponent(token)}`
+  await setDoc(doc(db, 'adminPasswordResets', token), {
+    adminId: admin.id,
+    collectionName: admin.collectionName,
+    email: admin.email,
+    username: admin.username,
+    role: admin.role,
+    expiresAt,
+    used: false,
+    createdAt: new Date().toISOString(),
+  })
+
+  const delivery = await sendPasswordResetEmail({
+    email: admin.email,
+    name: admin.name,
+    username: admin.username || admin.email,
+    role: admin.role,
+    resetUrl,
+  })
+
+  await addDoc(collection(db, 'adminPasswordResetEmails'), {
+    adminUserId: admin.id,
+    email: admin.email,
+    username: admin.username || admin.email,
+    role: admin.role || '',
+    status: delivery.status,
+    provider: delivery.provider,
+    createdAt: new Date().toISOString(),
+  }).catch(() => null)
+
+  return { success: true, found: true, message: PASSWORD_RESET_SENT, emailDelivery: delivery }
+}
+
+async function getPasswordResetRecord(token) {
+  const normalizedToken = String(token || '').trim()
+  if (!normalizedToken) {
+    throw Object.assign(new Error('Reset token is required.'), { status: 400 })
+  }
+
+  const snapshot = await getDoc(doc(db, 'adminPasswordResets', normalizedToken))
+  if (!snapshot.exists()) {
+    throw Object.assign(new Error('This reset link is invalid or has expired.'), { status: 404 })
+  }
+
+  return { id: snapshot.id, ...snapshot.data() }
+}
+
+async function validateAdminPasswordResetToken(token) {
+  const record = await getPasswordResetRecord(token)
+
+  if (record.used) {
+    throw Object.assign(new Error('This reset link has already been used.'), { status: 400 })
+  }
+
+  if (!record.expiresAt || new Date(record.expiresAt).getTime() < Date.now()) {
+    throw Object.assign(new Error('This reset link has expired.'), { status: 400 })
+  }
+
+  return {
+    valid: true,
+    email: record.email,
+    username: record.username,
+    role: record.role,
+    expiresAt: record.expiresAt,
+  }
+}
+
+async function completeAdminPasswordReset(body = {}) {
+  const token = body.token
+  const password = String(body.password || '')
+
+  if (!password || password.length < 6) {
+    throw Object.assign(new Error('Password must be at least 6 characters.'), { status: 400 })
+  }
+
+  const record = await getPasswordResetRecord(token)
+
+  if (record.used) {
+    throw Object.assign(new Error('This reset link has already been used.'), { status: 400 })
+  }
+
+  if (!record.expiresAt || new Date(record.expiresAt).getTime() < Date.now()) {
+    throw Object.assign(new Error('This reset link has expired.'), { status: 400 })
+  }
+
+  if (!record.collectionName || !record.adminId) {
+    throw Object.assign(new Error('Reset record is invalid.'), { status: 400 })
+  }
+
+  const now = new Date().toISOString()
+  await setDoc(doc(db, record.collectionName, record.adminId), {
+    password,
+    updatedAt: now,
+    updatedDate: new Date(),
+  }, { merge: true })
+
+  await setDoc(doc(db, 'adminPasswordResets', token), {
+    used: true,
+    usedAt: now,
+  }, { merge: true })
+
+  return { success: true, message: 'Password updated successfully. You can sign in now.' }
+}
+
 async function handleAdmin(path, method, body) {
   const parts = path.split('/')
   const section = parts[1]
   const id = parts[2]
+
+  if (section === 'forgot-password' && method === 'POST') {
+    return requestAdminPasswordReset(body)
+  }
+
+  if (section === 'reset-password') {
+    if (method === 'GET' && id) return validateAdminPasswordResetToken(id)
+    if (method === 'POST') return completeAdminPasswordReset(body)
+  }
 
   if (section === 'me') {
     const current = await resolveCurrentAdmin()
@@ -1491,6 +1814,7 @@ async function handleWorkers(parts, method, body, queryOptions) {
       correctionRequested: isCorrection,
       correctionRequestedAt,
       correctionStatus: isCorrection ? 'Pending' : null,
+      adminCorrectionNotificationRead: isCorrection || status === 'Approved' || status === 'Rejected',
       partnerAppPopup: correctionRequest,
       profileCorrectionRequest: correctionRequest,
       verificationVersions,
@@ -1679,20 +2003,34 @@ export async function firebaseRequest(path, options = {}) {
   if (parts[0] === 'notifications' && parts[1] === 'campaigns' && parts[2] === 'send' && method === 'POST') {
     const now = new Date().toISOString()
     const workerIds = Array.isArray(body.workerIds) ? body.workerIds : []
+    const workers = Array.isArray(body.workers) ? body.workers : []
     const records = workerIds.length ? workerIds : [body.audience || 'all']
-    const created = await Promise.all(records.map((target) => createRecord('notifications', {
+    const created = await Promise.all(records.map((target) => {
+      const worker = workers.find((item) => [item.id, item.workerId, item.servicemanId, item.uid, item.userId].filter(Boolean).map(String).includes(String(target))) || {}
+      const targetId = worker.id || worker.workerId || worker.servicemanId || worker.uid || target
+      return createRecord('notifications', {
       ...body,
       id: undefined,
-      workerId: workerIds.length ? target : body.workerId || '',
-      targetId: workerIds.length ? target : body.targetId || '',
+      workerId: worker.workerId || targetId || body.workerId || '',
+      servicemanId: worker.servicemanId || targetId || body.servicemanId || '',
+      serviceManId: worker.servicemanId || targetId || body.serviceManId || '',
+      worker_id: worker.workerId || targetId || body.worker_id || '',
+      serviceman_id: worker.servicemanId || targetId || body.serviceman_id || '',
+      recipientId: targetId || body.recipientId || '',
+      recipientType: workerIds.length ? 'worker' : body.recipientType || '',
+      targetId: targetId || body.targetId || '',
+      userId: worker.uid || worker.userId || targetId || body.userId || '',
+      workerName: worker.name || body.workerName || '',
+      workerPhone: worker.phone || body.workerPhone || '',
       channel: body.channels?.push ? 'push' : body.channels?.whatsapp ? 'whatsapp' : body.channels?.sms ? 'sms' : body.channel || 'push',
       sent: 1,
-      delivered: 0,
+      delivered: body.channels?.push ? 1 : 0,
       opened: 0,
       read: false,
       sentAt: now,
       createdAt: now,
-    }).catch(() => null)))
+    }).catch(() => null)
+    }))
     return {
       id: `campaign-${Date.now()}`,
       sent: created.filter(Boolean).length,

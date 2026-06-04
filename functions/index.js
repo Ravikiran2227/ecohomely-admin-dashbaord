@@ -2,14 +2,11 @@
 
 const admin = require("firebase-admin");
 const {onRequest} = require("firebase-functions/v2/https");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const {defineSecret} = require("firebase-functions/params");
 
 admin.initializeApp();
 
 const CLEANUP_SECRET = defineSecret("STORAGE_CLEANUP_SECRET");
-const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
-const ADMIN_CREDENTIAL_FROM_EMAIL = defineSecret("ADMIN_CREDENTIAL_FROM_EMAIL");
 const REGION = "asia-south1";
 const FIRESTORE_PAGE_SIZE = 500;
 const STORAGE_PAGE_SIZE = 1000;
@@ -22,92 +19,6 @@ const STORAGE_URL_PATTERNS = [
 ];
 
 const FILE_EXTENSION_PATTERN = /\.(png|jpe?g|webp|gif|svg|pdf|docx?|xlsx?|pptx?|txt|csv|mp4|mov|avi|mkv|webm|heic|zip)$/i;
-
-function hasMailContent(data) {
-  return Boolean(data && Array.isArray(data.to) && data.to.length && data.message && data.message.subject);
-}
-
-async function sendMailWithResend(data) {
-  const apiKey = RESEND_API_KEY.value();
-  if (!apiKey) {
-    throw new Error("RESEND_API_KEY is not configured.");
-  }
-
-  const from = ADMIN_CREDENTIAL_FROM_EMAIL.value() || "Ecohomely Admin <onboarding@resend.dev>";
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: data.to,
-      subject: data.message.subject,
-      text: data.message.text || "",
-      html: data.message.html || "",
-    }),
-  });
-
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(result.message || result.error || `Resend failed with ${response.status}.`);
-  }
-
-  return result;
-}
-
-exports.sendQueuedMail = onDocumentCreated({
-  region: REGION,
-  secrets: [RESEND_API_KEY, ADMIN_CREDENTIAL_FROM_EMAIL],
-  document: "mail/{mailId}",
-}, async (event) => {
-  const snapshot = event.data;
-  if (!snapshot) return;
-
-  const data = snapshot.data();
-  if (!hasMailContent(data)) {
-    await snapshot.ref.set({
-      delivery: {
-        status: "failed",
-        error: "Invalid mail document payload.",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-    }, {merge: true});
-    return;
-  }
-
-  try {
-    await snapshot.ref.set({
-      delivery: {
-        status: "sending",
-        provider: "resend",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-    }, {merge: true});
-
-    const result = await sendMailWithResend(data);
-
-    await snapshot.ref.set({
-      delivery: {
-        status: "sent",
-        provider: "resend",
-        providerId: result.id || "",
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-    }, {merge: true});
-  } catch (error) {
-    console.error("sendQueuedMail failed", error);
-    await snapshot.ref.set({
-      delivery: {
-        status: "failed",
-        provider: "resend",
-        error: error.message || "Unable to send email.",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-    }, {merge: true});
-  }
-});
 
 function normalizeStoragePath(value) {
   if (!value || typeof value !== "string") return "";

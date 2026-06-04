@@ -9,10 +9,14 @@ const AREA_COORDS = {
   Akkayyapalem: { lat: 17.7401, lng: 83.3201 },
   'NAD Junction': { lat: 17.7089, lng: 83.2456 },
   Maddilapalem: { lat: 17.7312, lng: 83.3198 },
+  Kommadi: { lat: 17.8077, lng: 83.3548 },
 }
 
 export function getAreaCoords(area) {
-  return AREA_COORDS[area] || { lat: 17.7231, lng: 83.3012 }
+  const direct = AREA_COORDS[area]
+  if (direct) return direct
+  const match = Object.entries(AREA_COORDS).find(([name]) => name.toLowerCase() === String(area || '').toLowerCase())
+  return match?.[1] || { lat: 17.7231, lng: 83.3012 }
 }
 
 export function getNearestArea(lat, lng) {

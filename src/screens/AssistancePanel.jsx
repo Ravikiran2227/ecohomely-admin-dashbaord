@@ -86,6 +86,27 @@ function resolveAreaLocation(area = '') {
   return { area: area || 'Visakhapatnam', ...coords }
 }
 
+function optionLocation(option = {}) {
+  if (!option || typeof option !== 'object') return null
+  const location = normaliseLocation(option.location || option)
+  if (Number.isFinite(location.lat) && Number.isFinite(location.lng)) return location
+
+  const name = firstText(option.name, option.areaName, option.area, option.cityName, option.city, option.districtName, option.district)
+  return name ? resolveAreaLocation(name) : null
+}
+
+function findLocationOption(rows = [], ids = [], names = []) {
+  const idSet = new Set(listValues(ids).map(normalizedText))
+  const nameSet = new Set(listValues(names).map(normalizedText))
+
+  return (Array.isArray(rows) ? rows : []).find((row) => {
+    if (!row || typeof row !== 'object') return false
+    const rowIds = listValues(row.id, row.area_id, row.areaId, row.city_id, row.cityId, row.district_id, row.districtId).map(normalizedText)
+    const rowNames = listValues(row.name, row.areaName, row.area, row.cityName, row.city, row.districtName, row.district).map(normalizedText)
+    return rowIds.some((id) => id && idSet.has(id)) || rowNames.some((name) => name && nameSet.has(name))
+  }) || null
+}
+
 function firstText(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '') || ''
 }
@@ -107,6 +128,50 @@ function labelOf(value) {
     )
   }
   return ''
+}
+
+function normalizedText(value = '') {
+  return String(value || '').trim().toLowerCase()
+}
+
+function listValues(...values) {
+  return values
+    .flatMap((value) => {
+      if (value === undefined || value === null || value === '') return []
+      if (Array.isArray(value)) return value.flatMap((item) => listValues(item))
+      if (typeof value === 'object') {
+        return [
+          value.id,
+          value.uid,
+          value.value,
+          value.name,
+          value.label,
+          value.title,
+          value.area,
+          value.areaName,
+          value.city,
+          value.cityName,
+          value.district,
+          value.districtName,
+          value.profession,
+          value.service,
+          value.category,
+        ].filter((item) => item !== undefined && item !== null && item !== '')
+      }
+      return [value]
+    })
+    .map((value) => String(value).trim())
+    .filter(Boolean)
+}
+
+function textIncludesAny(sourceValues, targets) {
+  const source = listValues(sourceValues).map(normalizedText).join(' ')
+  return listValues(targets).map(normalizedText).some((target) => target && source.includes(target))
+}
+
+function valuesOverlap(leftValues, rightValues) {
+  const left = new Set(listValues(leftValues).map(normalizedText))
+  return listValues(rightValues).map(normalizedText).some((value) => value && left.has(value))
 }
 
 function uniqueOptions(rows, idKeys, nameKeys) {
@@ -199,23 +264,38 @@ function SelectPill({ value, onChange, options, placeholder, className = '' }) {
   )
 }
 
-function workerLocation(worker = {}) {
+function workerLocation(worker = {}, locationRows = {}) {
   const direct = normaliseLocation(worker.location || worker.currentLocation || worker.servicemanLocation || worker.gps || {})
   if (Number.isFinite(direct.lat) && Number.isFinite(direct.lng)) return direct
   const lat = Number(worker.latitude ?? worker.lat)
   const lng = Number(worker.longitude ?? worker.lng)
   if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng, area: worker.areaName || worker.area || worker.cityName || worker.city || '' }
-  return resolveAreaLocation(worker.areaName || worker.primaryArea || worker.serviceArea || worker.area || worker.cityName || worker.city || 'Visakhapatnam')
+
+  const areaOption = findLocationOption(locationRows.areas, workerAreaIds(worker), workerLocationValues(worker))
+  const cityOption = findLocationOption(locationRows.cities, workerCityIds(worker), workerLocationValues(worker))
+  const option = areaOption || cityOption
+  const rowLocation = optionLocation(option)
+  if (rowLocation && Number.isFinite(rowLocation.lat) && Number.isFinite(rowLocation.lng)) return rowLocation
+
+  const namedArea = firstText(worker.areaName, worker.primaryArea, worker.serviceArea, worker.area, worker.cityName, worker.city)
+  return namedArea ? resolveAreaLocation(namedArea) : { area: '' }
 }
 
 function workerProfessionText(worker = {}) {
   return [
     worker.profession,
+    worker.professionName,
     worker.service,
+    worker.serviceName,
     worker.category,
+    worker.categoryName,
     worker.primaryProfession,
+    worker.selectedService,
+    worker.skill,
     ...(Array.isArray(worker.professions) ? worker.professions.map((item) => labelOf(item)) : []),
+    ...(Array.isArray(worker.professions) ? worker.professions.flatMap((item) => listValues(item?.services, item?.serviceList, item?.categories)) : []),
     ...(Array.isArray(worker.services) ? worker.services.map((item) => labelOf(item)) : []),
+    ...(Array.isArray(worker.skills) ? worker.skills.map((item) => labelOf(item)) : []),
   ].filter(Boolean).join(' ')
 }
 
@@ -264,32 +344,213 @@ function normaliseAssistanceSession(record = {}, customers = []) {
   }
 }
 
-function normaliseWorker(worker, requestedService, customerLocation) {
-  const location = workerLocation(worker)
+function normaliseWorker(worker, requestedService, customerLocation, locationRows) {
+  const location = workerLocation(worker, locationRows)
   const profession = firstText(worker.profession, worker.primaryProfession, worker.service, worker.category, Array.isArray(worker.professions) ? labelOf(worker.professions[0]) : '')
   const professionLabel = profession === 'Drivers' ? 'Driver' : profession
-  const dx = (location.lat ?? customerLocation.lat) - customerLocation.lat
-  const dy = (location.lng ?? customerLocation.lng) - customerLocation.lng
-  const distanceKm = Math.sqrt((dx * dx) + (dy * dy)) * 111
+  const rating = Number(worker.rating ?? worker.averageRating ?? worker.avgRating ?? worker.performance?.rating ?? 0) || 0
+  const hasWorkerCoordinates = Number.isFinite(location.lat) && Number.isFinite(location.lng)
+  const dx = hasWorkerCoordinates ? location.lat - customerLocation.lat : 0
+  const dy = hasWorkerCoordinates ? location.lng - customerLocation.lng : 0
+  const distanceKm = hasWorkerCoordinates ? Math.sqrt((dx * dx) + (dy * dy)) * 111 : Number.POSITIVE_INFINITY
   const approval = String(worker.approvalStatus || '').toLowerCase()
   const status = String(worker.status || worker.availability || '').toLowerCase()
   const available = (!['inactive', 'blocked', 'rejected', 'suspended'].includes(status) || approval === 'approved') && worker.approved !== false
   const serviceText = workerProfessionText(worker).toLowerCase()
   const requested = String(requestedService || '').toLowerCase()
-  const serviceMatch = Boolean(requested && (serviceText.includes(requested) || requested.includes(serviceText)))
+  const serviceMatch = Boolean(requested && (serviceText.includes(requested) || serviceText.split(/\s*[,/|]\s*/).some((item) => item && requested.includes(item))))
   const proximityScore = Math.max(0, 5 - distanceKm)
   const availabilityScore = available ? 2 : 0
-  const ratingScore = worker.rating || 0
+  const ratingScore = rating
   const serviceScore = serviceMatch ? 3 : 0
   return {
     ...worker,
     location,
     profession: professionLabel,
     distanceKm,
+    rating,
     available,
     serviceMatch,
+    serviceRadiusKm: Number(worker.serviceRadiusKm || worker.service_radius_km || worker.radiusKm || worker.radius || 0) || 0,
     minCharge: worker.minCharge || worker.hourlyRate || worker.basePrice || worker.price || '',
     priorityScore: proximityScore + availabilityScore + ratingScore + serviceScore,
+  }
+}
+
+function workerLocationValues(worker = {}) {
+  return listValues(
+    worker.areaName,
+    worker.primaryArea,
+    worker.serviceArea,
+    worker.area,
+    worker.cityName,
+    worker.city,
+    worker.districtName,
+    worker.district,
+    worker.location,
+    worker.currentLocation,
+    worker.servicemanLocation,
+    worker.coveredAreas,
+    worker.coverageAreas,
+    worker.serviceAreas,
+    worker.serviceLocations,
+  )
+}
+
+function workerAreaIds(worker = {}) {
+  return listValues(
+    worker.area_id,
+    worker.areaId,
+    worker.primary_area_id,
+    worker.primaryAreaId,
+    worker.service_area_id,
+    worker.serviceAreaId,
+    worker.covered_area_ids,
+    worker.coveredAreaIds,
+    worker.coverageAreaIds,
+    worker.serviceAreaIds,
+    worker.coveredAreas,
+    worker.coverageAreas,
+    worker.serviceAreas,
+  )
+}
+
+function workerCityIds(worker = {}) {
+  return listValues(worker.city_id, worker.cityId, worker.primary_city_id, worker.primaryCityId, worker.service_city_id, worker.serviceCityId)
+}
+
+function workerDistrictIds(worker = {}) {
+  return listValues(worker.district_id, worker.districtId, worker.primary_district_id, worker.primaryDistrictId, worker.service_district_id, worker.serviceDistrictId)
+}
+
+function workerMatchesSelectedLocation(worker, selectedLocation) {
+  const matchesAreaId = valuesOverlap(workerAreaIds(worker), [selectedLocation.areaId])
+  const matchesCityId = valuesOverlap(workerCityIds(worker), [selectedLocation.cityId])
+  const matchesDistrictId = valuesOverlap(workerDistrictIds(worker), [selectedLocation.districtId])
+  const matchesAreaName = textIncludesAny(workerLocationValues(worker), [selectedLocation.areaName])
+  const matchesCityName = textIncludesAny(workerLocationValues(worker), [selectedLocation.cityName])
+  const matchesDistrictName = textIncludesAny(workerLocationValues(worker), [selectedLocation.districtName])
+  const cityDistrictMatch = (matchesCityId || matchesCityName) && (!selectedLocation.districtId && !selectedLocation.districtName || matchesDistrictId || matchesDistrictName)
+
+  return matchesAreaId || matchesAreaName || cityDistrictMatch
+}
+
+function workerNotificationTarget(worker = {}) {
+  const id = firstText(worker.id, worker.workerId, worker.servicemanId, worker.serviceManId, worker.uid, worker.userId, worker.authId, worker.partnerId)
+  return {
+    id,
+    workerId: firstText(worker.workerId, worker.id, id),
+    servicemanId: firstText(worker.servicemanId, worker.serviceManId, worker.id, id),
+    uid: firstText(worker.uid, worker.userId, worker.authId, id),
+  }
+}
+
+function buildWorkerNotificationPayload(worker, form, notificationBody, channels, requestId) {
+  const target = workerNotificationTarget(worker)
+  const area = form.customerLocation?.area || form.area || ''
+  const sentAt = new Date().toISOString()
+  const expoPushToken = firstText(worker.expoPushToken, worker.pushToken, worker.notificationToken, worker.deviceToken, worker.fcmToken)
+  return {
+    title: 'New nearby assistance request',
+    body: notificationBody,
+    message: notificationBody,
+    audience: 'worker',
+    recipientType: 'worker',
+    recipientId: target.id,
+    targetId: target.id,
+    userId: target.uid || target.id,
+    workerId: target.workerId,
+    servicemanId: target.servicemanId,
+    serviceManId: target.servicemanId,
+    worker_id: target.workerId,
+    serviceman_id: target.servicemanId,
+    expoPushToken,
+    pushToken: expoPushToken,
+    workerName: worker.name || '',
+    workerPhone: worker.phone || worker.mobile || worker.phoneNumber || '',
+    type: 'assistance_request',
+    category: 'assistance',
+    channel: channels.push ? 'push' : channels.whatsapp ? 'whatsapp' : 'sms',
+    channels: Object.entries(channels).filter(([, enabled]) => enabled).map(([key]) => key),
+    deliveryMode: 'partner_app_firestore',
+    read: false,
+    delivered: 0,
+    opened: 0,
+    sent: 1,
+    pushStatus: 'not_sent_without_server',
+    inAppStatus: 'unread',
+    sentAt,
+    createdAt: sentAt,
+    timestamp: sentAt,
+    requestId,
+    assistanceRequestId: requestId,
+    meta: {
+      service: form.service,
+      customerName: form.customerName,
+      customerPhone: form.phone,
+      area,
+      distanceKm: Number(worker.distanceKm || 0),
+    },
+    data: {
+      screen: 'assistance_request',
+      type: 'assistance_request',
+      requestId,
+      assistanceRequestId: requestId,
+      workerId: target.workerId,
+      servicemanId: target.servicemanId,
+      service: form.service,
+      area,
+      customerPhone: form.phone,
+    },
+  }
+}
+
+function buildPartnerAssistanceRequest(worker, form, requestId) {
+  const area = form.customerLocation?.area || form.area || ''
+  const requestedAt = new Date().toISOString()
+  const customerPhone = phoneDigits(form.phone)
+  const target = workerNotificationTarget(worker)
+  const message = `${form.customerName || 'A customer'} is requesting ${form.service}${area ? ` near ${area}` : ''}.${customerPhone ? ` Contact: ${customerPhone}.` : ''}`
+
+  return {
+    type: 'assistance_request',
+    notificationType: 'assistance_request',
+    popupType: 'assistance_request',
+    screen: 'assistance_request',
+    deliveryMode: 'partner_app_firestore',
+    title: 'New service request',
+    message,
+    body: message,
+    requestId,
+    assistanceRequestId: requestId,
+    service: form.service,
+    area,
+    customerName: form.customerName || '',
+    customerPhone,
+    workerId: target.workerId,
+    servicemanId: target.servicemanId,
+    serviceManId: target.servicemanId,
+    recipientId: target.id,
+    targetId: target.id,
+    distanceKm: Number(worker.distanceKm || 0),
+    requestedAt,
+    createdAt: requestedAt,
+    read: false,
+    seen: false,
+    opened: false,
+    notified: true,
+    status: 'Pending',
+    priority: 'high',
+    data: {
+      type: 'assistance_request',
+      screen: 'assistance_request',
+      requestId,
+      assistanceRequestId: requestId,
+      service: form.service,
+      area,
+      customerName: form.customerName || '',
+      customerPhone,
+    },
   }
 }
 
@@ -415,11 +676,12 @@ export default function AssistancePanel() {
       if (field === 'area_id') {
         const selected = areaOptions.find((item) => String(item.id) === String(value))
         const areaName = selected?.name || ''
+        const selectedLocation = optionLocation(selected) || (areaName ? resolveAreaLocation(areaName) : null)
         return {
           ...current,
           area_id: value,
           area: areaName,
-          customerLocation: areaName ? resolveAreaLocation(areaName) : null,
+          customerLocation: selectedLocation,
         }
       }
 
@@ -477,51 +739,56 @@ export default function AssistancePanel() {
       return
     }
 
-    const selectedDistrict = districtOptions.find((item) => String(item.id) === String(form.district_id))?.name || ''
-    const selectedCity = cityOptions.find((item) => String(item.id) === String(form.city_id))?.name || ''
-    const selectedArea = form.area || areaOptions.find((item) => String(item.id) === String(form.area_id))?.name || ''
+    const selectedDistrict = districtOptions.find((item) => String(item.id) === String(form.district_id))
+    const selectedCity = cityOptions.find((item) => String(item.id) === String(form.city_id))
+    const selectedArea = areaOptions.find((item) => String(item.id) === String(form.area_id))
+    const selectedLocation = {
+      districtId: form.district_id,
+      districtName: selectedDistrict?.name || '',
+      cityId: form.city_id,
+      cityName: selectedCity?.name || '',
+      areaId: form.area_id,
+      areaName: form.area || selectedArea?.name || '',
+    }
     const eligibleWorkers = workers
       .filter((worker) => {
         const state = String(worker.status || worker.approvalStatus || worker.availability || '').toLowerCase()
         return worker.approved !== false && !['blocked', 'rejected', 'suspended'].includes(state)
       })
-      .map((worker) => normaliseWorker(worker, form.service, location))
-    const rankedWorkers = eligibleWorkers.filter((worker) => {
-        const workerText = [
-          worker.areaName,
-          worker.primaryArea,
-          worker.serviceArea,
-          worker.area,
-          worker.cityName,
-          worker.city,
-          worker.districtName,
-          worker.district,
-          worker.location?.area,
-          worker.location?.city,
-          worker.location?.address,
-        ].filter(Boolean).join(' ').toLowerCase()
-        const matchesArea = !selectedArea || workerText.includes(selectedArea.toLowerCase())
-        const matchesCity = !selectedCity || workerText.includes(selectedCity.toLowerCase())
-        const matchesDistrict = !selectedDistrict || workerText.includes(selectedDistrict.toLowerCase())
-        const locationMatch = matchesArea || (matchesCity && matchesDistrict)
-        return worker.distanceKm <= 35 || locationMatch || worker.serviceMatch
+      .map((worker) => normaliseWorker(worker, form.service, location, locationRows))
+    const rankedWorkers = eligibleWorkers
+      .map((worker) => {
+        const locationMatch = workerMatchesSelectedLocation(worker, selectedLocation)
+        const hasDistance = Number.isFinite(worker.distanceKm)
+        const distanceKm = hasDistance ? worker.distanceKm : locationMatch ? 0 : Number.POSITIVE_INFINITY
+        const radiusKm = Number(worker.serviceRadiusKm || 0)
+        const withinRadius = radiusKm > 0 ? distanceKm <= radiusKm : distanceKm <= 35
+        const nearbyScore = locationMatch ? 8 : withinRadius ? 4 : Number.isFinite(distanceKm) ? Math.max(0, 3 - (distanceKm / 12)) : 0
+        return {
+          ...worker,
+          distanceKm,
+          location: locationMatch && !hasDistance
+            ? { ...(worker.location || {}), lat: location.lat, lng: location.lng, area: selectedLocation.areaName || location.area }
+            : worker.location,
+          locationMatch,
+          withinRadius,
+          priorityScore: worker.priorityScore + nearbyScore,
+        }
       })
-      .sort((a, b) => b.priorityScore - a.priorityScore)
-    const fallbackWorkers = eligibleWorkers.sort((a, b) => b.priorityScore - a.priorityScore)
-    const nextResults = rankedWorkers.length ? rankedWorkers : fallbackWorkers
+      .filter((worker) => worker.locationMatch || worker.withinRadius)
+      .sort((a, b) => b.priorityScore - a.priorityScore || a.distanceKm - b.distanceKm)
+    const nextResults = rankedWorkers
 
     setForm((current) => ({ ...current, phone: sanitisedPhone, customerLocation: location }))
     setSearchResults(nextResults)
-    setSelectedIds([])
+    setSelectedIds(nextResults.slice(0, 5).map((worker) => worker.id).filter(Boolean))
     setSelectedSessionId(null)
     setFinderFilters({ sortBy: 'distance', availability: 'All', minRating: 0, serviceMatchOnly: false })
     setHasSearched(true)
     setIntakeFeedback(
       rankedWorkers.length
-        ? { tone: 'success', message: `${rankedWorkers.length} nearby workers found for ${form.service} in ${location.area}.` }
-        : nextResults.length
-          ? { tone: 'warning', message: `No exact nearby match found. Showing the best available workers for ${form.service}.` }
-          : { tone: 'warning', message: `No active workers are available for this search right now.` },
+        ? { tone: 'success', message: `${rankedWorkers.length} nearby workers found for ${form.service} in ${location.area}. The closest ${Math.min(5, rankedWorkers.length)} are selected.` }
+        : { tone: 'warning', message: `No nearby servicemen found for ${form.service} in ${location.area}. Change the area or use GPS and search again.` },
     )
   }
 
@@ -541,10 +808,6 @@ export default function AssistancePanel() {
   }
 
   function requestNotifySelected() {
-    if (!notificationChannels.length) {
-      setIntakeFeedback({ tone: 'warning', message: 'Enable at least one notification channel before sending worker alerts.' })
-      return
-    }
     const selectedSet = new Set(selectedIds.map(String))
     const selectedWorkers = searchResults.filter((worker) => selectedSet.has(String(worker.id))).slice(0, 5)
     if (!selectedWorkers.length) {
@@ -554,7 +817,7 @@ export default function AssistancePanel() {
     setNotifyConfirmOpen(true)
   }
 
-  function handleNotifySelected() {
+  async function handleNotifySelected() {
     setNotifyConfirmOpen(false)
 
     const selectedSet = new Set(selectedIds.map(String))
@@ -563,6 +826,7 @@ export default function AssistancePanel() {
       setIntakeFeedback({ tone: 'warning', message: 'Select at least one worker before sending alerts.' })
       return
     }
+    setIntakeFeedback({ tone: 'success', message: 'Sending notification to selected servicemen...' })
     const status = selectedWorkers.some((worker) => worker.available) ? 'Active' : 'No Response'
     const timestamp = formatNow()
     const newSession = {
@@ -586,51 +850,71 @@ export default function AssistancePanel() {
         {
           id: `${Date.now()}-notification`,
           time: timestamp.slice(11),
-          title: '',
-          note: '',
+          title: 'Notification sent',
+          note: `${selectedWorkers.length} worker${selectedWorkers.length === 1 ? '' : 's'} were notified in the partner app for ${form.service}.`,
         },
       ].filter((item) => item.title || item.note),
     }
 
-    assistanceApi.createAssistance(newSession).then((saved) => {
-      const normalized = normaliseAssistanceSession(saved, customers)
+    let savedSession = null
+    try {
+      savedSession = await assistanceApi.createAssistance(newSession)
+      const normalized = normaliseAssistanceSession(savedSession, customers)
       setSessions((current) => [normalized, ...current])
-    }).catch(() => {})
-    const notificationBody = `New ${form.service} request near ${form.customerLocation?.area || form.area}.${form.phone ? ` Customer phone: ${form.phone}.` : ''}`
-    if (channels.push) {
-      Promise.all(selectedWorkers.map((worker) => notificationsApi.createNotification({
-        title: 'New nearby assistance request',
-        body: notificationBody,
-        audience: 'worker',
-        workerId: worker.id,
-        targetId: worker.id,
-        type: 'assistance_request',
-        channel: 'push',
-        read: false,
-        delivered: 0,
-        opened: 0,
-        meta: {
-          service: form.service,
-          customerName: form.customerName,
-          customerPhone: form.phone,
-          area: form.customerLocation?.area || form.area,
-          distanceKm: Number(worker.distanceKm || 0),
-        },
-      }).catch(() => null))).catch(() => {})
-      notificationsApi.sendCampaign({
-        title: 'New nearby assistance request',
-        body: notificationBody,
-        audience: 'workers',
-        workerIds: selectedWorkers.map((worker) => worker.id),
-        channels: { push: true, sms: false, whatsapp: false },
-      }).catch(() => {})
+      setSelectedSessionId(normalized.id)
+    } catch {
+      savedSession = { id: `local-assist-${Date.now()}`, ...newSession }
+      const normalized = normaliseAssistanceSession(savedSession, customers)
+      setSessions((current) => [normalized, ...current])
+      setSelectedSessionId(normalized.id)
     }
-    const directCount = openDirectWorkerNotifications(selectedWorkers, notificationBody, channels)
+
+    const requestId = savedSession?.id || `assist-${Date.now()}`
+    const notificationBody = `New ${form.service} request near ${form.customerLocation?.area || form.area}.${form.phone ? ` Customer phone: ${form.phone}.` : ''}`
+    let savedPushCount = 0
+    let failedPushCount = 0
+    const results = await Promise.all(selectedWorkers.map(async (worker) => {
+      try {
+        const request = buildPartnerAssistanceRequest(worker, form, requestId)
+        const existingRequests = Array.isArray(worker.assistanceRequests) ? worker.assistanceRequests : []
+        const nextRequests = [request, ...existingRequests.filter((item) => item?.requestId !== requestId)].slice(0, 20)
+
+        const notificationPayload = buildWorkerNotificationPayload(worker, form, notificationBody, { push: true, sms: false, whatsapp: false }, requestId)
+        await notificationsApi.createNotification(notificationPayload)
+        await workersApi.updateWorker(worker.id, {
+          partnerAppPopup: request,
+          partnerAppNotification: request,
+          appNotification: request,
+          latestNotification: notificationPayload,
+          latestPartnerNotification: notificationPayload,
+          showPartnerAppPopup: true,
+          partnerAppPopupRead: false,
+          partnerAppPopupSeen: false,
+          partnerAppUnreadCount: Number(worker.partnerAppUnreadCount || 0) + 1,
+          assistanceRequest: request,
+          currentAssistanceRequest: request,
+          latestAssistanceRequest: request,
+          assistanceRequests: nextRequests,
+          hasAssistanceRequest: true,
+          assistanceNotificationRead: false,
+          assistanceNotificationSeen: false,
+          assistanceRequestedAt: request.requestedAt,
+          assistanceRequestStatus: 'Pending',
+        })
+
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error }
+      }
+    }))
+    savedPushCount = results.filter((result) => result.ok).length
+    failedPushCount = results.length - savedPushCount
+
     setIntakeFeedback({
-      tone: 'success',
-      message: `${selectedWorkers.length} selected worker${selectedWorkers.length === 1 ? '' : 's'} queued. ${directCount ? 'WhatsApp/SMS windows opened for direct sending.' : 'Push notification saved.'}`,
+      tone: failedPushCount ? 'warning' : 'success',
+      message: `${savedPushCount} selected serviceman${savedPushCount === 1 ? '' : 's'} notified in the partner app.${failedPushCount ? ` ${failedPushCount} notification${failedPushCount === 1 ? '' : 's'} failed to save.` : ''}`,
     })
-    pushNotification(`Workers notified for ${form.service} request`, '#0F5C37')
+    pushNotification(`Partner app request saved for ${form.service}`, '#0F5C37')
   }
 
   function handleRenotify(sessionId) {
@@ -658,6 +942,21 @@ export default function AssistancePanel() {
     )))
     assistanceApi.updateAssistance(sessionId, { status: 'Completed', solved: true }).catch(() => {})
     pushNotification(`Session ${sessionId} marked completed`, '#16A34A')
+  }
+
+  async function handleDeleteSession(sessionId) {
+    const session = sessions.find((item) => item.id === sessionId)
+    const confirmed = window.confirm(`Delete assistance record ${sessionId}? This cannot be undone.`)
+    if (!confirmed) return
+
+    try {
+      await assistanceApi.deleteAssistance(sessionId)
+      setSessions((current) => current.filter((item) => item.id !== sessionId))
+      if (selectedSessionId === sessionId) setSelectedSessionId(null)
+      pushNotification(`Assistance record deleted${session?.customerName ? ` for ${session.customerName}` : ''}`, '#DC2626')
+    } catch (error) {
+      setIntakeFeedback({ tone: 'warning', message: error.message || 'Unable to delete assistance record.' })
+    }
   }
 
   const summaryCards = [
@@ -791,6 +1090,7 @@ export default function AssistancePanel() {
           onView={setSelectedSessionId}
           onRenotify={handleRenotify}
           onClose={handleComplete}
+          onDelete={handleDeleteSession}
           onOpenCustomer={(customerId) => customerId && navigate(`/customers/${customerId}`)}
         />
       </div>
@@ -814,7 +1114,7 @@ export default function AssistancePanel() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600">Confirm Notification</p>
             <h3 className="mt-2 text-xl font-extrabold text-[var(--text-main)]">Notify selected workers?</h3>
             <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">
-              This will send the assistance request to {selectedIds.length} selected worker{selectedIds.length === 1 ? '' : 's'} through {notificationChannels.join(', ')}.
+              This will send an in-app assistance request to {selectedIds.length} selected serviceman{selectedIds.length === 1 ? '' : 's'} in the partner app.
             </p>
             <div className="mt-6 flex justify-end gap-3">
               <Btn v="outline" onClick={() => setNotifyConfirmOpen(false)}>Cancel</Btn>

@@ -11,12 +11,14 @@ import VerificationChecklist from '../components/VerificationChecklist'
 import VersionSelector from '../components/VersionSelector'
 import VersionTimeline from '../components/VersionTimeline'
 import ChangeHighlighter from '../components/ChangeHighlighter'
+import VersionComparisonTable, { isVersionFieldChanged } from '../components/VersionComparisonTable'
 import InfoRow from '../components/InfoRow'
 import SectionCard from '../components/SectionCard'
 import PricingCard from '../components/PricingCard'
 import { C } from '../theme'
 import { getPrimaryProfession, getLocationLabel } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
+import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
 import { resolveStorageAssetUrl, resolveWorkerStorageFiles } from '../services/firebaseClient'
 
 const CORRECTION_OPTIONS = [
@@ -491,8 +493,8 @@ export default function WorkerVerificationProfile() {
     : null
   const changes = currentVersionData && previousVersion
     ? Object.keys(currentVersionData.data)
-      .filter(key => JSON.stringify(currentVersionData.data[key]) !== JSON.stringify(previousVersion.data[key]))
-      .map(key => `${key} updated`)
+      .filter((key) => isVersionFieldChanged(previousVersion.data?.[key], currentVersionData.data?.[key], key))
+      .map((key) => `${titleCaseField(key)} updated`)
     : []
   const versionDetails = currentVersionData?.data && typeof currentVersionData.data === 'object'
     ? Object.entries(currentVersionData.data)
@@ -556,6 +558,7 @@ export default function WorkerVerificationProfile() {
       setStatusOverrides((prev) => ({ ...prev, [statusKey]: 'Correction Required' }))
     }
     setAlert({ type: 'warning', text: `Correction requested for: ${correctionFields.join(', ')}.` })
+    dispatchProfileUpdatesChanged()
     closeAction()
   }
 
@@ -656,36 +659,14 @@ export default function WorkerVerificationProfile() {
         <SectionCard
           title="Current vs Previous Version"
           subtitle={previousVersion ? `Version ${selectedVersion} compared with Version ${previousVersion.version}` : 'Current Firebase profile snapshot'}
+          icon={<Icon n="activity" sz={18} />}
         >
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--border-main)] text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                  <th className="px-3 py-3">Field</th>
-                  <th className="px-3 py-3">Previous Version</th>
-                  <th className="px-3 py-3">Present Version</th>
-                  <th className="px-3 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comparisonFields.map((field) => {
-                  const previousValue = previousVersion?.data?.[field]
-                  const currentValue = currentVersionData.data?.[field]
-                  const changed = JSON.stringify(snapshotValue(previousValue)) !== JSON.stringify(snapshotValue(currentValue))
-                  return (
-                    <tr key={field} className="border-b border-[var(--border-main)] last:border-b-0">
-                      <td className="px-3 py-3 font-bold text-[var(--text-main)]">{titleCaseField(field)}</td>
-                      <td className="whitespace-pre-wrap px-3 py-3 text-[var(--text-muted)]">{previousVersion ? formatSnapshotValue(previousValue) : '-'}</td>
-                      <td className="whitespace-pre-wrap px-3 py-3 font-semibold text-[var(--text-main)]">{formatSnapshotValue(currentValue)}</td>
-                      <td className="px-3 py-3">
-                        <Badge label={changed ? 'Updated' : 'Same'} color={changed ? C.warning : C.success} size="xs" />
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <VersionComparisonTable
+            fields={comparisonFields}
+            previousVersion={previousVersion}
+            currentVersion={currentVersionData}
+            selectedVersion={selectedVersion}
+          />
         </SectionCard>
       )}
 

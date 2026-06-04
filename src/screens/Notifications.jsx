@@ -143,6 +143,9 @@ function Metric({ label, value, sub, tone }) {
 }
 
 function getCampaignRoute(item) {
+  if (item.type === 'worker_profile_update') {
+    return { label: 'Open Profile Updates', path: '/profile-updates' }
+  }
   if (item.workerId || item.servicemanId) return { label: 'Open Worker Profile', path: `/workers/${item.workerId || item.servicemanId}` }
   const audience = String(item.audience || '').toLowerCase()
   const title = String(item.title || '').toLowerCase()

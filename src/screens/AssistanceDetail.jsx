@@ -27,22 +27,25 @@ export default function AssistanceDetail({ session, onClose, onRenotify, onCompl
   if (!session) return null
 
   return (
-    <div className="fixed inset-y-0 right-0 z-[160] flex h-screen w-full max-w-[680px] flex-col border-l border-[var(--border-main)] bg-[var(--bg-main)] shadow-[-12px_0_30px_rgba(15,23,42,0.14)]">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-main)] bg-[var(--card-bg)] px-5 py-4">
-        <div>
-          <div className="ui-eyebrow">Assistance Detail</div>
-          <div className="mt-1 text-2xl font-extrabold text-[var(--text-main)]">{session.id}</div>
+    <div className="fixed inset-0 z-[100000] flex justify-end bg-black/55 p-3 backdrop-blur-[1px]" onClick={onClose}>
+      <div className="flex h-[calc(100vh-24px)] min-h-0 w-full max-w-[720px] flex-col overflow-hidden rounded-l-[18px] border border-[var(--border-main)] bg-[var(--bg-main)] shadow-[-18px_0_45px_rgba(0,0,0,0.45)]" onClick={(event) => event.stopPropagation()}>
+        <div className="shrink-0 border-b border-[var(--border-main)] bg-[var(--card-bg)] px-5 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="ui-eyebrow">Assistance Detail</div>
+              <div className="mt-1 break-all text-2xl font-extrabold text-[var(--text-main)]">{session.id}</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge label={session.status} color={detailStatusColor(session.status)} />
+              <Btn v="primary" onClick={() => onRenotify(session.id)} disabled={!session.workers.length}>Re-notify</Btn>
+              <Btn v="success" onClick={() => onComplete(session.id)} disabled={session.status !== 'Active'}>Mark Completed</Btn>
+              <Btn v="outline" onClick={onClose}>Close</Btn>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge label={session.status} color={detailStatusColor(session.status)} />
-          <Btn v="primary" onClick={() => onRenotify(session.id)} disabled={!session.workers.length}>Re-notify</Btn>
-          <Btn v="success" onClick={() => onComplete(session.id)} disabled={session.status !== 'Active'}>Mark Completed</Btn>
-          <Btn v="outline" onClick={onClose}>Close</Btn>
-        </div>
-      </div>
 
-      <div className="grid flex-1 gap-4 overflow-y-auto p-5">
-        <Card style={{ borderRadius: 16 }} pad={18}>
+        <div className="grid min-h-0 flex-1 auto-rows-max gap-4 overflow-y-auto p-5">
+        <Card className="overflow-visible" style={{ borderRadius: 16 }} pad={18}>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Customer Info</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <InfoCard label="Customer" value={session.customerName || ''} />
@@ -56,7 +59,7 @@ export default function AssistanceDetail({ session, onClose, onRenotify, onCompl
           </div>
         </Card>
 
-        <Card style={{ borderRadius: 16 }} pad={18}>
+        <Card className="overflow-visible" style={{ borderRadius: 16 }} pad={18}>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Workers Notified</div>
           <div className="mt-3 grid gap-3">
             {session.workers.length ? session.workers.map((worker) => (
@@ -82,7 +85,7 @@ export default function AssistanceDetail({ session, onClose, onRenotify, onCompl
           </div>
         </Card>
 
-        <Card style={{ borderRadius: 16 }} pad={18}>
+        <Card className="overflow-visible" style={{ borderRadius: 16 }} pad={18}>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Timeline</div>
           <div className="mt-3 grid gap-3">
             {session.timeline.length ? session.timeline.map((item) => (
@@ -103,6 +106,7 @@ export default function AssistanceDetail({ session, onClose, onRenotify, onCompl
             )}
           </div>
         </Card>
+        </div>
       </div>
     </div>
   )

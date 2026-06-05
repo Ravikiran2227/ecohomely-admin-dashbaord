@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from '../components/Icon'
 import workersApi from '../services/workersApi'
+import { getLocationLabel, getPrimaryProfession } from '../data/workerSystem'
 import {
   acknowledgeProfileUpdatesInbox,
   correctionRequestedAt,
@@ -98,7 +99,7 @@ function submittedAt(worker = {}) {
 }
 
 function requestedAt(worker = {}) {
-  const correction = worker.profileCorrectionRequest || worker.correctionRequest || worker.partnerAppPopup || {}
+  const correction = correctionMeta(worker)
   return worker.correctionRequestedAt
     || worker.markedForCorrectionAt
     || worker.requestedCorrectionAt
@@ -106,8 +107,127 @@ function requestedAt(worker = {}) {
     || correction.createdAt
 }
 
-function correctionFields(worker = {}) {
-  const correction = worker.profileCorrectionRequest || worker.correctionRequest || worker.partnerAppPopup || {}
+function correctionMeta(worker = {}) {
+  if (worker.profileCorrectionRequest) return worker.profileCorrectionRequest
+  if (worker.correctionRequest) return worker.correctionRequest
+  const popup = worker.partnerAppPopup || {}
+  return String(popup.type || popup.notificationType || '').toLowerCase() === 'profile_correction' ? popup : {}
+}
+
+function correctionFieldLabel(field) {
+  if (typeof field === 'string') return humanize(field)
+  if (!field || typeof field !== 'object') return ''
+  return humanize(field.label || field.name || field.title || field.field || field.key || field.id)
+}
+
+function normalizeCorrectionKey(field) {
+  const raw = typeof field === 'string'
+    ? field
+    : field?.key || field?.field || field?.id || field?.name || field?.label || ''
+  const normalized = String(raw || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const aliases = {
+    fullname: 'name',
+    name: 'name',
+    phonenumber: 'phone',
+    mobilenumber: 'phone',
+    mobile: 'phone',
+    phone: 'phone',
+    primaryprofession: 'profession',
+    professionname: 'profession',
+    profession: 'profession',
+    experienceyears: 'experience',
+    yearsofexperience: 'experience',
+    experience: 'experience',
+    language: 'languages',
+    languages: 'languages',
+    profilephoto: 'image',
+    profilepicture: 'image',
+    photo: 'image',
+    image: 'image',
+    aadhaar: 'aadhaar',
+    aadhar: 'aadhaar',
+    pricing: 'pricing',
+    price: 'pricing',
+    services: 'services',
+    service: 'services',
+    location: 'location',
+    address: 'location',
+    documents: 'documents',
+    professionmedia: 'professionMedia',
+    workphotos: 'professionMedia',
+  }
+  return aliases[normalized] || raw
+}
+
+function comparableValue(value) {
+  if (value === undefined || value === null || value === '') return ''
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => comparableValue(item))
+      .filter((item) => item !== '')
+      .sort()
+  }
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined && item !== null && item !== '')
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, comparableValue(item)]),
+    )
+  }
+  return String(value).trim()
+}
+
+function hasChanged(previousValue, currentValue) {
+  return JSON.stringify(comparableValue(previousValue)) !== JSON.stringify(comparableValue(currentValue))
+}
+
+function currentCorrectionValues(worker = {}) {
+  const primary = getPrimaryProfession(worker) || {}
+  return {
+    name: worker.name || worker.fullName || worker.displayName || '',
+    phone: worker.phone || worker.mobile || worker.phoneNumber || '',
+    profession: primary.profession || worker.profession || worker.primaryProfession || worker.service || '',
+    experience: primary.experienceYears ?? primary.yearsOfExperience ?? primary.experience_years ?? primary.experience ?? worker.experienceYears ?? worker.yearsOfExperience ?? worker.experience_years ?? worker.experience ?? '',
+    languages: worker.languages || [],
+    image: worker.image || worker.profilePhotoUrl || worker.profilePhotoURL || worker.profilePhoto || worker.photoUrl || '',
+    aadhaar: worker.aadhaarUrl || worker.aadhaar || worker.aadhaarImage || worker.aadharUrl || worker.aadharImage || worker.documents?.find((doc) => /aadhaar|aadhar|adhaar|adhar/i.test(`${doc.key || ''} ${doc.name || ''} ${doc.fileName || ''}`)) || '',
+    pricing: primary.price || worker.price || worker.basePrice || '',
+    services: primary.services || worker.services || [],
+    location: getLocationLabel(worker),
+    documents: worker.documents || [],
+    professionMedia: worker.professionMedia || worker.workPhotos || [],
+  }
+}
+
+function documentLabel(document = {}, fallback = 'Uploaded') {
+  if (!document || typeof document !== 'object') return fallback
+  return document.name || document.fileName || document.label || document.key || document.type || fallback
+}
+
+function formatCorrectionDetailValue(key, value) {
+  if (value === undefined || value === null || value === '') return 'Not provided'
+  if (key === 'experience') return `${value} ${String(value).trim() === '1' ? 'year' : 'years'}`
+  if (key === 'image') return value ? 'Profile photo uploaded' : 'Not provided'
+  if (key === 'aadhaar') return typeof value === 'object' ? documentLabel(value, 'Aadhaar uploaded') : 'Aadhaar uploaded'
+  if (Array.isArray(value)) {
+    if (!value.length) return 'Not provided'
+    return value.map((item) => {
+      if (item && typeof item === 'object') return documentLabel(item, item.profession || item.name || item.title || 'Updated')
+      return String(item || '').trim()
+    }).filter(Boolean).join(', ')
+  }
+  if (typeof value === 'object') {
+    return documentLabel(value, Object.entries(value)
+      .filter(([, item]) => item !== undefined && item !== null && item !== '')
+      .map(([itemKey, item]) => `${humanize(itemKey)}: ${Array.isArray(item) ? item.join(', ') : String(item)}`)
+      .join(', ') || 'Updated')
+  }
+  return String(value)
+}
+
+function requestedCorrectionKeys(worker = {}) {
+  const correction = correctionMeta(worker)
   const rows = versionRows(worker)
   const latest = rows
     .slice()
@@ -119,18 +239,46 @@ function correctionFields(worker = {}) {
     correction.fields,
     correction.items,
     correction.corrections,
-    latest.changedFields,
-    latest.updatedFields,
+    latest.requestedFields,
     latest.correctionFields,
   ]
   const fields = candidates.find((value) => Array.isArray(value) && value.length)
-  if (fields) return fields.map((field) => humanize(typeof field === 'string' ? field : field.label || field.name || field.field)).filter(Boolean)
-  if (correction.message || correction.reason) return [correction.message || correction.reason]
+  if (fields) return fields.map(normalizeCorrectionKey).filter(Boolean)
+  return Object.keys(worker.correctionFieldValues || correction.fieldValues || {})
+}
+
+function correctionDetails(worker = {}) {
+  const correction = correctionMeta(worker)
+  const previousValues = worker.correctionFieldValues || correction.fieldValues || {}
+  const currentValues = currentCorrectionValues(worker)
+  const requestedKeys = requestedCorrectionKeys(worker)
+  const details = requestedKeys.map((key) => ({
+    key,
+    label: correctionFieldLabel(key),
+    value: formatCorrectionDetailValue(key, currentValues[key]),
+    changed: hasChanged(previousValues[key], currentValues[key]),
+  })).filter((item) => item.label)
+
+  if (details.length) return details
+
+  const note = String(correction.message || correction.reason || '')
+  const requestedFor = note.match(/Correction requested for:\s*(.+)$/i)?.[1]
+  if (requestedFor && !Object.keys(previousValues).length) {
+    return requestedFor.split(',').map((field) => {
+      const key = normalizeCorrectionKey(field)
+      return {
+        key,
+        label: correctionFieldLabel(key),
+        value: formatCorrectionDetailValue(key, currentValues[key] || ''),
+        changed: false,
+      }
+    }).filter((item) => item.label)
+  }
   return []
 }
 
 function hasProfileUpdate(worker = {}) {
-  const correction = worker.profileCorrectionRequest || worker.correctionRequest || worker.partnerAppPopup || {}
+  const correction = correctionMeta(worker)
   const requestMs = toMillis(correctionRequestedAt(worker))
   const submitMs = toMillis(correctionSubmittedAt(worker))
   const status = String(worker.correctionStatus || correction.status || worker.profileReviewStatus || '').toLowerCase()
@@ -181,7 +329,7 @@ export default function ProfileUpdates() {
         submittedAt: correctionSubmittedAt(worker),
         requestedAt: correctionRequestedAt(worker),
         version: latestVersion(worker),
-        corrections: correctionFields(worker),
+        corrections: correctionDetails(worker),
         status: worker.approvalStatus || worker.correctionStatus || worker.profileReviewStatus || 'Submitted',
       }
     })
@@ -194,7 +342,7 @@ export default function ProfileUpdates() {
       row.name,
       row.profession,
       row.status,
-      ...row.corrections,
+      ...row.corrections.flatMap((item) => [item.label, item.value]),
     ].some((value) => String(value || '').toLowerCase().includes(term)))
   }, [updates, query])
 
@@ -295,12 +443,12 @@ export default function ProfileUpdates() {
 
                 <div className="mt-4 rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-3">
                   <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Corrections Checklist</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {(row.corrections.length ? row.corrections : ['Profile details updated']).map((field) => (
-                      <span key={`${row.id}-${field}`} className="inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--brand-500)_35%,var(--border-main))] bg-[color-mix(in_srgb,var(--brand-500)_10%,transparent)] px-3 py-1 text-xs font-bold text-[var(--text-main)]">
-                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--brand-500)]" />
-                        {field}
-                      </span>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {(row.corrections.length ? row.corrections : [{ key: 'empty', label: 'No updated details recorded', value: 'Open the profile to review the latest submitted data.' }]).map((field) => (
+                      <div key={`${row.id}-${field.key}-${field.label}`} className="rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-3 py-2">
+                        <span className="block text-xs font-black uppercase tracking-[0.08em] text-[var(--text-muted)]">{field.label}</span>
+                        <span className="mt-0.5 block break-words text-sm font-bold text-[var(--text-main)]">{field.value}</span>
+                      </div>
                     ))}
                   </div>
                 </div>

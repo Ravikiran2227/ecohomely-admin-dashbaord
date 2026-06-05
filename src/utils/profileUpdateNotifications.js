@@ -40,7 +40,10 @@ export function workerIdentity(worker = {}) {
 }
 
 function correctionMeta(worker = {}) {
-  return worker.profileCorrectionRequest || worker.correctionRequest || worker.partnerAppPopup || {}
+  if (worker.profileCorrectionRequest) return worker.profileCorrectionRequest
+  if (worker.correctionRequest) return worker.correctionRequest
+  const popup = worker.partnerAppPopup || {}
+  return String(popup.type || popup.notificationType || '').toLowerCase() === 'profile_correction' ? popup : {}
 }
 
 export function correctionRequestedAt(worker = {}) {

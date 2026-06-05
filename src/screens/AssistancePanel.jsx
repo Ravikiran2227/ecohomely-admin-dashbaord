@@ -871,8 +871,8 @@ export default function AssistancePanel() {
 
     const requestId = savedSession?.id || `assist-${Date.now()}`
     const notificationBody = `New ${form.service} request near ${form.customerLocation?.area || form.area}.${form.phone ? ` Customer phone: ${form.phone}.` : ''}`
-    let savedPushCount = 0
-    let failedPushCount = 0
+    let savedRequestCount = 0
+    let failedRequestCount = 0
     const results = await Promise.all(selectedWorkers.map(async (worker) => {
       try {
         const request = buildPartnerAssistanceRequest(worker, form, requestId)
@@ -907,12 +907,12 @@ export default function AssistancePanel() {
         return { ok: false, error }
       }
     }))
-    savedPushCount = results.filter((result) => result.ok).length
-    failedPushCount = results.length - savedPushCount
+    savedRequestCount = results.filter((result) => result.ok).length
+    failedRequestCount = results.length - savedRequestCount
 
     setIntakeFeedback({
-      tone: failedPushCount ? 'warning' : 'success',
-      message: `${savedPushCount} selected serviceman${savedPushCount === 1 ? '' : 's'} notified in the partner app.${failedPushCount ? ` ${failedPushCount} notification${failedPushCount === 1 ? '' : 's'} failed to save.` : ''}`,
+      tone: failedRequestCount ? 'warning' : 'success',
+      message: `${savedRequestCount} selected serviceman${savedRequestCount === 1 ? '' : 's'} notified in the partner app.${failedRequestCount ? ` ${failedRequestCount} request${failedRequestCount === 1 ? '' : 's'} failed to save.` : ''}`,
     })
     pushNotification(`Partner app request saved for ${form.service}`, '#0F5C37')
   }

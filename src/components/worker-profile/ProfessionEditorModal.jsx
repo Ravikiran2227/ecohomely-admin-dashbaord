@@ -8,6 +8,8 @@ function buildDraft(source, type) {
     profession: source?.profession || '',
     pricingModel: source?.pricingModel || 'hourly',
     price: Number(source?.price) || 0,
+    minimumPrice: Number(source?.minimumPrice || source?.minimumVisitCharge || source?.minimalVisitCharge || source?.visitCharge || source?.basePrice || source?.price) || 0,
+    fullServicePackagePrice: Number(source?.fullServicePackagePrice || source?.fullServicePackage || source?.fullService || source?.packagePrice || source?.comboPrice || source?.comboPackagePrice || source?.combinedPrice || source?.packageComboPrice) || 0,
     experienceYears: Number(source?.experienceYears) || 0,
     services: Array.isArray(source?.services) ? source.services.join(', ') : '',
     description: source?.description || '',
@@ -20,6 +22,16 @@ function sanitizeDraft(draft, type) {
     profession: draft.profession.trim(),
     pricingModel: draft.pricingModel,
     price: Number(draft.price) || 0,
+    minimumPrice: Number(draft.minimumPrice) || 0,
+    minimumVisitCharge: Number(draft.minimumPrice) || 0,
+    minimalVisitCharge: Number(draft.minimumPrice) || 0,
+    visitCharge: Number(draft.minimumPrice) || 0,
+    fullServicePackagePrice: Number(draft.fullServicePackagePrice) || 0,
+    fullServicePackage: Number(draft.fullServicePackagePrice) || 0,
+    fullService: Number(draft.fullServicePackagePrice) || 0,
+    packagePrice: Number(draft.fullServicePackagePrice) || 0,
+    comboPrice: Number(draft.fullServicePackagePrice) || 0,
+    comboPackagePrice: Number(draft.fullServicePackagePrice) || 0,
     experienceYears: Number(draft.experienceYears) || 0,
     services: String(draft.services || '')
       .split(/\n|,/)
@@ -39,7 +51,7 @@ export default function ProfessionEditorModal({ isOpen, type = 'primary', profes
   const updateDraft = (field, value) => {
     setDraft((current) => ({
       ...current,
-      [field]: field === 'price' || field === 'experienceYears' ? Number(value) || 0 : value,
+      [field]: field === 'price' || field === 'minimumPrice' || field === 'fullServicePackagePrice' || field === 'experienceYears' ? Number(value) || 0 : value,
     }))
   }
 
@@ -82,6 +94,16 @@ export default function ProfessionEditorModal({ isOpen, type = 'primary', profes
             <label className="grid gap-2">
               <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Starting Price</span>
               <input type="number" min="0" value={draft.price} onChange={(event) => updateDraft('price', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Minimum Visit Price</span>
+              <input type="number" min="0" value={draft.minimumPrice} onChange={(event) => updateDraft('minimumPrice', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Full Service Package Price</span>
+              <input type="number" min="0" value={draft.fullServicePackagePrice} onChange={(event) => updateDraft('fullServicePackagePrice', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
             </label>
 
             <label className="grid gap-2">

@@ -25,7 +25,9 @@ export default function ProfessionTabPanel({
 }) {
   const strength = hasProfessionData(profession) ? calculateProfessionStrength(profession) : 0
   const suggestions = hasProfessionData(profession) ? getProfessionSuggestions(profession, title) : []
-  const comboPrice = counterpart && hasProfessionData(counterpart) ? profession.price + counterpart.price : null
+  const minimumPrice = Number(profession.minimumPrice || profession.minimumVisitCharge || profession.minimalVisitCharge || profession.visitCharge || profession.price) || 0
+  const fullServicePackagePrice = Number(profession.fullServicePackagePrice || profession.fullServicePackage || profession.fullService || profession.packagePrice || profession.comboPrice || profession.comboPackagePrice || profession.combinedPrice || profession.packageComboPrice) || 0
+  const comboPrice = fullServicePackagePrice || (counterpart && hasProfessionData(counterpart) ? profession.price + counterpart.price : null)
   const toneKey = tone === 'secondary' ? 'amber' : 'emerald'
   const toneConfig = tone === 'secondary'
     ? {
@@ -58,7 +60,7 @@ export default function ProfessionTabPanel({
         {!isEditing && hasProfessionData(profession) && (
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <HeaderStatCard label="Profession" value={profession.profession || 'Not set'} tone={tone === 'secondary' ? 'amber' : 'emerald'} />
-            <HeaderStatCard label="Starting Price" value={`₹${profession.price || 0}`} tone="slate" />
+            <HeaderStatCard label="Minimum Visit Price" value={`₹${minimumPrice}`} tone="slate" />
             <HeaderStatCard label="Readiness" value={`${strength}%`} tone="blue" />
           </div>
         )}
@@ -121,6 +123,28 @@ export default function ProfessionTabPanel({
               />
             </label>
             <label className="grid gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Minimum Visit Price</span>
+              <input
+                type="number"
+                min="0"
+                value={minimumPrice}
+                onChange={(event) => onChange('minimumPrice', event.target.value)}
+                className={`w-full rounded-2xl border border-[var(--border-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none ${toneConfig.focusBorder}`}
+                style={{ background: 'var(--card-bg)' }}
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Full Service Package Price</span>
+              <input
+                type="number"
+                min="0"
+                value={fullServicePackagePrice}
+                onChange={(event) => onChange('fullServicePackagePrice', event.target.value)}
+                className={`w-full rounded-2xl border border-[var(--border-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none ${toneConfig.focusBorder}`}
+                style={{ background: 'var(--card-bg)' }}
+              />
+            </label>
+            <label className="grid gap-2">
               <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Pricing Model</span>
               <select
                 value={profession.pricingModel}
@@ -176,9 +200,9 @@ export default function ProfessionTabPanel({
               </div>
               <div className="rounded-2xl border p-4" style={getToneSurfaceStyle(toneKey, 14)}>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Pricing</div>
-                <div className="mt-2 text-3xl font-extrabold text-[var(--text-main)]">₹{profession.price}</div>
+                <div className="mt-2 text-3xl font-extrabold text-[var(--text-main)]">₹{minimumPrice}</div>
                 <div className="mt-1 text-sm font-normal text-[var(--text-muted)]">per {profession.pricingModel === 'hourly' ? 'hour' : 'package'}</div>
-                <div className="mt-4 text-sm text-[var(--text-muted)]">Combo price: {comboPrice ? `₹${comboPrice}` : 'Not configured'}</div>
+                <div className="mt-4 text-sm text-[var(--text-muted)]">Full service package: {comboPrice ? `₹${comboPrice}` : 'Not configured'}</div>
               </div>
             </div>
           </SectionSurface>
@@ -229,7 +253,7 @@ export default function ProfessionTabPanel({
                   <div className="mt-1 text-sm text-[var(--text-muted)]">Starting service charge. Final amount depends on job scope and materials.</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-extrabold text-[var(--text-main)]">₹{profession.price}</div>
+                  <div className="text-2xl font-extrabold text-[var(--text-main)]">₹{minimumPrice}</div>
                   <div className="mt-1 text-xs font-semibold text-[var(--text-muted)]">starting</div>
                 </div>
               </div>
@@ -284,12 +308,12 @@ export default function ProfessionTabPanel({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <ValueBox
                 label="Minimal Charge"
-                value={`₹${profession.price}`}
+                value={`₹${minimumPrice}`}
                 hint={`/${profession.pricingModel === 'hourly' ? 'hour' : 'package'}`}
                 tone={tone === 'secondary' ? 'amber' : 'emerald'}
               />
               <ValueBox label="Team Count" value={teamCount} hint="workers" tone="slate" />
-              <ValueBox label="Combo Package" value={comboPrice ? `₹${comboPrice}` : 'On request'} hint="with both professions" tone="blue" />
+              <ValueBox label="Full Service Package" value={comboPrice ? `₹${comboPrice}` : 'On request'} hint="complete service" tone="blue" />
             </div>
           </SectionSurface>
 

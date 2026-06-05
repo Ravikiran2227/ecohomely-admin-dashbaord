@@ -288,6 +288,7 @@ function buildPackages(profession = {}, worker = {}) {
   }
 
   const minimalCharge = firstText(
+    profession.minimumPrice,
     profession.minimalVisitCharge,
     profession.minimumVisitCharge,
     profession.visitCharge,
@@ -298,7 +299,7 @@ function buildPackages(profession = {}, worker = {}) {
     worker.visitCharge,
   )
   const minimalIncludes = profession.minimalVisitIncludes || profession.minimumVisitIncludes || profession.visitIncludes || profession.includes || worker.minimalVisitIncludes
-  const fullPackage = firstText(profession.fullServicePackage, profession.fullService, profession.packagePrice, worker.fullServicePackage)
+  const fullPackage = firstText(profession.fullServicePackagePrice, profession.fullServicePackage, profession.fullService, profession.packagePrice, profession.comboPrice, profession.comboPackagePrice, worker.fullServicePackage)
   const fullIncludes = profession.fullServiceIncludes || profession.packageIncludes || profession.fullServiceItems || []
 
   return [
@@ -384,8 +385,9 @@ function buildProfessionInfoRows(profession = {}, worker = {}, reviewCards = [])
     { label: 'Review Count', value: getProfessionField(profession, worker, ['reviewCount', 'reviewsCount']) ?? (reviewCards.length ? reviewCards.length : '') },
     { label: 'Experience Range (Years)', value: getProfessionField(profession, worker, ['experienceRange', 'experienceYears', 'yearsOfExperience', 'experience']) || (experienceYears ? `${experienceYears}+` : '') },
     { label: 'Team Size', value: getProfessionField(profession, worker, ['teamSize', 'teamMembers', 'teamMemberCount']) },
-    { label: 'Minimal Visit Charge', value: getProfessionField(profession, worker, ['minimalVisitCharge', 'minimumVisitCharge', 'visitCharge', 'price', 'basePrice']) },
+    { label: 'Minimum Visit Price', value: getProfessionField(profession, worker, ['minimumPrice', 'minimalVisitCharge', 'minimumVisitCharge', 'visitCharge', 'price', 'basePrice']) },
     { label: 'Minimal Visit Includes', value: getProfessionField(profession, worker, ['minimalVisitIncludes', 'minimumVisitIncludes', 'visitIncludes', 'includes']) },
+    { label: 'Full Service Package Price', value: getProfessionField(profession, worker, ['fullServicePackagePrice', 'fullServicePackage', 'fullService', 'packagePrice', 'comboPrice', 'comboPackagePrice']) },
     { label: 'Full Service Package', value: getProfessionField(profession, worker, ['fullServicePackage', 'fullService', 'package', 'packages']) },
     { label: 'Brand Certification', value: getProfessionField(profession, worker, ['brandCertification', 'brandCertificate', 'certification', 'brand.certification']) },
   ]
@@ -626,6 +628,7 @@ export function ProfessionWorkspace({
   onBook,
   onNotify,
   reviews = [],
+  onDeleteMedia,
 }) {
   const initialUiState = getProfessionUiState(worker?.id, type)
   const [descriptionExpanded, setDescriptionExpanded] = useState(() => Boolean(initialUiState.descriptionExpanded))
@@ -660,6 +663,8 @@ export function ProfessionWorkspace({
   const planLabel = worker?.planType ? `${worker.planType} Plan` : ''
   const planExpiryLabel = worker?.planExpiry ? formatPlanExpiry(worker.planExpiry) : ''
   const experienceYears = getExperienceYears(worker, profession)
+  const minimumPrice = amountFromValue(firstText(profession.minimumPrice, profession.minimalVisitCharge, profession.minimumVisitCharge, profession.visitCharge, profession.basePrice, profession.price))
+  const fullServicePackagePrice = amountFromValue(firstText(profession.fullServicePackagePrice, profession.fullServicePackage, profession.fullService, profession.packagePrice, profession.comboPrice, profession.comboPackagePrice, profession.combinedPrice, profession.packageComboPrice))
   const professionDescription = firstText(
     profession.description,
     profession.jobDescription,
@@ -678,6 +683,8 @@ export function ProfessionWorkspace({
   const quickFacts = [
     experienceYears > 0 ? { label: 'Experience', value: `${experienceYears}+ years` } : null,
     planLabel ? { label: 'Plan', value: planLabel } : null,
+    minimumPrice > 0 ? { label: 'Minimum Visit Price', value: formatCurrency(minimumPrice) } : null,
+    fullServicePackagePrice > 0 ? { label: 'Full Service Package Price', value: formatCurrency(fullServicePackagePrice) } : null,
     profession.pricingModel ? { label: 'Pricing Model', value: profession.pricingModel } : null,
     planExpiryLabel ? { label: 'Plan Expiry', value: planExpiryLabel } : null,
     coverageLabel ? { label: 'Coverage', value: coverageLabel } : null,
@@ -739,10 +746,19 @@ export function ProfessionWorkspace({
     event.target.value = ''
   }
 
-  const handleRemoveGalleryItem = (itemId) => {
-    const removedItem = uploadedGallery.find((item) => item.id === itemId)
-    setUploadedGallery((current) => current.filter((item) => item.id !== itemId))
-    setPreviewItem((current) => (current?.id === itemId ? null : current))
+  const handleRemoveGalleryItem = async (item) => {
+    if (!item) return
+    const isLocalUpload = item.id?.startsWith('upload-')
+
+    if (!isLocalUpload && onDeleteMedia) {
+      await onDeleteMedia(item)
+      setPreviewItem((current) => (current?.id === item.id ? null : current))
+      return
+    }
+
+    const removedItem = uploadedGallery.find((galleryItem) => galleryItem.id === item.id)
+    setUploadedGallery((current) => current.filter((galleryItem) => galleryItem.id !== item.id))
+    setPreviewItem((current) => (current?.id === item.id ? null : current))
     onNotify?.({
       tone: 'info',
       title: 'Gallery cleaned up',
@@ -786,7 +802,7 @@ export function ProfessionWorkspace({
                 {experienceYears}+ years experience
               </span>
               <span className="rounded-full border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-3 py-1 font-semibold text-[var(--text-main)]">
-                {formatCurrency(profession.price || 0)} starting price
+                {formatCurrency(minimumPrice || profession.price || 0)} starting price
               </span>
             </div>
             <p
@@ -980,15 +996,14 @@ export function ProfessionWorkspace({
                             <Eye className="h-4 w-4" />
                             {item.type === 'video' ? 'Play' : 'Preview'}
                           </button>
-                          {item.id.startsWith('upload-') && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveGalleryItem(item.id)}
-                              className="rounded-xl border border-red-500/20 bg-red-500/8 p-2 text-red-600 transition-colors hover:bg-red-500/14 dark:text-red-400"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveGalleryItem(item)}
+                            className="rounded-xl border border-red-500/20 bg-red-500/8 p-2 text-red-600 transition-colors hover:bg-red-500/14 dark:text-red-400"
+                            title="Delete media"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </div>
                       </div>
                     </div>

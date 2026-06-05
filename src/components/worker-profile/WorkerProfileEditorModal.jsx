@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import Btn from '../Btn'
 import { areas, cities, clusters, districts, mandals, states } from '../../data/locationExpansion'
+import { professionCatalog } from '../../data/workerSystem'
+import { buildWorkerMediaDeletePayload } from '../../utils/workerMedia'
 
 const STATUS_OPTIONS = ['Active', 'Busy', 'Pending', 'Suspended']
 const AVAILABILITY_OPTIONS = ['Available', 'Busy', 'Offline']
@@ -8,6 +10,24 @@ const APPROVAL_OPTIONS = ['Approved', 'Pending', 'Correction Required', 'Rejecte
 const PLAN_OPTIONS = ['Free', 'Pro']
 const SERVICE_MODE_OPTIONS = ['city', 'village']
 const LOCATION_ACCURACY_OPTIONS = ['Verified', 'Approx']
+const MEDIA_KEYS = [
+  'professionMedia',
+  'workPhotos',
+  'portfolioPhotos',
+  'workReferenceImages',
+  'referenceImages',
+  'media',
+  'mediaUrls',
+  'mediaURLs',
+  'images',
+  'photos',
+  'primaryProfessionMedia',
+  'primaryWorkPhotos',
+  'primaryMedia',
+  'secondaryProfessionMedia',
+  'secondaryWorkPhotos',
+  'secondaryMedia',
+]
 
 function parseListInput(value) {
   return value
@@ -18,6 +38,142 @@ function parseListInput(value) {
 
 function joinListInput(value) {
   return Array.isArray(value) ? value.join(', ') : ''
+}
+
+function numberValue(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return Number(value) || 0
+  }
+  return 0
+}
+
+function mediaSource(value) {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'object') {
+    return value.src || value.url || value.downloadUrl || value.downloadURL || value.fileUrl || value.videoUrl || value.videoURL || value.imageUrl || value.image || value.photo || ''
+  }
+  return ''
+}
+
+function collectMediaFromValue(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === 'object') {
+    if (Array.isArray(value.media)) return value.media
+    if (Array.isArray(value.images)) return value.images
+    if (Array.isArray(value.photos)) return value.photos
+    if (Array.isArray(value.files)) return value.files
+  }
+  return [value]
+}
+
+function makeMediaItem(value, index, prefix) {
+  const src = mediaSource(value)
+  if (!src) return null
+  return {
+    id: typeof value === 'object' ? value.id || `${prefix}-${index}` : `${prefix}-${index}`,
+    title: typeof value === 'object' ? value.title || value.name || value.fileName || `Media ${index + 1}` : `Media ${index + 1}`,
+    src,
+    raw: value,
+  }
+}
+
+function collectWorkerMedia(worker) {
+  const items = []
+  MEDIA_KEYS.forEach((key) => {
+    collectMediaFromValue(worker?.[key]).forEach((value, index) => {
+      const item = makeMediaItem(value, index, key)
+      if (item) items.push(item)
+    })
+  })
+  ;(Array.isArray(worker?.professions) ? worker.professions : []).forEach((profession, professionIndex) => {
+    MEDIA_KEYS.forEach((key) => {
+      collectMediaFromValue(profession?.[key]).forEach((value, index) => {
+        const item = makeMediaItem(value, index, `profession-${professionIndex}-${key}`)
+        if (item) items.push(item)
+      })
+    })
+  })
+
+  const unique = new Map()
+  items.forEach((item) => {
+    const source = String(item.src).split('?')[0]
+    if (!unique.has(source)) unique.set(source, item)
+  })
+  return [...unique.values()]
+}
+
+function getProfilePhotoUrl(worker) {
+  const value = worker?.profilePhotoUrl || worker?.profilePhotoURL || worker?.photoUrl || worker?.photoURL || worker?.profileImageUrl || worker?.profileImage || worker?.imageUrl || worker?.image || worker?.avatarUrl || worker?.avatar || worker?.photo || worker?.profilePhoto
+  return typeof value === 'string' ? value : ''
+}
+
+function getProfessionByType(worker, type) {
+  const normalizedType = type === 'secondary' ? 'Secondary' : 'Primary'
+  const professions = Array.isArray(worker?.professions) ? worker.professions : []
+  return professions.find((profession) => profession?.type === normalizedType) || (type === 'primary' ? professions[0] : null) || {}
+}
+
+function buildProfessionDraft(worker, type) {
+  const source = getProfessionByType(worker, type)
+  const normalizedType = type === 'secondary' ? 'Secondary' : 'Primary'
+  return {
+    _source: source || {},
+    type: normalizedType,
+    profession: source?.profession || '',
+    pricingModel: source?.pricingModel || 'hourly',
+    price: numberValue(source?.price, source?.amount, source?.basePrice),
+    minimumPrice: numberValue(source?.minimumPrice, source?.minimumVisitCharge, source?.minimalVisitCharge, source?.visitCharge, source?.basePrice, source?.price),
+    fullServicePackagePrice: numberValue(source?.fullServicePackagePrice, source?.fullServicePackage, source?.fullService, source?.packagePrice, source?.comboPrice, source?.comboPackagePrice),
+    experienceYears: numberValue(source?.experienceYears, source?.yearsOfExperience, source?.experience),
+    teamSize: numberValue(source?.teamSize, source?.teamMembers, source?.teamMemberCount, worker?.teamSize, worker?.teamMembers, worker?.teamMemberCount),
+    subType: source?.subType || source?.serviceType || '',
+    brandCertification: source?.brandCertification || source?.brandCertificate || source?.certification || '',
+    services: joinListInput(source?.services),
+    subServices: joinListInput(source?.subServices || source?.subservices || source?.sub_service || source?.subService),
+    minimalVisitIncludes: joinListInput(source?.minimalVisitIncludes || source?.minimumVisitIncludes || source?.visitIncludes || source?.includes),
+    fullServiceIncludes: joinListInput(source?.fullServiceIncludes || source?.packageIncludes || source?.fullServiceItems),
+    description: source?.description || source?.jobDescription || source?.professionDescription || '',
+  }
+}
+
+function sanitizeProfessionDraft(draft, type) {
+  const normalizedType = type === 'secondary' ? 'Secondary' : 'Primary'
+  const minimumPrice = Math.max(0, Number(draft.minimumPrice) || 0)
+  const fullServicePackagePrice = Math.max(0, Number(draft.fullServicePackagePrice) || 0)
+  const teamSize = Math.max(0, Number(draft.teamSize) || 0)
+
+  return {
+    ...(draft._source || {}),
+    type: normalizedType,
+    profession: String(draft.profession || '').trim(),
+    pricingModel: draft.pricingModel || 'hourly',
+    price: Math.max(0, Number(draft.price) || 0),
+    minimumPrice,
+    minimumVisitCharge: minimumPrice,
+    minimalVisitCharge: minimumPrice,
+    visitCharge: minimumPrice,
+    fullServicePackagePrice,
+    fullServicePackage: fullServicePackagePrice,
+    fullService: fullServicePackagePrice,
+    packagePrice: fullServicePackagePrice,
+    comboPrice: fullServicePackagePrice,
+    comboPackagePrice: fullServicePackagePrice,
+    experienceYears: Math.max(0, Number(draft.experienceYears) || 0),
+    teamSize,
+    teamMembers: teamSize,
+    teamMemberCount: teamSize,
+    subType: String(draft.subType || '').trim(),
+    brandCertification: String(draft.brandCertification || '').trim(),
+    services: parseListInput(draft.services || ''),
+    subServices: parseListInput(draft.subServices || ''),
+    minimalVisitIncludes: parseListInput(draft.minimalVisitIncludes || ''),
+    minimumVisitIncludes: parseListInput(draft.minimalVisitIncludes || ''),
+    fullServiceIncludes: parseListInput(draft.fullServiceIncludes || ''),
+    packageIncludes: parseListInput(draft.fullServiceIncludes || ''),
+    description: String(draft.description || '').trim(),
+  }
 }
 
 function formatDateInput(value) {
@@ -48,6 +204,7 @@ function buildDraft(worker) {
     deviceType: worker?.deviceType || worker?.device || worker?.platform || worker?.os || '',
     membership: worker?.membership || 'gold',
     experienceYears: Number(worker?.experienceYears || worker?.experience || worker?.workExperience) || 0,
+    teamSize: Number(worker?.teamSize || worker?.teamMembers || worker?.teamMemberCount) || 0,
     status: worker?.status || 'Active',
     approvalStatus: worker?.approvalStatus || 'Pending',
     availability: worker?.availability || 'Available',
@@ -70,11 +227,26 @@ function buildDraft(worker) {
     skills: joinListInput(worker?.skills),
     profileBadges: joinListInput(worker?.profileBadges),
     profileHighlights: joinListInput(worker?.profileHighlights),
+    profilePhotoDeleted: false,
+    mediaDeleteTargets: [],
+    professions: {
+      primary: buildProfessionDraft(worker, 'primary'),
+      secondary: buildProfessionDraft(worker, 'secondary'),
+    },
   }
 }
 
-function sanitizeDraft(draft) {
-  return {
+function sanitizeDraft(draft, worker) {
+  const primaryProfession = sanitizeProfessionDraft(draft.professions?.primary || {}, 'primary')
+  const secondaryProfession = sanitizeProfessionDraft(draft.professions?.secondary || {}, 'secondary')
+  const professions = [
+    primaryProfession,
+    secondaryProfession.profession || secondaryProfession.description || secondaryProfession.services.length || secondaryProfession.price || secondaryProfession.minimumPrice || secondaryProfession.fullServicePackagePrice
+      ? secondaryProfession
+      : null,
+  ].filter(Boolean)
+
+  const payload = {
     name: draft.name.trim(),
     email: draft.email.trim(),
     phone: draft.phone.replace(/\D/g, '').slice(0, 10),
@@ -85,6 +257,9 @@ function sanitizeDraft(draft) {
     deviceType: draft.deviceType.trim(),
     membership: String(draft.membership || 'gold').trim().toLowerCase(),
     experienceYears: Math.max(0, Number(draft.experienceYears) || 0),
+    teamSize: Math.max(0, Number(draft.teamSize) || 0),
+    teamMembers: Math.max(0, Number(draft.teamSize) || 0),
+    teamMemberCount: Math.max(0, Number(draft.teamSize) || 0),
     status: draft.status,
     approvalStatus: draft.approvalStatus,
     availability: draft.availability,
@@ -107,7 +282,34 @@ function sanitizeDraft(draft) {
     skills: parseListInput(draft.skills),
     profileBadges: parseListInput(draft.profileBadges),
     profileHighlights: parseListInput(draft.profileHighlights),
+    profession: primaryProfession.profession,
+    amount: primaryProfession.price,
+    price: primaryProfession.price,
+    professions,
   }
+
+  if (draft.profilePhotoDeleted) {
+    Object.assign(payload, {
+      profilePhoto: false,
+      profilePhotoUrl: '',
+      profilePhotoURL: '',
+      photoUrl: '',
+      photoURL: '',
+      profileImageUrl: '',
+      profileImage: '',
+      imageUrl: '',
+      image: '',
+      avatarUrl: '',
+      avatar: '',
+      photo: '',
+    })
+  }
+
+  if (draft.mediaDeleteTargets?.length) {
+    Object.assign(payload, buildWorkerMediaDeletePayload({ ...worker, professions: payload.professions }, 'all', draft.mediaDeleteTargets))
+  }
+
+  return payload
 }
 
 export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSave }) {
@@ -139,7 +341,12 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
     return clusters.filter((item) => item.hub_city_id === draft.city_id)
   }, [draft.city_id])
 
-  const savePayload = useMemo(() => sanitizeDraft(draft), [draft])
+  const currentProfilePhotoUrl = useMemo(() => getProfilePhotoUrl(worker), [worker])
+  const currentMedia = useMemo(() => {
+    const deletedSources = new Set((draft.mediaDeleteTargets || []).map((item) => String(item.src || mediaSource(item)).split('?')[0]))
+    return collectWorkerMedia(worker).filter((item) => !deletedSources.has(String(item.src).split('?')[0]))
+  }, [draft.mediaDeleteTargets, worker])
+  const savePayload = useMemo(() => sanitizeDraft(draft, worker), [draft, worker])
   const canSave = Boolean(savePayload.name && savePayload.phone.length === 10)
 
   const handleSave = () => {
@@ -150,6 +357,30 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
     setDraft((current) => ({
       ...current,
       [field]: field === 'serviceRadiusKm' ? Number(value) || 0 : value,
+    }))
+  }
+
+  const updateProfessionDraft = (type, field, value) => {
+    setDraft((current) => ({
+      ...current,
+      professions: {
+        ...current.professions,
+        [type]: {
+          ...current.professions?.[type],
+          [field]: ['price', 'minimumPrice', 'fullServicePackagePrice', 'experienceYears', 'teamSize'].includes(field) ? Number(value) || 0 : value,
+        },
+      },
+    }))
+  }
+
+  const deleteProfilePhoto = () => {
+    setDraft((current) => ({ ...current, profilePhoto: false, profilePhotoDeleted: true }))
+  }
+
+  const deleteMediaItem = (item) => {
+    setDraft((current) => ({
+      ...current,
+      mediaDeleteTargets: [...(current.mediaDeleteTargets || []), item],
     }))
   }
 
@@ -214,6 +445,138 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
     return <option key={value} value={value}>{label}</option>
   })
 
+  const renderProfessionEditor = (type, title) => {
+    const profession = draft.professions?.[type] || buildProfessionDraft(worker, type)
+
+    return (
+      <div className="rounded-3xl border border-[var(--border-main)] bg-[var(--bg-main)]/55 p-4">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-main)] pb-3">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-brand-300">{title}</div>
+            <div className="mt-1 text-lg font-black text-[var(--text-main)]">{title} Profession Details</div>
+          </div>
+          <span className="rounded-full border border-brand-500/20 bg-brand-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-brand-300">Editable</span>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="grid gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Profession</span>
+            <select value={profession.profession} onChange={(event) => updateProfessionDraft(type, 'profession', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40">
+              <option value="">Select profession</option>
+              {professionCatalog.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Pricing Model</span>
+            <select value={profession.pricingModel} onChange={(event) => updateProfessionDraft(type, 'pricingModel', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40">
+              <option value="hourly">Hourly</option>
+              <option value="package">Package</option>
+            </select>
+          </label>
+          <label className="grid gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Starting Price</span>
+            <input type="number" min="0" value={profession.price} onChange={(event) => updateProfessionDraft(type, 'price', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Minimum Visit Price</span>
+            <input type="number" min="0" value={profession.minimumPrice} onChange={(event) => updateProfessionDraft(type, 'minimumPrice', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Full Service Package Price</span>
+            <input type="number" min="0" value={profession.fullServicePackagePrice} onChange={(event) => updateProfessionDraft(type, 'fullServicePackagePrice', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Experience Years</span>
+            <input type="number" min="0" value={profession.experienceYears} onChange={(event) => updateProfessionDraft(type, 'experienceYears', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Team Size</span>
+            <input type="number" min="0" value={profession.teamSize} onChange={(event) => updateProfessionDraft(type, 'teamSize', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Sub Type</span>
+            <input type="text" value={profession.subType} onChange={(event) => updateProfessionDraft(type, 'subType', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2 md:col-span-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Brand Certification</span>
+            <input type="text" value={profession.brandCertification} onChange={(event) => updateProfessionDraft(type, 'brandCertification', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2 md:col-span-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Services</span>
+            <textarea rows={3} value={profession.services} onChange={(event) => updateProfessionDraft(type, 'services', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2 md:col-span-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Sub Services</span>
+            <textarea rows={3} value={profession.subServices} onChange={(event) => updateProfessionDraft(type, 'subServices', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2 md:col-span-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Minimum Visit Includes</span>
+            <textarea rows={3} value={profession.minimalVisitIncludes} onChange={(event) => updateProfessionDraft(type, 'minimalVisitIncludes', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2 md:col-span-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Full Service Includes</span>
+            <textarea rows={3} value={profession.fullServiceIncludes} onChange={(event) => updateProfessionDraft(type, 'fullServiceIncludes', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+          <label className="grid gap-2 md:col-span-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Description</span>
+            <textarea rows={4} value={profession.description} onChange={(event) => updateProfessionDraft(type, 'description', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+          </label>
+        </div>
+        <p className="mt-3 text-xs text-[var(--text-muted)]">Use commas or new lines for services and includes.</p>
+      </div>
+    )
+  }
+
+  const renderMediaEditor = () => (
+    <section className="space-y-4">
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Media Access</div>
+        <p className="mt-1 text-sm text-[var(--text-muted)]">Delete existing profile picture and worker media one by one from this admin popup.</p>
+      </div>
+
+      <div className="rounded-3xl border border-[var(--border-main)] bg-[var(--bg-main)]/55 p-4">
+        <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Profile Picture</div>
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          {currentProfilePhotoUrl && !draft.profilePhotoDeleted ? (
+            <img src={currentProfilePhotoUrl} alt="Current profile" className="h-24 w-24 rounded-3xl border border-[var(--border-main)] object-cover" />
+          ) : (
+            <div className="grid h-24 w-24 place-items-center rounded-3xl border border-dashed border-[var(--border-main)] text-xs font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Default</div>
+          )}
+          <div className="grid gap-2">
+            <Btn v="danger" disabled={!currentProfilePhotoUrl || draft.profilePhotoDeleted} onClick={deleteProfilePhoto}>Delete Profile Picture</Btn>
+            <p className="text-xs italic text-[var(--text-muted)]">Deleting replaces the profile picture with the default image after saving.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-[var(--border-main)] bg-[var(--bg-main)]/55 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Current Media</div>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">Existing media can be previewed or deleted. New files cannot be uploaded from this popup.</p>
+          </div>
+          <span className="rounded-full border border-brand-500/20 bg-brand-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-brand-300">{currentMedia.length} files</span>
+        </div>
+
+        {currentMedia.length ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {currentMedia.map((item) => (
+              <div key={`${item.id}-${item.src}`} className="overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]">
+                <img src={item.src} alt={item.title} className="h-32 w-full object-cover" />
+                <div className="grid gap-2 p-2">
+                  <button type="button" onClick={() => window.open(item.src, '_blank', 'noopener,noreferrer')} className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-white hover:bg-amber-600">View</button>
+                  <button type="button" onClick={() => deleteMediaItem(item)} className="rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white hover:bg-red-600">Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-[var(--border-main)] px-5 py-8 text-sm font-semibold text-[var(--text-muted)]">No media available</div>
+        )}
+      </div>
+    </section>
+  )
+
   if (!isOpen) return null
 
   return (
@@ -275,6 +638,10 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
                   <input type="number" min="0" value={draft.experienceYears} onChange={(event) => updateDraft('experienceYears', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
                 </label>
                 <label className="grid gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Team Size</span>
+                  <input type="number" min="0" value={draft.teamSize} onChange={(event) => updateDraft('teamSize', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40" />
+                </label>
+                <label className="grid gap-2">
                   <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Membership</span>
                   <select value={draft.membership} onChange={(event) => updateDraft('membership', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40">
                     <option value="gold">Gold</option>
@@ -296,6 +663,19 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
                 </label>
               </div>
             </section>
+
+            <section className="space-y-4">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Profession Details</div>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">Edit all primary and secondary profession details, pricing, services, package details, and descriptions.</p>
+              </div>
+              <div className="grid gap-4">
+                {renderProfessionEditor('primary', 'Primary')}
+                {renderProfessionEditor('secondary', 'Secondary')}
+              </div>
+            </section>
+
+            {renderMediaEditor()}
 
             <section className="space-y-4">
               <div>

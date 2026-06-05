@@ -10,6 +10,7 @@ import {
   getSecondaryProfession,
 } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
+import { buildWorkerMediaDeletePayload } from '../utils/workerMedia'
 
 export default function WorkerProfessionDetailScreen() {
   const { id, type } = useParams()
@@ -56,6 +57,16 @@ export default function WorkerProfessionDetailScreen() {
       message: `${resolvedType === 'secondary' ? 'Secondary' : 'Primary'} profession details were updated successfully.`,
     })
     setIsEditing(false)
+  }
+
+  const handleDeleteProfessionMedia = async (item) => {
+    const updated = await workersApi.updateWorker(worker.id, buildWorkerMediaDeletePayload(worker, resolvedType, item))
+    setWorker(updated)
+    setNotice({
+      tone: 'info',
+      title: 'Media deleted',
+      message: 'The selected profession media was removed from this worker profile.',
+    })
   }
 
   if (loading) {
@@ -109,6 +120,7 @@ export default function WorkerProfessionDetailScreen() {
         onChat={() => window.open(`https://wa.me/91${worker.phone}`, '_blank', 'noopener,noreferrer')}
         onBook={() => navigate('/bookings')}
         onNotify={setNotice}
+        onDeleteMedia={handleDeleteProfessionMedia}
       />
 
       <ProfessionEditorModal

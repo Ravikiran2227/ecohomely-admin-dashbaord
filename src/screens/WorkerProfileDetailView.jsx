@@ -33,6 +33,7 @@ import reviewsApi from '../services/reviewsApi'
 import { resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerMediaFiles, resolveWorkerStorageFiles } from '../services/firebaseClient'
 import { buildBookings, buildLeadRows, buildReviewRows, formatCurrency, formatDate, getLeadBadge } from '../utils/workerProfileDetail'
 import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
+import { buildWorkerMediaDeletePayload } from '../utils/workerMedia'
 
 const TAB_ITEMS = [
   { id: 'overview', label: 'Profile Overview' },
@@ -945,6 +946,16 @@ function WorkerProfileDetailViewContent({ workerId }) {
     setEditTarget(null)
   }
 
+  const handleDeleteProfessionMedia = async (type, item) => {
+    const updated = await workersApi.updateWorker(worker.id, buildWorkerMediaDeletePayload(worker, type, item))
+    setWorker(updated)
+    setNotice({
+      tone: 'info',
+      title: 'Media deleted',
+      message: 'The selected profession media was removed from this worker profile.',
+    })
+  }
+
   const handleSaveWorkerProfile = async (payload) => {
     setWorker(await workersApi.updateWorker(worker.id, payload))
     setNotice({
@@ -1076,6 +1087,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
       onChat={() => window.open(`https://wa.me/91${worker.phone}`, '_blank', 'noopener,noreferrer')}
       onBook={() => navigate('/bookings')}
       onNotify={setNotice}
+      onDeleteMedia={(item) => handleDeleteProfessionMedia(type, item)}
       reviews={reviewCards}
     />
   )

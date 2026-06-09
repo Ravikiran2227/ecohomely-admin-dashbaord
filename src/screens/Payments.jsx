@@ -15,7 +15,6 @@ import workersApi from '../services/workersApi'
 const STATUS_COLORS = { Paid: '#16A34A', 'Not Paid': '#F59E0B', Verified: '#16A34A', 'Pending Verify': '#F59E0B', Failed: '#DC2626' }
 const METHOD_COLORS = { UPI: '#0F766E', 'Bank Transfer': '#7C3AED' }
 const PAGE_SIZE = 15
-const SUBSCRIPTION_CHARGE = 199
 const COLS = [
   { label: 'Pay ID' },
   { label: 'Serviceman' },
@@ -215,7 +214,7 @@ function paymentAmountFrom(record = {}) {
 }
 
 function formatAmount(amount) {
-  return amount === null || amount === undefined ? '-' : `Rs.${amount}`
+  return `Rs.${Number(amount || 0).toLocaleString('en-IN')}`
 }
 
 function readPath(source = {}, path = '') {
@@ -277,7 +276,8 @@ function normalizeStatus(value, record = {}) {
   if (record.verified === true || ['verified', 'completed', 'complete', 'success', 'successful', 'paid', 'active'].includes(raw)) return 'Paid'
   if (['failed', 'failure', 'rejected', 'reject', 'cancelled', 'canceled'].includes(raw)) return 'Failed'
   if (['no', 'not paid', 'unpaid', 'false', 'inactive'].includes(raw) || record.paid === false || record.isPaid === false || record.havePaid === false) return 'Not Paid'
-  return 'Pending Verify'
+  if (['pending verify', 'pending_verification', 'verification pending'].includes(raw)) return 'Pending Verify'
+  return 'Not Paid'
 }
 
 function normalizeMethod(value) {
@@ -316,6 +316,7 @@ function isSubscriptionPayment(record = {}, forcedSource = '') {
 function normalizePayment(record = {}, sourceType = '') {
   const rawDate = record.date || record.paidAt || record.paymentDate || record.startDate || record.createdAt || record.updatedAt
   const status = normalizeStatus(record.status, record)
+  const actualAmount = paymentAmountFrom(record) || 0
   return {
     ...record,
     id: displayText(record.id || record.paymentId || record.payId),
@@ -326,7 +327,7 @@ function normalizePayment(record = {}, sourceType = '') {
     job: displayText(record.job || record.profession || record.service || record.serviceName),
     area: displayText(record.area || record.areaName || record.city),
     plan: displayText(record.plan || record.planName || record.subscriptionPlan || record.membership || record.planId),
-    amt: status === 'Paid' || status === 'Verified' ? SUBSCRIPTION_CHARGE : null,
+    amt: status === 'Paid' || status === 'Verified' ? actualAmount : 0,
     method: normalizeMethod(record.method || record.paymentMethod || record.mode || record.paymentMode),
     date: formatDate(rawDate),
     dateOnly: formatDateOnly(rawDate),
@@ -354,7 +355,7 @@ function getWorkerProfession(worker = {}) {
   ))
 }
 
-function getWorkerPaymentStatus(worker = {}, amount = null) {
+function getWorkerPaymentStatus(worker = {}) {
   const value = firstText(
     worker.paid,
     worker.isPaid,
@@ -370,7 +371,7 @@ function getWorkerPaymentStatus(worker = {}, amount = null) {
   if (value === true || ['paid', 'yes', 'true', 'success', 'successful', 'completed', 'complete', 'active', 'verified'].includes(raw)) return 'Paid'
   if (['failed', 'failure', 'rejected', 'reject', 'cancelled', 'canceled'].includes(raw)) return 'Failed'
   if (value === false || ['no', 'false', 'not paid', 'unpaid', 'inactive'].includes(raw)) return 'Not Paid'
-  return amount && amount > 0 ? 'Paid' : 'Not Paid'
+  return 'Not Paid'
 }
 
 function getWorkerPaymentDate(worker = {}) {
@@ -392,7 +393,6 @@ function getWorkerPaymentDate(worker = {}) {
 function normalizeWorkerPayment(worker = {}, index = 0) {
   const rawDate = getWorkerPaymentDate(worker)
   const workerId = firstText(worker.id, worker.uid, worker.userId, worker.workerId, worker.partnerId, worker.servicemanId, worker.authId)
-  const status = getWorkerPaymentStatus(worker, paymentAmountFrom(worker))
   return {
     id: displayText(firstText(worker.paymentId, worker.payId, worker.transactionId, worker.subscriptionPaymentId), `PAY-${String(workerId || index + 1).slice(-6).toUpperCase()}`),
     sourceType: 'worker',
@@ -402,13 +402,13 @@ function normalizeWorkerPayment(worker = {}, index = 0) {
     job: getWorkerProfession(worker),
     area: displayText(firstText(worker.areaName, worker.mainArea, worker.area, worker.city, worker.location)),
     plan: displayText(firstText(worker.plan, worker.planName, worker.subscriptionPlan, worker.membership, worker.planType)),
-    amt: status === 'Paid' ? SUBSCRIPTION_CHARGE : null,
+    amt: 0,
     method: normalizeMethod(firstText(worker.paymentMethod, worker.method, worker.mode, worker.paymentMode, readPath(worker, 'payment.method'), readPath(worker, 'subscription.method'))),
     date: formatDate(rawDate),
     dateOnly: formatDateOnly(rawDate),
     timeOnly: formatTimeOnly(rawDate),
     dateValue: parseFirestoreDate(rawDate),
-    status,
+    status: 'Not Paid',
   }
 }
 

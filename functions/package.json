@@ -5,17 +5,22 @@
   "main": "index.js",
   "private": true,
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
     "lint": "eslint .",
     "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions",
     "deploy:storage-cleanup": "firebase deploy --only functions:cleanupUnusedStorageFiles",
     "logs:storage-cleanup": "firebase functions:log --only cleanupUnusedStorageFiles"
   },
   "dependencies": {
+    "cors": "^2.8.5",
+    "expo-server-sdk": "^4.0.0",
+    "express": "^4.21.2",
     "firebase-admin": "^12.7.0",
-    "firebase-functions": "^6.3.2"
+    "firebase-functions": "^6.3.2",
+    "googleapis": "^144.0.0"
   },
   "devDependencies": {
     "eslint": "^8.57.1",

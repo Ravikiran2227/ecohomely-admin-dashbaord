@@ -112,6 +112,93 @@ function numberFromCandidates(...values) {
   return parsed.find((value) => value > 0) || 0
 }
 
+function firstNumberIncludingZero(...values) {
+  for (const value of values) {
+    if (!hasValue(value)) continue
+    const parsed = numberFromValue(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function pricingPackagesFrom(...sources) {
+  for (const source of sources) {
+    if (!source) continue
+    const packages = firstValue(
+      source.packages,
+      source.pricingPackages,
+      source.servicePackages,
+      source.packageList,
+      source.pricing?.packages,
+      source.pricing?.packagePricing,
+      source.pricing?.servicePackages,
+      source.packagePricing,
+    )
+    if (Array.isArray(packages)) return packages
+    if (packages && typeof packages === 'object') return Object.entries(packages).map(([key, value]) => ({ key, ...(typeof value === 'object' ? value : { price: value }) }))
+  }
+  return []
+}
+
+function professionPriceFrom(profession = {}, worker = {}) {
+  return firstNumberIncludingZero(
+    profession.price,
+    profession.startingPrice,
+    profession.startPrice,
+    profession.basePrice,
+    profession.servicePrice,
+    profession.amount,
+    profession.charge,
+    profession.minimumPrice,
+    profession.minimumVisitPrice,
+    profession.minimumVisitCharge,
+    profession.minimalVisitPrice,
+    profession.minimalVisitCharge,
+    profession.visitCharge,
+    profession.pricing?.minimalCharge?.amount,
+    profession.pricing?.minimumCharge?.amount,
+    profession.pricing?.startingPrice,
+    profession.pricing?.price,
+    worker.price,
+    worker.startingPrice,
+    worker.startPrice,
+    worker.basePrice,
+    worker.servicePrice,
+    worker.minimumPrice,
+    worker.minimumVisitPrice,
+    worker.minimumVisitCharge,
+    worker.minimalVisitCharge,
+    worker.pricing?.minimalCharge?.amount,
+    worker.pricing?.minimumCharge?.amount,
+    worker.pricing?.startingPrice,
+    worker.pricing?.price,
+  )
+}
+
+function fullPackagePriceFrom(profession = {}, worker = {}) {
+  return firstNumberIncludingZero(
+    profession.fullServicePackagePrice,
+    profession.fullServicePrice,
+    profession.fullPackagePrice,
+    profession.fullServicePackage,
+    profession.fullService,
+    profession.packagePrice,
+    profession.comboPrice,
+    profession.comboPackagePrice,
+    profession.combinedPrice,
+    profession.packageComboPrice,
+    profession.pricing?.packagePricing?.amount,
+    profession.pricing?.fullServicePackage?.amount,
+    worker.fullServicePackagePrice,
+    worker.fullServicePrice,
+    worker.fullPackagePrice,
+    worker.packagePrice,
+    worker.comboPrice,
+    worker.pricing?.packagePricing?.amount,
+    worker.pricing?.fullServicePackage?.amount,
+  )
+}
+
 function normalizeLanguages(worker = {}) {
   const value = firstValue(
     worker.languages,
@@ -426,11 +513,21 @@ function normalizeProfessionList(worker = {}) {
   if (Array.isArray(worker.professions) && worker.professions.length > 0) {
     return worker.professions.map((profession, index) => {
       const professionName = labelOf(profession)
+      const price = professionPriceFrom(profession, worker)
+      const fullServicePackagePrice = fullPackagePriceFrom(profession, worker)
+      const packages = pricingPackagesFrom(profession, worker)
       return {
         ...(typeof profession === 'object' && !Array.isArray(profession) ? profession : {}),
         type: typeof profession === 'object' && profession.type ? profession.type : (index === 0 ? 'Primary' : 'Secondary'),
         profession: professionName || labelOf(worker.profession) || 'Not set',
         services: Array.isArray(profession?.services) ? profession.services : Array.isArray(worker.services) ? worker.services : [],
+        pricingModel: profession?.pricingModel || profession?.pricing?.model || worker.pricingModel || worker.pricing?.model || (packages.length ? 'package' : 'hourly'),
+        price,
+        minimumPrice: firstNumberIncludingZero(profession?.minimumPrice, profession?.minimumVisitPrice, profession?.minimumVisitCharge, profession?.minimalVisitPrice, profession?.minimalVisitCharge, profession?.visitCharge, price),
+        fullServicePackagePrice,
+        packagePrice: fullServicePackagePrice,
+        packages,
+        pricingPackages: packages,
         experienceYears: numberFromCandidates(
           profession?.experienceYears,
           profession?.experienceRange,
@@ -502,7 +599,13 @@ function normalizeProfessionList(worker = {}) {
     type: 'Primary',
     profession: source,
     services: Array.isArray(worker.services) ? worker.services : [source],
-    price: Number(firstValue(worker.price, worker.servicePrice, worker.basePrice)) || 0,
+    pricingModel: worker.pricingModel || worker.pricing?.model || (pricingPackagesFrom(worker).length ? 'package' : 'hourly'),
+    price: professionPriceFrom({}, worker),
+    minimumPrice: firstNumberIncludingZero(worker.minimumPrice, worker.minimumVisitPrice, worker.minimumVisitCharge, worker.minimalVisitPrice, worker.minimalVisitCharge, worker.visitCharge, professionPriceFrom({}, worker)),
+    fullServicePackagePrice: fullPackagePriceFrom({}, worker),
+    packagePrice: fullPackagePriceFrom({}, worker),
+    packages: pricingPackagesFrom(worker),
+    pricingPackages: pricingPackagesFrom(worker),
     experienceYears: getWorkerExperienceYears(worker),
   }] : []
 }

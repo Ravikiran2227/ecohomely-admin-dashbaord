@@ -275,12 +275,30 @@ function buildGalleryItems(profession, worker, type) {
 function buildPackages(profession = {}, worker = {}) {
   profession = profession || {}
   worker = worker || {}
-  const packages = profession?.packages || profession?.pricingPackages || profession?.servicePackages || []
-  if (Array.isArray(packages) && packages.length > 0) {
+  const rawPackages = firstText(
+    profession?.packages,
+    profession?.pricingPackages,
+    profession?.servicePackages,
+    profession?.packageList,
+    profession?.pricing?.packages,
+    profession?.pricing?.packagePricing,
+    profession?.pricing?.servicePackages,
+    worker?.packages,
+    worker?.pricingPackages,
+    worker?.servicePackages,
+    worker?.pricing?.packages,
+    worker?.pricing?.packagePricing,
+  )
+  const packages = Array.isArray(rawPackages)
+    ? rawPackages
+    : rawPackages && typeof rawPackages === 'object'
+      ? Object.entries(rawPackages).map(([key, value]) => ({ key, ...(typeof value === 'object' ? value : { price: value }) }))
+      : []
+  if (packages.length > 0) {
     return packages.map((item, index) => ({
       id: item.id || item.key || `package-${index}`,
       label: item.label || item.name || item.title || `Package ${index + 1}`,
-      price: amountFromValue(firstText(item.price, item.amount, item.value, item.total, item.packagePrice)),
+      price: amountFromValue(firstText(item.price, item.amount, item.value, item.total, item.packagePrice, item.packageAmount, item.charge)),
       recommended: Boolean(item.recommended || item.isRecommended),
       description: item.description || item.details || '',
       features: Array.isArray(item.features) ? item.features : Array.isArray(item.includes) ? item.includes : [],
@@ -663,7 +681,34 @@ export function ProfessionWorkspace({
   const planLabel = worker?.planType ? `${worker.planType} Plan` : ''
   const planExpiryLabel = worker?.planExpiry ? formatPlanExpiry(worker.planExpiry) : ''
   const experienceYears = getExperienceYears(worker, profession)
-  const minimumPrice = amountFromValue(firstText(profession.minimumPrice, profession.minimalVisitCharge, profession.minimumVisitCharge, profession.visitCharge, profession.basePrice, profession.price))
+  const minimumPrice = amountFromValue(firstText(
+    profession.minimumPrice,
+    profession.minimumVisitPrice,
+    profession.minimalVisitCharge,
+    profession.minimumVisitCharge,
+    profession.visitCharge,
+    profession.basePrice,
+    profession.startingPrice,
+    profession.startPrice,
+    profession.servicePrice,
+    profession.pricing?.minimalCharge?.amount,
+    profession.pricing?.minimumCharge?.amount,
+    profession.pricing?.startingPrice,
+    profession.pricing?.price,
+    profession.price,
+    worker?.minimumPrice,
+    worker?.minimumVisitPrice,
+    worker?.minimumVisitCharge,
+    worker?.minimalVisitCharge,
+    worker?.basePrice,
+    worker?.startingPrice,
+    worker?.servicePrice,
+    worker?.pricing?.minimalCharge?.amount,
+    worker?.pricing?.minimumCharge?.amount,
+    worker?.pricing?.startingPrice,
+    worker?.pricing?.price,
+    worker?.price,
+  ))
   const fullServicePackagePrice = amountFromValue(firstText(profession.fullServicePackagePrice, profession.fullServicePackage, profession.fullService, profession.packagePrice, profession.comboPrice, profession.comboPackagePrice, profession.combinedPrice, profession.packageComboPrice))
   const professionDescription = firstText(
     profession.description,

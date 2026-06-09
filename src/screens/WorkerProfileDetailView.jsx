@@ -1,4 +1,5 @@
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -30,7 +31,7 @@ import workersApi from '../services/workersApi'
 import bookingsApi from '../services/bookingsApi'
 import customersApi from '../services/customersApi'
 import reviewsApi from '../services/reviewsApi'
-import { resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerMediaFiles, resolveWorkerStorageFiles } from '../services/firebaseClient'
+import { deleteStorageAsset, resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerMediaFiles, resolveWorkerStorageFiles } from '../services/firebaseClient'
 import { buildBookings, buildLeadRows, buildReviewRows, formatCurrency, formatDate, getLeadBadge } from '../utils/workerProfileDetail'
 import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
 import { buildWorkerMediaDeletePayload } from '../utils/workerMedia'
@@ -85,6 +86,7 @@ const CORRECTION_OPTIONS = [
   { label: 'Location', key: 'location' },
   { label: 'Documents', key: 'documents' },
   { label: 'Profession Media', key: 'professionMedia' },
+  { label: 'Payment Pending', key: 'paymentPending' },
 ]
 
 function canonicalDocumentKind(document = {}) {
@@ -103,12 +105,14 @@ function canonicalDocumentKind(document = {}) {
     document.filePath,
     document.storagePath,
     document.url,
+    document.src,
   ].filter(Boolean).join(' ').toLowerCase()
 
   if (/aadhaar|aadhar|adhaar|adhar/.test(text)) return 'aadhaar'
   if (/\bpan\b|pan[-_ ]?card|pancard/.test(text)) return 'pan'
   if (/experience/.test(text)) return 'experienceLetter'
   if (/govt|government|skill/.test(text)) return 'govtSkillCertificate'
+  if (/previous|work[-_ ]?photo|portfolio|media/.test(text)) return 'previousWorkPhotos'
   if (/certificat/.test(text)) return 'certificates'
   if (/(^|\s)(image|photo|profile photo|profile picture|profile image|avatar)(\s|$)/.test(directLabel)) return 'photo'
   if (/profile[-_ ]?(photo|picture|image)|avatar/.test(text)) return 'photo'
@@ -122,6 +126,7 @@ function documentDisplayName(kind, fallback) {
     experienceLetter: 'Experience Letter',
     govtSkillCertificate: 'Govt Skill Certificate',
     certificates: 'Certificates',
+    previousWorkPhotos: 'Previous Work Photos',
     photo: 'Image',
   }
   return names[kind] || fallback
@@ -155,14 +160,15 @@ function documentSignature(document = {}, index = 0) {
     document.path,
     document.filePath,
     document.storagePath,
-    firebaseStoragePath(document.url || document.downloadURL || document.downloadUrl),
+    document.src,
+    firebaseStoragePath(document.url || document.downloadURL || document.downloadUrl || document.src),
   ].map(genericDocumentGroup).find(Boolean)
   if (genericGroup) return genericGroup
 
-  const urlPath = firebaseStoragePath(document.url || document.downloadURL || document.downloadUrl)
+  const urlPath = firebaseStoragePath(document.url || document.downloadURL || document.downloadUrl || document.src)
   if (urlPath) return `path:${urlPath}`
 
-  const url = String(document.url || document.downloadURL || document.downloadUrl || '').split('?')[0].toLowerCase()
+  const url = String(document.url || document.downloadURL || document.downloadUrl || document.src || '').split('?')[0].toLowerCase()
   if (url) return `url:${url}`
 
   const path = String(document.path || document.filePath || document.storagePath || document.fullPath || '').toLowerCase()
@@ -183,11 +189,12 @@ function mergeDocument(previous = {}, next = {}) {
     ...next,
     key: kind || next.key || previous.key,
     name: friendlyName || next.name || previous.name,
-    url: next.url || previous.url,
+    url: next.url || next.src || previous.url || previous.src,
+    src: next.src || next.url || previous.src || previous.url,
     path: next.path || previous.path,
     filePath: next.filePath || previous.filePath,
     fileName: next.fileName || previous.fileName,
-    status: next.status === 'Missing' && previous.status ? previous.status : (next.status || previous.status),
+    status: next.url || next.src || previous.url || previous.src || next.path || previous.path || next.filePath || previous.filePath ? 'Uploaded' : 'Missing',
     isImage: Boolean(next.isImage || previous.isImage),
   }
 }
@@ -202,15 +209,128 @@ function uniqueDocuments(documents = []) {
   return [...bySignature.values()]
 }
 
-function withRequiredDocumentCards(documents = []) {
-  const unique = uniqueDocuments(documents)
-  const hasAadhaar = unique.some((document) => canonicalDocumentKind(document) === 'aadhaar')
-  return hasAadhaar
-    ? unique
-    : [
-      { key: 'aadhaar', name: 'Aadhaar', status: 'Missing', url: '', isImage: false, description: 'Aadhaar is not uploaded.' },
-      ...unique,
-    ]
+const REQUIRED_DOCUMENT_SLOTS = [
+  { key: 'aadhaar', name: 'Aadhaar Card' },
+  { key: 'experienceLetter', name: 'Experience Letter' },
+  { key: 'govtSkillCertificate', name: 'Govt Skill Certificate' },
+  { key: 'certificates', name: 'Certificates' },
+  { key: 'previousWorkPhotos', name: 'Previous Work Photos' },
+]
+
+function documentHasAsset(document = {}) {
+  return Boolean(document.url || document.src || document.path || document.filePath || document.downloadUrl || document.downloadURL || document.fileUrl || document.storagePath)
+}
+
+function documentWithUploadStatus(document = {}) {
+  return {
+    ...document,
+    status: documentHasAsset(document) ? 'Uploaded' : 'Missing',
+  }
+}
+
+function withRequiredDocumentCards(documents = [], worker = {}) {
+  const mediaDocuments = [
+    ...(Array.isArray(worker.professionMedia) ? worker.professionMedia : []),
+    ...(Array.isArray(worker.workPhotos) ? worker.workPhotos : []),
+    ...(Array.isArray(worker.portfolioPhotos) ? worker.portfolioPhotos : []),
+  ].map((item, index) => (typeof item === 'string'
+    ? { key: 'previousWorkPhotos', name: 'Previous Work Photos', url: item, isImage: true, fileName: `work-photo-${index + 1}` }
+    : { ...item, key: 'previousWorkPhotos', name: 'Previous Work Photos', url: item.url || item.src || item.downloadUrl || item.downloadURL || item.fileUrl || item.path || item.filePath || '', src: item.src || item.url || '', isImage: true }))
+
+  const unique = uniqueDocuments([...documents, ...mediaDocuments]).map(documentWithUploadStatus)
+  const byKind = new Map(unique.map((document) => [canonicalDocumentKind(document), document]))
+  const required = REQUIRED_DOCUMENT_SLOTS.map((slot) => documentWithUploadStatus(byKind.get(slot.key) || {
+    key: slot.key,
+    name: slot.name,
+    url: '',
+    isImage: false,
+    description: `${slot.name} is not uploaded.`,
+  }))
+  const extras = unique.filter((document) => !REQUIRED_DOCUMENT_SLOTS.some((slot) => slot.key === canonicalDocumentKind(document)))
+  return [...required, ...extras]
+}
+
+function stripUndefined(value) {
+  if (Array.isArray(value)) return value.map(stripUndefined).filter((item) => item !== undefined)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, child]) => child !== undefined)
+        .map(([key, child]) => [key, stripUndefined(child)])
+        .filter(([, child]) => child !== undefined),
+    )
+  }
+  return value
+}
+
+function cleanDocumentPayload(document = {}) {
+  return stripUndefined(document)
+}
+
+function documentUrlPatch(document = {}, url = '') {
+  const kind = canonicalDocumentKind(document)
+  if (kind === 'aadhaar') {
+    return {
+      aadhaar: url,
+      aadhaarUrl: url,
+      aadhaarURL: url,
+      aadhaarImage: url,
+      aadhaarImageUrl: url,
+    }
+  }
+  if (kind === 'photo') {
+    return {
+      image: url,
+      imageUrl: url,
+      photo: url,
+      photoUrl: url,
+      profilePhoto: url,
+      profilePhotoUrl: url,
+      profileImage: url,
+      profileImageUrl: url,
+    }
+  }
+  return {}
+}
+
+function documentAssetValues(document = {}) {
+  return [
+    document.url,
+    document.src,
+    document.path,
+    document.filePath,
+    document.storagePath,
+    document.fullPath,
+    document.fileUrl,
+    document.downloadUrl,
+    document.downloadURL,
+  ].filter(Boolean)
+}
+
+function normalizeAssetIdentity(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const match = text.match(/\/o\/([^?]+)/)
+  const path = match ? decodeURIComponent(match[1]) : text.replace(/^gs:\/\/[^/]+\//, '')
+  return path.split('?')[0].toLowerCase()
+}
+
+function assetMatchesAny(value = '', targets = []) {
+  const identity = normalizeAssetIdentity(value)
+  if (!identity) return false
+  return targets.some((target) => {
+    const targetIdentity = normalizeAssetIdentity(target)
+    return targetIdentity && (identity === targetIdentity || identity.endsWith(`/${targetIdentity.split('/').pop()}`) || targetIdentity.endsWith(`/${identity.split('/').pop()}`))
+  })
+}
+
+function removeMatchingAssets(list, targets) {
+  return Array.isArray(list)
+    ? list.filter((item) => {
+      if (typeof item === 'string') return !assetMatchesAny(item, targets)
+      return !documentAssetValues(item).some((value) => assetMatchesAny(value, targets))
+    })
+    : list
 }
 
 function titleCaseField(key = '') {
@@ -333,12 +453,12 @@ function collectAdditionalWorkerDetails(worker = {}) {
     'couponCode', 'couponDiscount', 'couponType', 'couponAppliedAt', 'profileComplete', 'isProfileComplete',
     'profileCompleted', 'onlineNow', 'isOnline', 'online', 'bookingsCount', 'bookingCount', 'totalBookings',
     'callNowCount', 'callCount', 'callsCount', 'impressions', 'impressionCount', 'views', 'profileViews',
-    'mpin', 'mPin', 'amountPaid', 'paidAmount', 'havePaid', 'hasPaid', 'isPaid',
+    'mpin', 'mPin', 'otpVerified', 'isOtpVerified', 'otp_verified', 'otpStatus', 'otp', 'amountPaid', 'paidAmount', 'havePaid', 'hasPaid', 'isPaid',
   ])
-  const usefulPattern = /(gender|email|experience|language|address|service|brand|certification|shop|business|bank|account|ifsc|upi|aadhaar|aadhar|pan|device|model|version|otp|verified|active|approved|created|updated|joined|coupon|discount|referral)/i
+  const usefulPattern = /(gender|email|experience|language|address|service|brand|certification|shop|business|bank|account|ifsc|upi|aadhaar|aadhar|pan|device|model|version|verified|active|approved|created|updated|joined|coupon|discount|referral)/i
 
   return Object.entries(worker)
-    .filter(([key, value]) => !hiddenKeys.has(key) && usefulPattern.test(key) && displayScalar(value))
+    .filter(([key, value]) => !hiddenKeys.has(key) && !/otp/i.test(key) && usefulPattern.test(key) && displayScalar(value))
     .slice(0, 24)
     .map(([key, value]) => ({ label: titleCaseField(key), value: displayScalar(value) }))
 }
@@ -671,6 +791,73 @@ function correctionLabel(key) {
   return CORRECTION_OPTIONS.find((item) => item.key === key)?.label || key
 }
 
+function CorrectionFieldDropdown({ items, onAdd }) {
+  const [open, setOpen] = useState(false)
+  const [rect, setRect] = useState(null)
+  const buttonRef = useRef(null)
+  const options = CORRECTION_OPTIONS.filter((option) => !items.includes(option.key))
+
+  const toggleOpen = () => {
+    const nextOpen = !open
+    setOpen(nextOpen)
+    if (nextOpen && buttonRef.current) setRect(buttonRef.current.getBoundingClientRect())
+  }
+
+  useEffect(() => {
+    if (!open) return undefined
+    const updateRect = () => buttonRef.current && setRect(buttonRef.current.getBoundingClientRect())
+    window.addEventListener('scroll', updateRect, true)
+    window.addEventListener('resize', updateRect)
+    return () => {
+      window.removeEventListener('scroll', updateRect, true)
+      window.removeEventListener('resize', updateRect)
+    }
+  }, [open])
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={toggleOpen}
+        className={`flex w-full items-center justify-between rounded-xl border px-4 py-3.5 text-left text-sm font-bold transition-all ${
+          open
+            ? 'border-brand-500 bg-[var(--card-bg)] ring-2 ring-brand-500/20'
+            : 'border-[var(--border-main)] bg-[var(--card-bg)] hover:border-brand-500/40'
+        }`}
+      >
+        <span className="text-[var(--text-main)]">Select correction field</span>
+        <span className="text-xs text-[var(--text-muted)]">{open ? '^' : 'v'}</span>
+      </button>
+      {open && rect ? createPortal(
+        <div
+          className="fixed z-[10050] max-h-80 overflow-y-auto rounded-xl border border-[var(--border-main)] bg-[#0f172a] shadow-2xl shadow-black/40"
+          style={{ left: rect.left, top: rect.bottom + 6, width: rect.width }}
+        >
+          {options.length ? options.map((option, index) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => {
+                onAdd(option.key)
+                setOpen(false)
+              }}
+              className={`block w-full px-4 py-2.5 text-left text-sm font-extrabold transition-colors ${
+                index === 0 ? 'bg-[#93c5fd] text-[#0f172a]' : 'text-white hover:bg-[#1f2a44]'
+              }`}
+            >
+              {option.label}
+            </button>
+          )) : (
+            <div className="px-4 py-3 text-sm font-bold text-[var(--text-muted)]">All fields selected</div>
+          )}
+        </div>,
+        globalThis.document.body,
+      ) : null}
+    </div>
+  )
+}
+
 function buildCorrectionFieldValues(worker, fields) {
   const primary = getPrimaryProfession(worker) || {}
   const values = {
@@ -686,6 +873,7 @@ function buildCorrectionFieldValues(worker, fields) {
     location: getLocationLabel(worker),
     documents: worker.documents || [],
     professionMedia: worker.professionMedia || worker.workPhotos || [],
+    paymentPending: worker.paymentStatus || worker.planStatus || worker.subscriptionStatus || worker.paid || worker.isPaid || 'Not Paid',
   }
 
   return Object.fromEntries(fields.map((key) => [key, correctionValue(values[key])]))
@@ -713,6 +901,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const [workingSlots, setWorkingSlots] = useState([])
   const [notice, setNotice] = useState(null)
   const [correctionModal, setCorrectionModal] = useState({ isOpen: false, items: [], message: '' })
+  const [documentEditor, setDocumentEditor] = useState({ isOpen: false, document: null, url: '' })
   const [isTabPending, startTabTransition] = useTransition()
   const returnPage = new URLSearchParams(location.search).get('returnPage') || location.state?.returnPage
   const backToWorkers = () => navigate(returnPage ? `/workers?page=${encodeURIComponent(returnPage)}` : '/workers')
@@ -783,10 +972,9 @@ function WorkerProfileDetailViewContent({ workerId }) {
               ...document,
               url: resolvedUrl || url,
               isImage: /\.(png|jpe?g|webp|gif|heic)(\?|#|$)/i.test(resolvedUrl || url),
-              status: document.status || (resolvedUrl || url ? 'Uploaded' : 'Missing'),
             }
           })),
-        ]).then(([profileUrl, aadhaarDocumentUrl, storageFiles, documents]) => {
+        ]).then(async ([profileUrl, aadhaarDocumentUrl, storageFiles, documents]) => {
           const documentKeys = new Set(documents.map((document) => `${document.key || ''}:${document.url || document.path || ''}`))
           const mergedDocuments = uniqueDocuments([
             ...documents,
@@ -798,7 +986,15 @@ function WorkerProfileDetailViewContent({ workerId }) {
             ...(Array.isArray(data.portfolioPhotos) ? data.portfolioPhotos : []),
             ...(Array.isArray(data.portfolio) ? data.portfolio : []),
           ]
-          const professionMedia = [...existingMedia, ...(storageFiles.media || [])]
+          const professionMedia = await Promise.all([...existingMedia, ...(storageFiles.media || [])].map(async (item) => {
+            if (typeof item === 'string') {
+              const resolvedUrl = await resolveStorageAssetUrl(item)
+              return resolvedUrl || item
+            }
+            const mediaUrl = item.url || item.src || item.downloadUrl || item.downloadURL || item.fileUrl || item.path || item.filePath || ''
+            const resolvedUrl = mediaUrl ? await resolveStorageAssetUrl(mediaUrl) : ''
+            return { ...item, url: resolvedUrl || item.url || item.src || mediaUrl, src: resolvedUrl || item.src || item.url || mediaUrl }
+          }))
           const cleanDocuments = withRequiredDocumentCards(mergedDocuments.map((document) => (
             document.key === 'aadhaar' && /licen[cs]e|driving|driver/i.test(`${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`)
               ? { ...document, key: 'license', name: 'Driving License' }
@@ -858,10 +1054,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const secondaryProfession = worker ? getSecondaryProfession(worker) : null
   const workerLocation = worker ? getLocationLabel(worker) : ''
   const joinedDate = formatDate(worker.verificationVersions?.[0]?.updatedAt || worker.lastActive)
-  const documentCards = withRequiredDocumentCards(worker.documents || []).filter((document) => {
-    if (canonicalDocumentKind(document) === 'aadhaar') return true
-    return document.url || document.path || document.filePath || document.downloadUrl || document.downloadURL
-  })
+  const documentCards = withRequiredDocumentCards(worker.documents || [], worker)
   const bookingCards = buildBookings(worker, primaryProfession, workerBookings)
   const leadRows = buildLeadRows(worker, primaryProfession, workerBookings)
   const reviewCards = buildReviewRows(worker, primaryProfession, workerReviews)
@@ -869,7 +1062,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const aadhaarDocument = documentCards.find((document) => canonicalDocumentKind(document) === 'aadhaar')
   const hiddenDocumentCards = documentCards.filter(documentLooksHidden)
   const visibleDocumentCards = documentCards.filter((document) => !documentLooksHidden(document))
-  const isVerified = documentCards.some((doc) => doc.key === 'aadhaar' && doc.status === 'Verified')
+  const isVerified = Boolean(worker.verified || worker.isVerified || worker.approvalStatus === 'Approved')
   const workerStatus = isSuspended ? 'Suspended' : (worker.availability === 'Available' ? 'Active' : worker.availability)
   const activePlan = worker.planType || worker.planName || worker.subscriptionPlan || ''
   const planExpiryLabel = worker.planExpiry ? formatDate(worker.planExpiry) : ''
@@ -966,34 +1159,71 @@ function WorkerProfileDetailViewContent({ workerId }) {
     setIsProfileEditing(false)
   }
 
-  const handleDocumentStatusChange = async (targetDocument, nextStatus) => {
-    const nextDocuments = (worker.documents || []).map((document) => (
-      sameDocument(document, targetDocument)
-        ? { ...document, status: nextStatus }
-        : document
-    ))
+  const upsertDocument = (targetDocument, nextDocument) => {
+    const currentDocuments = worker.documents || []
+    const matched = currentDocuments.some((document) => sameDocument(document, targetDocument))
+    if (matched) {
+      return currentDocuments.map((document) => cleanDocumentPayload(sameDocument(document, targetDocument) ? { ...document, ...nextDocument } : document))
+    }
+    return [...currentDocuments, cleanDocumentPayload({ ...targetDocument, ...nextDocument })]
+  }
 
-    setWorker(await workersApi.updateWorker(worker.id, { documents: nextDocuments }))
-    setNotice({
-      tone: nextStatus === 'Verified' ? 'success' : 'info',
-      title: 'Document status updated',
-      message: `${targetDocument.name || targetDocument.key || 'Document'} is now marked as ${nextStatus}.`,
+  const handleOpenDocumentEditor = (targetDocument) => {
+    setDocumentEditor({
+      isOpen: true,
+      document: targetDocument,
+      url: targetDocument.url || targetDocument.src || targetDocument.downloadUrl || targetDocument.downloadURL || targetDocument.fileUrl || targetDocument.path || targetDocument.filePath || targetDocument.storagePath || '',
     })
   }
 
-  const handleDocumentReset = async (targetDocument) => {
-    const resetStatus = targetDocument.url ? 'Uploaded' : 'Missing'
-    const nextDocuments = (worker.documents || []).map((document) => (
-      sameDocument(document, targetDocument)
-        ? { ...document, status: resetStatus }
-        : document
-    ))
+  const handleSaveDocumentEditor = async () => {
+    if (!documentEditor.document) return
+    const nextUrl = documentEditor.url.trim()
+    const nextDocuments = upsertDocument(documentEditor.document, {
+      url: nextUrl,
+      src: nextUrl,
+      path: nextUrl,
+      isImage: /\.(png|jpe?g|webp|gif|heic)(\?|#|$)/i.test(nextUrl),
+    })
+    setWorker(await workersApi.updateWorker(worker.id, stripUndefined({ documents: nextDocuments, ...documentUrlPatch(documentEditor.document, nextUrl) })))
+    setDocumentEditor({ isOpen: false, document: null, url: '' })
+    setNotice({
+      tone: 'success',
+      title: 'Document image updated',
+      message: `${documentEditor.document.name || documentEditor.document.key || 'Document'} was updated successfully.`,
+    })
+  }
 
-    setWorker(await workersApi.updateWorker(worker.id, { documents: nextDocuments }))
+  const handleDeleteDocumentImage = async (targetDocument) => {
+    const assetValues = documentAssetValues(targetDocument)
+    if (assetValues.length) {
+      await deleteStorageAsset(targetDocument)
+    }
+    const nextDocuments = upsertDocument(targetDocument, {
+      url: '',
+      src: '',
+      path: '',
+      filePath: '',
+      fileUrl: '',
+      storagePath: '',
+      downloadUrl: '',
+      downloadURL: '',
+      isImage: false,
+    })
+    const payload = stripUndefined({
+      documents: nextDocuments,
+      professionMedia: removeMatchingAssets(worker.professionMedia, assetValues),
+      workPhotos: removeMatchingAssets(worker.workPhotos, assetValues),
+      portfolioPhotos: removeMatchingAssets(worker.portfolioPhotos, assetValues),
+      portfolio: removeMatchingAssets(worker.portfolio, assetValues),
+      ...documentUrlPatch(targetDocument, ''),
+    })
+    setWorker(await workersApi.updateWorker(worker.id, payload))
+    setDocumentEditor((current) => current.document && sameDocument(current.document, targetDocument) ? { isOpen: false, document: null, url: '' } : current)
     setNotice({
       tone: 'info',
-      title: 'Document reset',
-      message: `${targetDocument.name || targetDocument.key || 'Document'} was reset to ${resetStatus}.`,
+      title: 'Document image deleted',
+      message: `${targetDocument.name || targetDocument.key || 'Document'} image was removed.`,
     })
   }
 
@@ -1428,8 +1658,8 @@ function WorkerProfileDetailViewContent({ workerId }) {
                     <DocumentCard
                       key={document.url || document.path || document.key}
                       document={document}
-                      onStatusChange={(nextStatus) => handleDocumentStatusChange(document, nextStatus)}
-                      onReset={() => handleDocumentReset(document)}
+                      onEdit={handleOpenDocumentEditor}
+                      onDelete={handleDeleteDocumentImage}
                     />
                   ))}
                 </div>
@@ -1444,8 +1674,8 @@ function WorkerProfileDetailViewContent({ workerId }) {
                       <DocumentCard
                         key={document.url || document.path || document.key}
                         document={{ ...document, name: document.name || document.fileName || 'Hidden Document' }}
-                        onStatusChange={(nextStatus) => handleDocumentStatusChange(document, nextStatus)}
-                        onReset={() => handleDocumentReset(document)}
+                        onEdit={handleOpenDocumentEditor}
+                        onDelete={handleDeleteDocumentImage}
                       />
                     ))}
                   </div>
@@ -1545,6 +1775,37 @@ function WorkerProfileDetailViewContent({ workerId }) {
       />
 
       <Modal
+        isOpen={documentEditor.isOpen}
+        title={`Edit ${documentEditor.document?.name || documentEditor.document?.key || 'Document'}`}
+        onClose={() => setDocumentEditor({ isOpen: false, document: null, url: '' })}
+        size="md"
+        footer={(
+          <>
+            <Btn v="outline" onClick={() => setDocumentEditor({ isOpen: false, document: null, url: '' })}>Cancel</Btn>
+            <Btn v="danger" onClick={() => documentEditor.document && handleDeleteDocumentImage(documentEditor.document)} disabled={!documentEditor.document || !documentEditor.url}>Delete Image</Btn>
+            <Btn onClick={handleSaveDocumentEditor}>Save Document</Btn>
+          </>
+        )}
+      >
+        <div className="grid gap-5">
+          <div>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Image URL / Storage Path</div>
+            <input
+              value={documentEditor.url}
+              onChange={(event) => setDocumentEditor((current) => ({ ...current, url: event.target.value }))}
+              placeholder="Paste Firebase image URL or storage path"
+              className="w-full rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none transition-all focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            />
+          </div>
+          {documentEditor.url ? (
+            <div className="overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]">
+              <img src={documentEditor.url} alt="Document preview" className="h-56 w-full object-cover" />
+            </div>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal
         isOpen={correctionModal.isOpen}
         title="Mark For Correction"
         onClose={() => setCorrectionModal({ isOpen: false, items: [], message: '' })}
@@ -1558,23 +1819,13 @@ function WorkerProfileDetailViewContent({ workerId }) {
       >
         <div className="grid gap-4">
           <p className="text-sm font-medium text-[var(--text-main)]">Select the details {worker.name} must update in the partner app.</p>
-          <select
-            value=""
-            onChange={(event) => {
-              const key = event.target.value
-              if (!key) return
-              setCorrectionModal(prev => ({
-                ...prev,
-                items: prev.items.includes(key) ? prev.items : [...prev.items, key],
-              }))
-            }}
-            className="w-full rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] p-3.5 text-sm font-bold text-[var(--text-main)] outline-none transition-all focus:ring-2 focus:ring-brand-500/20"
-          >
-            <option value="">Select correction field</option>
-            {CORRECTION_OPTIONS.filter(option => !correctionModal.items.includes(option.key)).map(option => (
-              <option key={option.key} value={option.key}>{option.label}</option>
-            ))}
-          </select>
+          <CorrectionFieldDropdown
+            items={correctionModal.items}
+            onAdd={(key) => setCorrectionModal(prev => ({
+              ...prev,
+              items: prev.items.includes(key) ? prev.items : [...prev.items, key],
+            }))}
+          />
           {correctionModal.items.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {correctionModal.items.map(item => (

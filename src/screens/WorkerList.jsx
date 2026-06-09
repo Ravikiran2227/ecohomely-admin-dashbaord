@@ -311,21 +311,17 @@ function getPaymentInfo(worker) {
     worker.paymentDone,
     worker.subscriptionPaid,
     worker.paymentStatus,
-    worker.planStatus,
   )
   const paid = paidValue === true || ['paid', 'yes', 'true', 'success', 'completed', 'active'].includes(String(paidValue).toLowerCase())
   const amountValue = firstText(
     worker.paymentAmount,
-    worker.amount,
     worker.amountPaid,
     worker.paidAmount,
     worker.subscriptionAmount,
     worker.planAmount,
-    worker.price,
-    worker.fee,
   )
   const amountNumber = Number(String(amountValue ?? '').replace(/[^\d.-]/g, ''))
-  const amount = amountValue === undefined || amountValue === null || amountValue === ''
+  const amount = !paid || amountValue === undefined || amountValue === null || amountValue === ''
     ? 'N/A'
     : Number.isFinite(amountNumber)
       ? `Rs ${amountNumber}`
@@ -340,10 +336,17 @@ function toDate(value) {
   if (typeof value.toDate === 'function') return value.toDate()
   if (typeof value.toMillis === 'function') return new Date(value.toMillis())
   if (typeof value === 'number') return new Date(value)
-  if (typeof value._seconds === 'number') return new Date(value._seconds * 1000)
-  if (typeof value.seconds === 'number') return new Date(value.seconds * 1000)
+  if (typeof value === 'object') {
+    const seconds = value.seconds ?? value._seconds
+    const milliseconds = value.milliseconds ?? value._milliseconds ?? value.millis ?? value._millis
+    if (typeof milliseconds === 'number') return new Date(milliseconds)
+    if (typeof seconds === 'number') return new Date(seconds * 1000)
+  }
   if (typeof value === 'string') {
-    const parsed = new Date(value.replace(/\s+at\s+/i, ' '))
+    const normalized = value
+      .replace(/\s+at\s+/i, ' ')
+      .replace(/UTC([+-]\d{1,2}):(\d{2})/i, 'GMT$1$2')
+    const parsed = new Date(normalized)
     return Number.isNaN(parsed.getTime()) ? null : parsed
   }
 
@@ -377,8 +380,37 @@ function endOfDay(date) {
   return next
 }
 
+function getWorkerJoinedDateValue(worker = {}) {
+  return firstText(
+    worker.createdAt,
+    worker.CreatedAt,
+    worker.created_at,
+    worker.createdOn,
+    worker.created_on,
+    worker.accountCreatedAt,
+    worker.accountCreated,
+    worker.registeredAt,
+    worker.registrationDate,
+    worker.joinedAt,
+    worker.dateJoined,
+    worker.createdDate,
+  )
+}
+
+function getWorkerUpdatedDateValue(worker = {}) {
+  return firstText(
+    worker.updatedAt,
+    worker.UpdatedAt,
+    worker.updated_at,
+    worker.accountEditedAt,
+    worker.profileUpdatedAt,
+    worker.modifiedAt,
+    worker.lastUpdatedAt,
+  )
+}
+
 function getWorkerCreatedDate(worker) {
-  return toDate(worker.createdAt || worker.createdDate || worker.dateAdded || worker.joinedAt || worker.created_on)
+  return toDate(getWorkerJoinedDateValue(worker))
 }
 
 function matchesPeriod(date, period) {
@@ -445,8 +477,8 @@ function compareBySort(left, right, sortBy) {
   if (sortBy === 'device') return getDeviceType(left).localeCompare(getDeviceType(right))
   if (sortBy === 'flagged') return Number(isFlaggedWorker(right)) - Number(isFlaggedWorker(left)) || String(left.name || '').localeCompare(String(right.name || ''))
   if (sortBy === 'accountEdited') {
-    const rightDate = getDateMs(right.updatedAt || right.accountEditedAt || right.profileUpdatedAt)
-    const leftDate = getDateMs(left.updatedAt || left.accountEditedAt || left.profileUpdatedAt)
+    const rightDate = getDateMs(getWorkerUpdatedDateValue(right))
+    const leftDate = getDateMs(getWorkerUpdatedDateValue(left))
     return rightDate - leftDate || String(left.name || '').localeCompare(String(right.name || ''))
   }
   if (sortBy === 'verification') return String(right.approvalStatus || '').localeCompare(String(left.approvalStatus || '')) || String(left.name || '').localeCompare(String(right.name || ''))
@@ -456,8 +488,8 @@ function compareBySort(left, right, sortBy) {
     return Number(rightMatch) - Number(leftMatch) || String(left.name || '').localeCompare(String(right.name || ''))
   }
 
-  const rightDate = getDateMs(right.createdAt || right.createdDate || right.dateAdded || right.updatedAt)
-  const leftDate = getDateMs(left.createdAt || left.createdDate || left.dateAdded || left.updatedAt)
+  const rightDate = getDateMs(getWorkerJoinedDateValue(right))
+  const leftDate = getDateMs(getWorkerJoinedDateValue(left))
   return rightDate - leftDate || String(left.name || '').localeCompare(String(right.name || ''))
 }
 
@@ -710,7 +742,7 @@ export default function WorkerList() {
     { label: 'Main Area', w: '150px' },
     { label: 'Rating', w: '110px' },
     { label: 'Device Type', w: '130px' },
-    { label: 'Date Added', w: '130px' },
+    { label: 'Joined Date', w: '130px' },
     { label: 'Payment', w: '150px' },
     { label: 'Approved By', w: '150px' },
     { label: 'Actions', w: '100px' },
@@ -754,7 +786,7 @@ export default function WorkerList() {
 
   const exportWorkers = () => {
     const rows = [
-      ['S.No', 'Serviceman', 'Profession', 'Phone', 'Location', 'Main Area', 'Rating', 'Device Type', 'Date Added', 'Paid', 'Amount Paid', 'Approved By'],
+      ['S.No', 'Serviceman', 'Profession', 'Phone', 'Location', 'Main Area', 'Rating', 'Device Type', 'Joined Date', 'Paid', 'Amount Paid', 'Approved By'],
       ...filtered.map((worker, index) => {
         const payment = getPaymentInfo(worker)
         return [
@@ -766,7 +798,7 @@ export default function WorkerList() {
           getMainArea(worker),
           getRating(worker),
           getDeviceType(worker),
-          formatDateOnly(worker.createdAt || worker.createdDate || worker.dateAdded),
+          formatDateOnly(getWorkerJoinedDateValue(worker)),
           payment.paid,
           payment.amount,
           isApproved(worker) ? firstText(worker.approvedBy, worker.approvedByName, worker.approverName) || 'N/A' : 'N/A',
@@ -832,7 +864,7 @@ export default function WorkerList() {
           {pagedWorkers.map((worker, index) => {
             const payment = getPaymentInfo(worker)
             const flagged = isFlaggedWorker(worker)
-            const dateAdded = formatDateOnly(worker.createdAt || worker.createdDate || worker.dateAdded)
+            const joinedDate = formatDateOnly(getWorkerJoinedDateValue(worker))
             const approvedBy = isApproved(worker) ? firstText(worker.approvedBy, worker.approvedByName, worker.approverName) || 'N/A' : 'N/A'
             const membershipBadge = getMembershipBadge(worker)
             return (
@@ -873,7 +905,7 @@ export default function WorkerList() {
               <TD className="max-w-[150px] truncate text-xs font-semibold text-[var(--text-main)]">{getMainArea(worker)}</TD>
               <TD className="whitespace-nowrap text-xs font-bold text-amber-500">{getRating(worker)}</TD>
               <TD className="max-w-[130px] truncate text-xs font-semibold text-[var(--text-muted)]">{getDeviceType(worker)}</TD>
-              <TD className="whitespace-nowrap text-xs font-semibold text-[var(--text-muted)]">{dateAdded}</TD>
+              <TD className="whitespace-nowrap text-xs font-semibold text-[var(--text-muted)]">{joinedDate}</TD>
               <TD>
                 <div className="space-y-1 whitespace-nowrap text-xs font-bold text-[var(--text-main)]">
                   <p>Paid: <span className="font-extrabold">{payment.paid}</span></p>

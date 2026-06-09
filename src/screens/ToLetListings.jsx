@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Card } from '../components/Card'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
@@ -20,7 +21,7 @@ function actionButtons(listing, actions) {
     { label: 'Edit', onClick: () => actions.onEdit(listing.id), variant: 'outline', icon: 'edit', emphasis: 'secondary' },
   ]
 
-  if (listing.status === 'Pending') {
+  if (listing.status === 'Pending' || listing.status === 'Correction Required') {
     buttons.push({ label: 'Approve', onClick: () => actions.onApprove(listing.id), variant: 'success', icon: 'check', emphasis: 'primary', disabled: !listing.registrationReady })
     buttons.push({ label: 'Reject', onClick: () => actions.onReject(listing.id), variant: 'danger', icon: 'close', emphasis: 'destructive' })
   }
@@ -60,6 +61,51 @@ function actionChipClass(variant) {
   return classes[variant] || classes.outline
 }
 
+function FilterDropdown({ value, options, onChange, minWidth = 'min-w-[200px]' }) {
+  const [open, setOpen] = useState(false)
+  const selected = options.find((option) => option.value === value) || options[0]
+
+  return (
+    <div className={`relative ${minWidth} flex-1 lg:flex-none`}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className={`w-full h-11 px-4 pr-10 rounded-xl border text-left text-sm font-extrabold transition-all ${
+          open
+            ? 'border-brand-500 bg-[var(--card-bg)] ring-2 ring-brand-500/20 text-[var(--text-main)]'
+            : 'border-[var(--border-main)] bg-[var(--card-bg)] text-[var(--text-main)] hover:border-brand-500/45'
+        }`}
+      >
+        {selected?.label || value}
+      </button>
+      <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-muted)]">
+        <Icon n={open ? 'chevron-up' : 'chevron-down'} sz={12} />
+      </div>
+      {open ? (
+        <div className="absolute left-0 top-[calc(100%+4px)] z-50 w-full overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-2xl shadow-black/30">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value)
+                setOpen(false)
+              }}
+              className={`block w-full px-4 py-2.5 text-left text-sm font-extrabold transition-colors ${
+                option.value === value
+                  ? 'bg-[#93c5fd] text-[#0f172a]'
+                  : 'text-white hover:bg-[#1f2a44]'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function ListingActionCell({ listing, actions }) {
   const { primary, utility, secondary } = splitActions(actionButtons(listing, actions))
 
@@ -78,7 +124,7 @@ function ListingActionCell({ listing, actions }) {
             {primary.label}
           </Btn>
         ) : (
-          <div className="flex-1 h-8 rounded-lg border border-dashed border-[var(--border-main)] bg-[var(--bg-main)]/55" />
+          null
         )}
         {utility && (
           <button
@@ -116,6 +162,14 @@ export default function ToLetListings({ listings, actions, statusColor, filters,
   const flaggedCount = listings.filter((listing) => listing.missingFields.length > 0 || listing.isDuplicate || listing.registrationIssues.length > 0).length
   const liveCount = listings.filter((listing) => listing.status === 'Live').length
   const hasActiveFilters = filters.search || filters.status !== 'All' || filters.propertyType !== 'All'
+  const statusOptions = ['All Status', 'Pending', 'Correction Required', 'Live', 'Hold', 'Expired', 'Rejected'].map((status) => ({
+    label: status,
+    value: status === 'All Status' ? 'All' : status,
+  }))
+  const typeOptions = ['All Types', ...propertyTypes].map((type) => ({
+    label: type,
+    value: type === 'All Types' ? 'All' : type,
+  }))
 
   return (
     <div className="grid gap-4.5">
@@ -154,34 +208,8 @@ export default function ToLetListings({ listings, actions, statusColor, filters,
         )}
         filters={(
           <>
-            <div className="relative min-w-[200px] flex-1 lg:flex-none">
-              <select
-                value={filters.status}
-                onChange={(event) => onFiltersChange((current) => ({ ...current, status: event.target.value }))}
-                className="w-full h-11 px-4 pr-10 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] text-sm font-semibold text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all appearance-none cursor-pointer"
-              >
-                {['All Status', 'Pending', 'Live', 'Hold', 'Expired', 'Rejected'].map((status) => (
-                  <option key={status} value={status === 'All Status' ? 'All' : status}>{status}</option>
-                ))}
-              </select>
-              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-muted)]">
-                <Icon n="chevron-down" sz={12} />
-              </div>
-            </div>
-            <div className="relative min-w-[220px] flex-1 lg:flex-none">
-              <select
-                value={filters.propertyType}
-                onChange={(event) => onFiltersChange((current) => ({ ...current, propertyType: event.target.value }))}
-                className="w-full h-11 px-4 pr-10 rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] text-sm font-semibold text-[var(--text-main)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all appearance-none cursor-pointer"
-              >
-                {['All Types', ...propertyTypes].map((type) => (
-                  <option key={type} value={type === 'All Types' ? 'All' : type}>{type}</option>
-                ))}
-              </select>
-              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-muted)]">
-                <Icon n="chevron-down" sz={12} />
-              </div>
-            </div>
+            <FilterDropdown value={filters.status} options={statusOptions} onChange={(status) => onFiltersChange((current) => ({ ...current, status }))} />
+            <FilterDropdown value={filters.propertyType} options={typeOptions} onChange={(propertyType) => onFiltersChange((current) => ({ ...current, propertyType }))} minWidth="min-w-[220px]" />
             <div className="flex items-center gap-1.5 px-1 text-xs font-medium text-[var(--text-muted)]">
               <Icon n="info" sz={12} />
               Quality flags, duplicates, and registration blockers are highlighted directly in the table.

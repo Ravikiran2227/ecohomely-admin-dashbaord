@@ -33,13 +33,26 @@ function escapeHtml(value) {
 export function PinMap({ lat, lng, label, height = 320 }) {
   const ref    = useRef(null)
   const mapRef = useRef(null)
+  const markerRef = useRef(null)
 
   useEffect(() => {
     if (!ref.current) return
+    const nextLat = Number(lat)
+    const nextLng = Number(lng)
+    if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return
 
     loadLeaflet().then(L => {
       if (mapRef.current) {
-        mapRef.current.setView([lat, lng], 14)
+        mapRef.current.setView([nextLat, nextLng], 14)
+        if (markerRef.current) {
+          markerRef.current.setLatLng([nextLat, nextLng])
+          markerRef.current.setPopupContent(`
+            <div style="font-family:-apple-system,sans-serif;padding:4px 0">
+              <div style="font-weight:700;font-size:13px;color:${C.text}">${escapeHtml(label || '')}</div>
+              <div style="font-size:11px;color:${C.muted};margin-top:2px">${nextLat.toFixed(5)}, ${nextLng.toFixed(5)}</div>
+            </div>
+          `)
+        }
         return
       }
 
@@ -51,7 +64,7 @@ export function PinMap({ lat, lng, label, height = 320 }) {
         maxZoom: 18,
       }).addTo(map)
 
-      map.setView([lat, lng], 14)
+      map.setView([nextLat, nextLng], 14)
 
       const icon = L.divIcon({
         className: '',
@@ -66,12 +79,13 @@ export function PinMap({ lat, lng, label, height = 320 }) {
         iconAnchor: [18, 36],
       })
 
-      const marker = L.marker([lat, lng], { icon }).addTo(map)
+      const marker = L.marker([nextLat, nextLng], { icon }).addTo(map)
+      markerRef.current = marker
       if (label) {
         marker.bindPopup(`
           <div style="font-family:-apple-system,sans-serif;padding:4px 0">
             <div style="font-weight:700;font-size:13px;color:${C.text}">${escapeHtml(label)}</div>
-            <div style="font-size:11px;color:${C.muted};margin-top:2px">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+            <div style="font-size:11px;color:${C.muted};margin-top:2px">${nextLat.toFixed(5)}, ${nextLng.toFixed(5)}</div>
           </div>
         `).openPopup()
       }
@@ -84,6 +98,7 @@ export function PinMap({ lat, lng, label, height = 320 }) {
           mapRef.current.remove()
         } catch {}
         mapRef.current = null
+        markerRef.current = null
       }
     }
   }, [lat, lng, label])

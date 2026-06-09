@@ -9,7 +9,7 @@ const TOGGLE_CLASS = 'flex items-center gap-3 rounded-xl border border-[var(--bo
 export default function ListingEditorModal({ editor, categories, onChange, onClose, onSave }) {
   const { form, isOpen, mode } = editor
   const propertyTypes = [...new Set([...categories.map((item) => item.name), form.propertyType].filter(Boolean))]
-  const isSubmitDisabled = !form.title.trim() || !form.ownerName.trim() || !form.ownerPhone.trim() || !form.area.trim()
+  const isSubmitDisabled = mode !== 'edit' && (!form.title.trim() || !form.ownerName.trim() || !form.ownerPhone.trim() || !form.area.trim())
 
   return (
     <Modal
@@ -21,7 +21,7 @@ export default function ListingEditorModal({ editor, categories, onChange, onClo
         <>
           <Btn v="outline" onClick={onClose}>Cancel</Btn>
           <Btn v="primary" onClick={onSave} disabled={isSubmitDisabled}>
-            {mode === 'edit' ? 'Save Listing' : 'Create Listing'}
+            {mode === 'edit' ? 'Save Updated' : 'Create Listing'}
           </Btn>
         </>
       )}

@@ -78,8 +78,9 @@ function isPdfDocument(document = {}) {
 }
 
 function DocumentThumbnail({ document }) {
-  if (document.isImage && document.url) {
-    return <img src={document.url} alt={document.name} loading="lazy" decoding="async" className="h-36 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
+  const previewUrl = document.url || document.src || document.downloadUrl || document.downloadURL || document.fileUrl || ''
+  if (document.isImage && previewUrl) {
+    return <img src={previewUrl} alt={document.name} loading="lazy" decoding="async" className="h-36 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
   }
 
   return (
@@ -96,7 +97,8 @@ function DocumentThumbnail({ document }) {
 }
 
 function DocumentPreviewModal({ document, onClose }) {
-  if (!document?.url) return null
+  const previewUrl = document?.url || document?.src || document?.downloadUrl || document?.downloadURL || document?.fileUrl || ''
+  if (!previewUrl) return null
   const pdf = isPdfDocument(document)
 
   return createPortal(
@@ -108,7 +110,7 @@ function DocumentPreviewModal({ document, onClose }) {
             <div className="mt-1 truncate text-lg font-black text-[var(--text-main)]">{document.name || document.fileName || 'Document'}</div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <a href={document.url} target="_blank" rel="noreferrer" className="rounded-xl border border-brand-500/30 bg-brand-500/10 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-500/15 dark:text-brand-300">
+            <a href={previewUrl} target="_blank" rel="noreferrer" className="rounded-xl border border-brand-500/30 bg-brand-500/10 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-500/15 dark:text-brand-300">
               Open Original
             </a>
             <button type="button" onClick={onClose} className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-semibold text-[var(--text-main)] hover:bg-[var(--card-hover)]">
@@ -118,9 +120,9 @@ function DocumentPreviewModal({ document, onClose }) {
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {document.isImage ? (
-            <img src={document.url} alt={document.name} loading="eager" decoding="async" className="mx-auto max-h-[78vh] w-full rounded-[24px] object-contain bg-black/25" />
+            <img src={previewUrl} alt={document.name} loading="eager" decoding="async" className="mx-auto max-h-[78vh] w-full rounded-[24px] object-contain bg-black/25" />
           ) : pdf ? (
-            <iframe title={document.name || 'Document preview'} src={document.url} className="h-[78vh] w-full rounded-[24px] border border-white/10 bg-white" />
+            <iframe title={document.name || 'Document preview'} src={previewUrl} className="h-[78vh] w-full rounded-[24px] border border-white/10 bg-white" />
           ) : (
             <div className="flex h-[48vh] flex-col items-center justify-center rounded-[24px] border border-[var(--border-main)] bg-[var(--bg-main)] text-center text-[var(--text-main)]">
               <div className="flex h-20 w-20 items-center justify-center rounded-[24px] border border-[var(--border-main)] bg-[var(--card-bg)]">
@@ -137,8 +139,9 @@ function DocumentPreviewModal({ document, onClose }) {
   )
 }
 
-export const DocumentCard = memo(function DocumentCard({ document, onStatusChange, onReset }) {
+export const DocumentCard = memo(function DocumentCard({ document, onEdit, onDelete }) {
   const [previewOpen, setPreviewOpen] = useState(false)
+  const previewUrl = document.url || document.src || document.downloadUrl || document.downloadURL || document.fileUrl || ''
 
   return (
     <div className="smooth-card rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
@@ -146,13 +149,13 @@ export const DocumentCard = memo(function DocumentCard({ document, onStatusChang
         <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-brand-500/15 bg-brand-500/10 text-brand-700 dark:text-brand-300">
           {document.isImage ? <Image className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
         </div>
-        <StatusChip label={document.status} className={getDocumentBadge(document.status)} />
+        <StatusChip label={document.status || (previewUrl ? 'Uploaded' : 'Missing')} className={getDocumentBadge(document.status || (previewUrl ? 'Uploaded' : 'Missing'))} />
       </div>
       <div className="mt-4 text-base font-bold text-[var(--text-main)]">{document.name}</div>
       <div className="mt-1 text-sm text-[var(--text-muted)]">
-        {document.description || (document.key === 'aadhaar' && document.status === 'Missing' ? 'Aadhaar is not uploaded.' : 'Upload status and verification summary for this document.')}
+        {document.description || (document.key === 'aadhaar' && !previewUrl ? 'Aadhaar is not uploaded.' : 'Document image and verification file.')}
       </div>
-      {document.url ? (
+      {previewUrl ? (
         <button type="button" onClick={() => setPreviewOpen(true)} className="group mt-4 block w-full overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] text-left">
           <DocumentThumbnail document={document} />
           <div className="flex items-center justify-between gap-3 border-t border-[var(--border-main)] px-3 py-2 text-xs font-bold text-brand-600 dark:text-brand-300">
@@ -162,19 +165,20 @@ export const DocumentCard = memo(function DocumentCard({ document, onStatusChang
         </button>
       ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <select
-          value={document.status}
-          onChange={(event) => onStatusChange(event.target.value)}
-          className="min-w-36 rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-semibold text-[var(--text-main)] outline-none"
+        <button
+          type="button"
+          onClick={() => onEdit?.(document)}
+          className="rounded-xl border border-brand-500/30 bg-brand-500/10 px-3.5 py-2 text-sm font-bold text-brand-600 transition-colors hover:bg-brand-500/15 dark:text-brand-300"
         >
-          <option value="Verified">Verified</option>
-          <option value="Uploaded">Uploaded</option>
-          <option value="Pending">Pending</option>
-          <option value="Rejected">Rejected</option>
-          <option value="Missing">Missing</option>
-        </select>
-        <button type="button" onClick={onReset} className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-semibold text-[var(--text-muted)] hover:bg-[var(--card-hover)] hover:text-[var(--text-main)]">
-          Reset
+          Edit
+        </button>
+        <button
+          type="button"
+          onClick={() => onDelete?.(document)}
+          disabled={!previewUrl && !document.path && !document.filePath && !document.storagePath}
+          className="rounded-xl border border-red-500/25 bg-red-500/10 px-3.5 py-2 text-sm font-bold text-red-600 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-300"
+        >
+          Delete Image
         </button>
       </div>
       {previewOpen && <DocumentPreviewModal document={document} onClose={() => setPreviewOpen(false)} />}

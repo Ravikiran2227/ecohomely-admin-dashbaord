@@ -1,4 +1,5 @@
 node_modules/
 .runtimeconfig.json
 service-account*.json
+sdk.json
 *.log

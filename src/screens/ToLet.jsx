@@ -83,14 +83,26 @@ function parseDate(value) {
   return new Date(`${value}T00:00:00`)
 }
 
+function getDateMs(value) {
+  if (!value) return 0
+  if (value instanceof Date) return value.getTime()
+  if (typeof value.toDate === 'function') return value.toDate().getTime()
+  if (typeof value.toMillis === 'function') return value.toMillis()
+  if (typeof value.seconds === 'number') return value.seconds * 1000
+  if (typeof value._seconds === 'number') return value._seconds * 1000
+  if (typeof value === 'number') return value
+  const parsed = new Date(String(value).replace(' ', 'T'))
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+}
+
 function diffDays(start, end = CURRENT_DATE) {
   return Math.floor((parseDate(end).getTime() - parseDate(start).getTime()) / DAY_MS)
 }
 
 function qualityChecks(listing, { ownerRegistered, enquiryRegistrationReady }) {
   return [
-    { label: 'Photos', ok: listing.photos.length >= 3 },
-    { label: 'Description', ok: listing.description.length >= 60 },
+    { label: 'Photos', ok: listing.photos.length > 0 },
+    { label: 'Description', ok: listing.description.trim().length > 0 },
     { label: 'Location', ok: !!listing.location && !!listing.locationAccuracy },
     { label: 'Pricing', ok: listing.rent > 0 && listing.deposit >= 0 },
     { label: 'Owner Registration', ok: ownerRegistered },
@@ -123,12 +135,24 @@ function deriveListingState(listing, allListings, allEnquiries, customers) {
   let trialDaysLeft = null
   let automation = []
 
-  if (listing.approvalStatus === 'Rejected') {
+  const liveStatus = String(listing.liveStatus || '').toLowerCase()
+  const liveUntilMs = getDateMs(listing.liveUntil)
+
+  if (listing.approvalStatus === 'Rejected' || liveStatus === 'rejected') {
     status = 'Rejected'
+  } else if (listing.approvalStatus === 'Correction Required' || liveStatus.includes('correction')) {
+    status = 'Correction Required'
   } else if (listing.approvalStatus === 'Pending') {
     status = 'Pending'
   } else if (listing.manualStatus === 'Expired') {
     status = 'Expired'
+  } else if (liveStatus === 'expired' || (liveUntilMs && liveUntilMs < Date.now())) {
+    status = 'Expired'
+  } else if (liveStatus === 'hold' || liveStatus === 'on_hold') {
+    status = 'Hold'
+  } else if (listing.isLive || liveStatus === 'live') {
+    status = 'Live'
+    trialDaysLeft = liveUntilMs ? Math.max(0, Math.ceil((liveUntilMs - Date.now()) / DAY_MS)) : null
   } else {
     const age = diffDays(listing.approvedAt)
     const liveDays = 7 + listing.trialExtensionDays
@@ -178,6 +202,7 @@ function statusColor(status) {
     Expired: '#DC2626',
     Pending: '#6B7280',
     Rejected: '#991B1B',
+    'Correction Required': '#F59E0B',
     New: '#0F5C37',
     Contacted: '#2563EB',
     Closed: '#16A34A',
@@ -223,6 +248,18 @@ function toListingForm(listing) {
     longitude: listing.location?.lng ? String(listing.location.lng) : '',
     manualStatus: listing.manualStatus || '',
   }
+}
+
+function parsePhotoInput(value = '') {
+  const seen = new Set()
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) return false
+      seen.add(item)
+      return true
+    })
 }
 
 function toEnquiryForm(enquiry) {
@@ -309,6 +346,16 @@ export default function ToLet() {
   const [enquiryEditor, setEnquiryEditor] = useState({ isOpen: false, mode: 'create', enquiryId: null, form: ENQUIRY_FORM_DEFAULTS })
   const [listingFilters, setListingFilters] = useState({ search: '', status: 'All', propertyType: 'All' })
 
+  const navigateToToLetSection = useCallback((tab, options = {}) => {
+    if (tab === 'listings') {
+      setListingFilters((current) => ({
+        ...current,
+        status: options.status || 'All',
+      }))
+    }
+    navigate(`/tolet/${tab}`)
+  }, [navigate])
+
   const loadToLetData = useCallback(async () => {
     setDataState({ loading: true, error: '' })
 
@@ -386,6 +433,7 @@ export default function ToLet() {
   const topDemandArea = areaDemand[0]?.area || 'No demand data yet'
   const flaggedListings = listings.filter((listing) => listing.isDuplicate || listing.missingFields.length > 0 || listing.registrationIssues.length > 0).length
   const selectedListing = selectedListingId ? listings.find((item) => item.id === selectedListingId) || null : null
+  const detailMode = currentSection === 'listings' && selectedListing
 
   function pushActivity(title, text, color, logEntry = null) {
     setActivity((current) => [{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, title, text, color }, ...current].slice(0, 5))
@@ -479,7 +527,34 @@ export default function ToLet() {
       location: Number.isFinite(parsedLat) && Number.isFinite(parsedLng) ? { lat: parsedLat, lng: parsedLng } : (existingListing?.location || null),
       locationAccuracy: form.locationAccuracy,
       directCallAllowed: Boolean(form.directCallAllowed),
-      photos: form.photos.split(',').map((item) => item.trim()).filter(Boolean),
+      photos: parsePhotoInput(form.photos),
+      photoUrls: parsePhotoInput(form.photos).filter((item) => /^(https?:\/\/|data:image\/)/i.test(item)),
+      form: {
+        ...(existingListing?.form || {}),
+        title: form.title.trim(),
+        ownerName: form.ownerName.trim(),
+        ownerPhone: form.ownerPhone.trim(),
+        area: form.area.trim(),
+        propertyType: form.propertyType,
+        rent: Number.parseInt(form.rent, 10) || 0,
+        monthlyRent: Number.parseInt(form.rent, 10) || 0,
+        deposit: Number.parseInt(form.deposit, 10) || 0,
+        securityDeposit: Number.parseInt(form.deposit, 10) || 0,
+        maintenance: Number.parseInt(form.maintenance, 10) || 0,
+        description: form.description.trim(),
+        bedrooms: Number.parseInt(form.bedrooms, 10) || 0,
+        bathrooms: Number.parseInt(form.bathrooms, 10) || 0,
+        furnishing: form.furnishing,
+        parking: form.parking.trim(),
+        sizeSqft: Number.parseInt(form.sizeSqft, 10) || 0,
+        tenantPreference: form.tenantPreference,
+        petsAllowed: Boolean(form.petsAllowed),
+        petFriendly: Boolean(form.petsAllowed),
+        latitude: Number.isFinite(parsedLat) ? parsedLat : existingListing?.form?.latitude,
+        longitude: Number.isFinite(parsedLng) ? parsedLng : existingListing?.form?.longitude,
+        photos: parsePhotoInput(form.photos),
+        photoUrls: parsePhotoInput(form.photos).filter((item) => /^(https?:\/\/|data:image\/)/i.test(item)),
+      },
       enquiries: existingListing?.enquiries || 0,
       trialExtensionDays: existingListing?.trialExtensionDays || 0,
       manualStatus: form.manualStatus || null,
@@ -688,7 +763,7 @@ export default function ToLet() {
       return
     }
     try {
-      const saved = normalizeToLetListing(await toLetApi.reviewListing(id, { action: 'approve', approvedAt: CURRENT_DATE }), customerRecords)
+      const saved = normalizeToLetListing(await toLetApi.reviewListing(id, { action: 'approve', approvedAt: CURRENT_DATE, approvalStatus: 'approved', liveStatus: 'live', isLive: true }), customerRecords)
       setListingsState((current) => saveStoredToLetListings(current.map((item) => (item.id === id ? saved : item)), customerRecords))
       pushActivity(
         `${id} approved`,
@@ -719,6 +794,58 @@ export default function ToLet() {
       )
     } catch (rejectError) {
       pushActivity(`${id} rejection failed`, rejectError.message || 'Unable to reject listing.', '#DC2626')
+    }
+  }
+
+  async function handleRequestCorrection(id, payload) {
+    try {
+      const correctionPayload = {
+        ...payload,
+        action: 'correction',
+        approvalStatus: 'correction_required',
+        status: 'correction_required',
+        liveStatus: 'correction_required',
+        isLive: false,
+        correctionRequired: true,
+        requiresCorrection: true,
+        needsCorrection: true,
+        correctionRequested: true,
+        correctionStatus: 'Pending',
+        correctionRequestedAt: new Date().toISOString(),
+        listingCorrectionRequest: {
+          type: 'listing_correction',
+          title: 'Listing update required',
+          message: payload.note || '',
+          fields: payload.correctionFields || payload.items || [],
+          fieldValues: payload.correctionFieldValues || {},
+          media: payload.correctionMedia || [],
+          requestedAt: new Date().toISOString(),
+          read: false,
+        },
+      }
+      correctionPayload.propertyListingCorrectionRequest = correctionPayload.listingCorrectionRequest
+      correctionPayload.toLetCorrectionRequest = correctionPayload.listingCorrectionRequest
+      correctionPayload.partnerAppPopup = correctionPayload.listingCorrectionRequest
+      correctionPayload.userAppPopup = correctionPayload.listingCorrectionRequest
+      correctionPayload.propertyAppPopup = correctionPayload.listingCorrectionRequest
+      const reviewed = await toLetApi.requestCorrection(id, correctionPayload)
+      const reviewedListing = normalizeToLetListing(reviewed, customerRecords)
+      const persisted = reviewedListing.approvalStatus === 'Correction Required'
+        ? reviewed
+        : await toLetApi.updateListing(id, correctionPayload)
+      const saved = normalizeToLetListing(persisted, customerRecords)
+      setListingsState((current) => saveStoredToLetListings(current.map((item) => (item.id === id ? saved : item)), customerRecords))
+      pushActivity(
+        `${id} correction requested`,
+        'User notified that listing corrections are required.',
+        '#F59E0B',
+        {
+          action: 'Request ToLet Listing Correction',
+          description: `Requested corrections for listing ${id}.`,
+        }
+      )
+    } catch (correctionError) {
+      pushActivity(`${id} correction request failed`, correctionError.message || 'Unable to request corrections.', '#DC2626')
     }
   }
 
@@ -755,7 +882,14 @@ export default function ToLet() {
       return
     }
     try {
-      await updateListing(id, (listing) => ({ ...listing, approvalStatus: 'Approved', approvedAt: CURRENT_DATE, manualStatus: null }))
+      await updateListing(id, (listing) => ({
+        ...listing,
+        approvalStatus: 'approved',
+        approvedAt: listing.approvedAt || CURRENT_DATE,
+        isLive: true,
+        liveStatus: 'live',
+        manualStatus: null,
+      }))
       pushActivity(
         `${id} activated`,
         'Listing is visible again and owner notified.',
@@ -772,7 +906,7 @@ export default function ToLet() {
 
   async function handleForceExpire(id) {
     try {
-      await updateListing(id, (listing) => ({ ...listing, manualStatus: 'Expired' }))
+      await updateListing(id, (listing) => ({ ...listing, manualStatus: 'Expired', isLive: false, liveStatus: 'expired' }))
       pushActivity(
         `${id} force expired`,
         'Listing removed from customer view.',
@@ -934,6 +1068,8 @@ export default function ToLet() {
 
   return (
     <div className="w-full min-h-screen space-y-5">
+      {!detailMode && (
+      <>
       <PageHeader
         title="ToLet Management"
         sub="Approval, quality validation, enquiries, and trial lifecycle control"
@@ -999,6 +1135,8 @@ export default function ToLet() {
           </Btn>
         ))}
       </div>
+      </>
+      )}
 
       <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
         {currentSection === 'dashboard' && (
@@ -1007,13 +1145,39 @@ export default function ToLet() {
               stats={stats}
               areaDemand={areaDemand}
               notifications={dashboardNotifications}
-              onNavigate={(tab) => navigate(`/tolet/${tab}`)}
+              onNavigate={navigateToToLetSection}
             />
           </Suspense>
         )}
 
         {currentSection === 'listings' && (
-          <>
+          selectedListing ? (
+            <Suspense fallback={<SectionFallback label="ToLet Detail" />}>
+              <ToLetDetail
+                listing={selectedListing}
+                listingEnquiries={enquiries.filter((item) => item.listingId === selectedListing.id)}
+                customers={customerRecords}
+                onClose={listingActions.onCloseDetail}
+                onApprove={listingActions.onApprove}
+                onReject={listingActions.onReject}
+                onExtendTrial={listingActions.onExtendTrial}
+                onActivate={listingActions.onActivate}
+                onForceExpire={listingActions.onForceExpire}
+                onEdit={openEditListing}
+                onRequestCorrection={handleRequestCorrection}
+                onRegisterOwner={handleRegisterOwner}
+                onRegisterEnquiry={handleRegisterEnquiry}
+                onOpenListing={(listingId) => navigate(`/tolet/listings/${listingId}`)}
+                onOpenEnquiries={(listingId) => navigate(`/tolet/enquiries?listing=${listingId}`)}
+                onOpenCustomer={(customerId) => customerId && navigate(`/customers/${customerId}?tab=tolet`)}
+                onOpenBooking={(bookingId) => bookingId && navigate(`/bookings/${bookingId}`)}
+                onOpenComplaint={(complaintId) => complaintId && navigate(`/complaints?complaint=${encodeURIComponent(complaintId)}`)}
+                statusColor={statusColor}
+                allListings={listings}
+                allEnquiries={enquiries}
+              />
+            </Suspense>
+          ) : (
             <Suspense fallback={<SectionFallback label="ToLet Listings" />}>
               <ToLetListings
                 listings={filteredListings}
@@ -1025,32 +1189,7 @@ export default function ToLet() {
                 onCreate={openCreateListing}
               />
             </Suspense>
-            {selectedListing && (
-              <Suspense fallback={null}>
-                <ToLetDetail
-                  listing={selectedListing}
-                  listingEnquiries={enquiries.filter((item) => item.listingId === selectedListing.id)}
-                  customers={customerRecords}
-                  onClose={listingActions.onCloseDetail}
-                  onApprove={listingActions.onApprove}
-                  onReject={listingActions.onReject}
-                  onExtendTrial={listingActions.onExtendTrial}
-                  onActivate={listingActions.onActivate}
-                  onForceExpire={listingActions.onForceExpire}
-                  onRegisterOwner={handleRegisterOwner}
-                  onRegisterEnquiry={handleRegisterEnquiry}
-                  onOpenListing={(listingId) => navigate(`/tolet/listings/${listingId}`)}
-                  onOpenEnquiries={(listingId) => navigate(`/tolet/enquiries?listing=${listingId}`)}
-                  onOpenCustomer={(customerId) => customerId && navigate(`/customers/${customerId}?tab=tolet`)}
-                  onOpenBooking={(bookingId) => bookingId && navigate(`/bookings/${bookingId}`)}
-                  onOpenComplaint={(complaintId) => complaintId && navigate(`/complaints?complaint=${encodeURIComponent(complaintId)}`)}
-                  statusColor={statusColor}
-                  allListings={listings}
-                  allEnquiries={enquiries}
-                />
-              </Suspense>
-            )}
-          </>
+          )
         )}
 
         {currentSection === 'enquiries' && (

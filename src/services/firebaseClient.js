@@ -57,7 +57,7 @@ const COLLECTION_ALIASES = {
   subscriptions: ['subscriptions'],
   toletCategories: ['toletCategories', 'toLetCategories'],
   toletEnquiries: ['toletEnquiries', 'toLetEnquiries'],
-  toletListings: ['toletListings', 'toLetListings'],
+  toletListings: ['propertyListings', 'propertyListing', 'toletListings', 'toLetListings'],
   workers: ['servicemen', 'workers'],
 }
 
@@ -884,7 +884,8 @@ function storagePathFromUrl(value = '') {
     return text.replace(/^gs:\/\/[^/]+\//, '')
   }
   const match = text.match(/\/o\/([^?]+)/)
-  return match ? decodeURIComponent(match[1]) : text
+  if (match) return decodeURIComponent(match[1])
+  return /^https?:\/\//i.test(text) ? '' : text
 }
 
 function looksLikeStorageFile(value = '') {
@@ -914,12 +915,22 @@ function collectStorageValues(value, output = new Set()) {
 
 async function deleteStorageValue(value) {
   const path = storagePathFromUrl(value)
-  if (!path || /^https?:\/\//i.test(path)) return
+  if (!path) return
   try {
     await deleteObject(storageRef(storage, path))
   } catch {
     // Missing files and permission-denied records should not block profile deletion.
   }
+}
+
+export async function deleteStorageAsset(value) {
+  const values = [...collectStorageValues(value)]
+  if (typeof value === 'string' && value.trim()) values.push(value)
+  await Promise.all([...new Set(values.filter(Boolean))].map(deleteStorageValue))
+}
+
+async function deleteStorageValues(values = []) {
+  await Promise.all([...new Set(values.filter(Boolean))].map(deleteStorageValue))
 }
 
 async function deleteStorageFolder(folder) {
@@ -950,9 +961,24 @@ export async function purgeRecordStorageAssets(record = {}, type = 'workers') {
 
 function withTimestamps(payload = {}, { create = false } = {}) {
   const now = new Date().toISOString()
+  const body = { ...payload }
+
+  if (!create) {
+    delete body.createdAt
+    delete body.CreatedAt
+    delete body.created_at
+    delete body.createdDate
+    delete body.created_on
+    delete body.accountCreatedAt
+    delete body.accountCreated
+    delete body.joinedAt
+    delete body.dateJoined
+    delete body.dateAdded
+  }
+
   return {
-    ...payload,
-    ...(create && !payload.createdAt ? { createdAt: now } : {}),
+    ...body,
+    ...(create && !body.createdAt ? { createdAt: now } : {}),
     updatedAt: now,
   }
 }
@@ -1211,7 +1237,48 @@ async function listCollection(name, filters = {}) {
     byId.set(row.id, { ...(byId.get(row.id) || {}), ...row })
   })
   const rows = [...byId.values()]
-  return sortByDate(applyQueryFilters(rows, filters))
+  const enrichedRows = name === 'toletListings' ? await enrichPropertyListingPhotos(rows) : rows
+  return sortByDate(applyQueryFilters(enrichedRows, filters))
+}
+
+async function listStorageImageUrls(folder) {
+  try {
+    const listing = await listAll(storageRef(storage, folder))
+    const urls = await Promise.all(listing.items.map((item) => getDownloadURL(item).catch(() => '')))
+    return urls.filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+function existingPropertyPhotos(row = {}) {
+  const form = row.form && typeof row.form === 'object' ? row.form : {}
+  return [row.photoUrls, row.photos, form.photoUrls, form.photos]
+    .filter(Array.isArray)
+    .flat()
+    .map((item) => (typeof item === 'string' ? item : item?.url || item?.downloadUrl || item?.src || ''))
+    .filter((value) => /^https?:\/\//i.test(String(value)))
+}
+
+async function enrichPropertyListingPhotos(rows = []) {
+  return Promise.all(rows.map(async (row) => {
+    const existing = existingPropertyPhotos(row)
+    if (existing.length > 0) return { ...row, photoUrls: existing }
+
+    const userId = row.userId || row.ownerCustomerId || row.uid || row.form?.userId || row.__parentId
+    const listingId = row.id || row.listingId
+    if (!userId || !listingId) return row
+
+    const folders = [
+      `propertyListings/${userId}/${listingId}/photos`,
+      `propertyListings/${userId}/${listingId}`,
+    ]
+    for (const folder of folders) {
+      const urls = await listStorageImageUrls(folder)
+      if (urls.length > 0) return { ...row, photoUrls: urls }
+    }
+    return row
+  }))
 }
 
 async function listNotifications(filters = {}) {
@@ -1352,6 +1419,210 @@ async function updateRecord(name, id, payload = {}) {
   const current = await findRecord(name, id)
   const updates = withTimestamps(payload)
   await setDoc(current.ref, updates, { merge: true })
+  return { ...current.data, ...updates, id }
+}
+
+async function reviewPropertyListing(id, payload = {}) {
+  const current = await findRecord('toletListings', id, 'Listing')
+  const now = new Date()
+  const ownerUserId = current.data.userId || current.data.uid || current.data.ownerId || current.data.ownerCustomerId || current.data.form?.userId || payload.userId || payload.ownerCustomerId
+  const actionValue = String(payload.action || '').toLowerCase()
+  const isApproval = actionValue === 'approve' || actionValue === 'approved'
+  const isCorrection = actionValue === 'correction'
+  const correctionFields = payload.correctionFields || payload.items || []
+  const correctionFieldValues = payload.correctionFieldValues || {}
+  const correctionNote = payload.note || payload.reviewNote || (isCorrection ? `Correction requested for: ${correctionFields.join(', ')}` : '')
+  const requestedMedia = payload.correctionMedia || payload.mediaCorrectionTargets || []
+  const planDays = Number(current.data.planDays || payload.planDays || 7)
+  const liveUntil = new Date(now.getTime() + Math.max(planDays, 1) * 24 * 60 * 60 * 1000)
+  const correctionRequest = isCorrection
+    ? {
+        type: 'listing_correction',
+        title: 'Listing update required',
+        message: correctionNote,
+        fields: correctionFields,
+        fieldValues: correctionFieldValues,
+        media: requestedMedia,
+        requestedAt: now,
+        read: false,
+      }
+    : null
+  const updates = isApproval
+    ? {
+        approvalStatus: 'approved',
+        approvedAt: now,
+        reviewedAt: now,
+        rejectedAt: null,
+        rejectionReason: null,
+        isLive: true,
+        liveStatus: 'live',
+        liveUntil,
+        correctionRequired: false,
+        requiresCorrection: false,
+        needsCorrection: false,
+        correctionRequested: false,
+        correctionStatus: null,
+        listingCorrectionRequest: null,
+        propertyListingCorrectionRequest: null,
+        toLetCorrectionRequest: null,
+        partnerAppPopup: null,
+        userAppPopup: null,
+        propertyAppPopup: null,
+      }
+    : isCorrection
+      ? {
+          approvalStatus: 'correction_required',
+          reviewedAt: now,
+          isLive: false,
+          liveStatus: 'correction_required',
+          reviewNote: correctionNote,
+          correctionItems: correctionFields,
+          correctionFields,
+          correctionFieldValues,
+          correctionMedia: requestedMedia,
+          correctionRequired: true,
+          requiresCorrection: true,
+          needsCorrection: true,
+          correctionRequested: true,
+          correctionRequestedAt: now,
+          correctionStatus: 'Pending',
+          listingCorrectionRequest: correctionRequest,
+          propertyListingCorrectionRequest: correctionRequest,
+          toLetCorrectionRequest: correctionRequest,
+          partnerAppPopup: correctionRequest,
+          userAppPopup: correctionRequest,
+          propertyAppPopup: correctionRequest,
+        }
+    : {
+        approvalStatus: 'rejected',
+        reviewedAt: now,
+        rejectedAt: now,
+        rejectionReason: payload.reason || payload.rejectionReason || payload.note || 'Rejected by admin',
+        isLive: false,
+        liveStatus: 'rejected',
+      }
+
+  await setDoc(current.ref, withTimestamps(updates), { merge: true })
+  if (isApproval) {
+    await cleanupApprovedListingCorrectionMedia(current.data)
+    await sendUserListingNotification(ownerUserId, {
+      title: 'Your Listing has been approved',
+      body: 'Your Listing has been approved',
+      type: 'listing_approved',
+      listingId: id,
+      listingUpdate: {
+        listingCorrectionRequest: null,
+        propertyListingCorrectionRequest: null,
+        toLetCorrectionRequest: null,
+        partnerAppPopup: null,
+        userAppPopup: null,
+        propertyAppPopup: null,
+        correctionRequired: false,
+        correctionRequested: false,
+      },
+    })
+  }
+  if (isCorrection) {
+    await sendUserListingNotification(ownerUserId, {
+      title: 'Listing corrections requested',
+      body: correctionNote || 'Listing corrections are being asked from admin end',
+      type: 'listing_correction',
+      listingId: id,
+      correctionFields,
+      correctionRequest,
+      listingUpdate: updates,
+    })
+  }
+  return { ...current.data, ...updates, id }
+}
+
+async function cleanupApprovedListingCorrectionMedia(listing = {}) {
+  const currentPhotos = existingPropertyPhotos(listing)
+  const previousPhotos = []
+  const correctionValues = listing.correctionFieldValues || listing.listingCorrectionRequest?.fieldValues || listing.propertyListingCorrectionRequest?.fieldValues || {}
+  ;[correctionValues.photos, correctionValues.photoUrls, listing.correctionMedia, listing.mediaCorrectionTargets]
+    .filter(Array.isArray)
+    .forEach((items) => {
+      items.forEach((item) => {
+        const value = typeof item === 'string' ? item : item?.url || item?.downloadUrl || item?.src || item?.path || ''
+        if (value) previousPhotos.push(value)
+      })
+    })
+  const currentBase = new Set(currentPhotos.map((item) => String(item).split('?')[0]))
+  await deleteStorageValues(previousPhotos.filter((item) => !currentBase.has(String(item).split('?')[0])))
+}
+
+async function sendUserListingNotification(userId, payload = {}) {
+  if (!userId) return null
+  const user = await getRecord('customers', userId, 'User').catch(() => null)
+  const expoId = pick(user, ['expoId', 'expoPushToken', 'pushToken', 'notificationToken', 'deviceToken'], '')
+  const now = new Date().toISOString()
+  const body = {
+    userId,
+    recipientId: userId,
+    targetId: userId,
+    ownerCustomerId: userId,
+    expoId,
+    title: payload.title,
+    body: payload.body,
+    message: payload.body,
+    type: payload.type,
+    notificationType: payload.type,
+    listingId: payload.listingId,
+    correctionFields: payload.correctionFields || [],
+    correctionRequest: payload.correctionRequest || null,
+    channel: 'push',
+    read: false,
+    sent: expoId ? 1 : 0,
+    delivered: 0,
+    sentAt: now,
+    createdAt: now,
+  }
+  await addDoc(collection(db, 'notifications'), body).catch(() => null)
+  await addDoc(collection(db, 'users', userId, 'notifications'), body).catch(() => null)
+  await addDoc(collection(db, 'customers', userId, 'notifications'), body).catch(() => null)
+
+  if (payload.correctionRequest || payload.listingUpdate) {
+    const popup = payload.correctionRequest || {
+      type: payload.type,
+      title: payload.title,
+      message: payload.body,
+      listingId: payload.listingId,
+      requestedAt: now,
+      read: false,
+    }
+    const userUpdates = withTimestamps({
+      latestToLetNotification: body,
+      partnerAppPopup: popup,
+      userAppPopup: popup,
+      propertyAppPopup: popup,
+      toLetListingPopup: popup,
+      listingCorrectionRequest: payload.correctionRequest || null,
+      propertyListingCorrectionRequest: payload.correctionRequest || null,
+      toLetCorrectionRequest: payload.correctionRequest || null,
+    })
+    await Promise.all(aliasesFor('customers').map((alias) =>
+      setDoc(doc(db, alias, userId), userUpdates, { merge: true }).catch(() => null),
+    ))
+  }
+  return body
+}
+
+async function extendPropertyListingTrial(id, payload = {}) {
+  const current = await findRecord('toletListings', id, 'Listing')
+  const now = new Date()
+  const currentUntilMs = getDateMs(current.data.liveUntil)
+  const baseMs = currentUntilMs > now.getTime() ? currentUntilMs : now.getTime()
+  const days = Number(payload.days || 7)
+  const nextTrialExtensionDays = Number(current.data.trialExtensionDays || 0) + days
+  const updates = {
+    trialExtensionDays: nextTrialExtensionDays,
+    liveUntil: new Date(baseMs + Math.max(days, 1) * 24 * 60 * 60 * 1000),
+    isLive: true,
+    liveStatus: 'live',
+  }
+
+  await setDoc(current.ref, withTimestamps(updates), { merge: true })
   return { ...current.data, ...updates, id }
 }
 
@@ -1934,7 +2205,9 @@ async function handleToLet(parts, method, body, queryOptions) {
 
   if (!collectionName) throw Object.assign(new Error('Route not found'), { status: 404 })
   if (!id) return method === 'POST' ? createRecord(collectionName, body) : listCollection(collectionName, queryOptions)
+  if (action === 'review' && collectionName === 'toletListings') return reviewPropertyListing(id, body)
   if (action === 'review') return updateRecord(collectionName, id, { ...body, status: body?.status || 'Reviewed' })
+  if (action === 'extend-trial' && collectionName === 'toletListings') return extendPropertyListingTrial(id, body)
   if (action === 'extend-trial') return updateRecord(collectionName, id, body)
   if (method === 'PATCH') return updateRecord(collectionName, id, body)
   if (method === 'DELETE') return deleteRecord(collectionName, id)

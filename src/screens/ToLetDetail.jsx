@@ -14,11 +14,54 @@ import { buildCustomerServiceTimelineEvents, buildPersonTrackingProfile, formatH
 import bookingsApi from '../services/bookingsApi'
 import complaintsApi from '../services/complaintsApi'
 
-export default function ToLetDetail({ listing, listingEnquiries = [], customers = [], allListings = [], allEnquiries = [], onClose, onApprove, onReject, onExtendTrial, onActivate, onForceExpire, onRegisterOwner, onRegisterEnquiry, onOpenListing, onOpenEnquiries, onOpenCustomer, onOpenBooking, onOpenComplaint, statusColor }) {
+const CORRECTION_OPTIONS = [
+  { key: 'propertyType', label: 'Property Type' },
+  { key: 'bedrooms', label: 'Bedrooms' },
+  { key: 'bathrooms', label: 'Bathrooms' },
+  { key: 'rent', label: 'Monthly Rent' },
+  { key: 'deposit', label: 'Security Deposit' },
+  { key: 'maintenance', label: 'Maintenance' },
+  { key: 'area', label: 'Area / Locality' },
+  { key: 'address', label: 'Full Address' },
+  { key: 'description', label: 'Description' },
+  { key: 'furnishing', label: 'Furnishing' },
+  { key: 'tenantPreference', label: 'Tenant Preference' },
+  { key: 'petsAllowed', label: 'Pet Friendly' },
+  { key: 'photos', label: 'Property Photos / Media' },
+]
+
+function correctionValue(value) {
+  if (value === undefined || value === null) return ''
+  if (Array.isArray(value)) return value.map((item) => (typeof item === 'object' ? item : String(item || '').trim())).filter(Boolean)
+  if (typeof value === 'object') return JSON.parse(JSON.stringify(value))
+  return value
+}
+
+function buildListingCorrectionValues(listing, fields) {
+  const values = {
+    propertyType: listing.propertyType,
+    bedrooms: listing.bedrooms,
+    bathrooms: listing.bathrooms,
+    rent: listing.rent,
+    deposit: listing.deposit,
+    maintenance: listing.maintenance,
+    area: listing.area,
+    address: listing.address,
+    description: listing.description,
+    furnishing: listing.furnishing,
+    tenantPreference: listing.tenantPreference,
+    petsAllowed: listing.petsAllowed,
+    photos: listing.photos,
+  }
+  return Object.fromEntries(fields.map((key) => [key, correctionValue(values[key])]))
+}
+
+export default function ToLetDetail({ listing, listingEnquiries = [], customers = [], allListings = [], allEnquiries = [], onClose, onApprove, onReject, onExtendTrial, onActivate, onForceExpire, onEdit, onRequestCorrection, onRegisterOwner, onRegisterEnquiry, onOpenListing, onOpenEnquiries, onOpenCustomer, onOpenBooking, onOpenComplaint, statusColor }) {
   const [photosOpen, setPhotosOpen] = useState(false)
   const [zoomedPhoto, setZoomedPhoto] = useState(0)
   const [bookings, setBookings] = useState([])
   const [complaints, setComplaints] = useState([])
+  const [correctionModal, setCorrectionModal] = useState({ isOpen: false, items: [], message: '' })
 
   useEffect(() => {
     let cancelled = false
@@ -38,6 +81,11 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
   }, [])
 
   if (!listing) return null
+
+  const listingPhotos = Array.isArray(listing.photos) ? listing.photos.filter(Boolean) : []
+  const activePhoto = listingPhotos[zoomedPhoto] || listingPhotos[0] || ''
+  const isImageUrl = (value = '') => /^https?:\/\//i.test(String(value)) || /^data:image\//i.test(String(value))
+  const correctionSet = new Set(correctionModal.items)
 
   const recentEnquiries = [...listingEnquiries].sort((left, right) => right.date.localeCompare(left.date)).slice(0, 4)
   const enquiryStats = {
@@ -164,8 +212,23 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
     .sort((left, right) => (right.dateValue?.getTime() || 0) - (left.dateValue?.getTime() || 0))
     .slice(0, 8)
 
+  const handleRequestCorrection = () => {
+    if (!correctionModal.items.length) return
+    const correctionFieldValues = buildListingCorrectionValues(listing, correctionModal.items)
+    const labels = correctionModal.items.map((key) => CORRECTION_OPTIONS.find((item) => item.key === key)?.label || key)
+    const note = correctionModal.message || `Correction requested for: ${labels.join(', ')}`
+    onRequestCorrection?.(listing.id, {
+      items: correctionModal.items,
+      correctionFields: correctionModal.items,
+      correctionFieldValues,
+      correctionMedia: correctionModal.items.includes('photos') ? listingPhotos : [],
+      note,
+    })
+    setCorrectionModal({ isOpen: false, items: [], message: '' })
+  }
+
   return (
-    <div className="fixed top-0 right-0 w-full sm:w-[min(760px,100vw)] h-full bg-[var(--bg-main)] border-l border-[var(--border-main)] shadow-2xl z-[160] flex flex-col animate-in slide-in-from-right duration-300">
+    <div className="w-full min-h-screen bg-[var(--bg-main)] border border-[var(--border-main)] rounded-2xl overflow-hidden shadow-premium animate-in fade-in slide-in-from-bottom-2 duration-300">
       {/* Header */}
       <div className="p-5 bg-[var(--card-bg)] border-b border-[var(--border-main)] flex justify-between items-center gap-4 shrink-0">
         <div className="min-w-0">
@@ -173,6 +236,7 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
           <h2 className="text-xl font-black text-[var(--text-title)] truncate">#{listing.id}</h2>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <Btn size="sm" v="outline" onClick={onClose}>Back</Btn>
           <Badge label={listing.status} color={statusColor(listing.status)} size="xs" dot={listing.status === 'Live'} />
           <button 
             onClick={onClose} 
@@ -184,7 +248,7 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
+      <div className="p-6 space-y-6">
         {/* Title & Actions */}
         <SectionCard>
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
@@ -201,15 +265,17 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
                 ) : null}
             </div>
             <div className="flex flex-wrap gap-2 shrink-0">
-              {listing.status === 'Pending' && (
+              {(listing.status === 'Pending' || listing.status === 'Correction Required') && (
                 <>
-                  <Btn size="xs" v="success" onClick={() => onApprove(listing.id)} disabled={!listing.registrationReady}>Approve</Btn>
-                  <Btn size="xs" v="danger" onClick={() => onReject(listing.id)}>Reject</Btn>
+                  <Btn size="md" v="success" onClick={() => onApprove(listing.id)} disabled={!listing.registrationReady}>Approve</Btn>
+                  <Btn size="md" v="danger" onClick={() => onReject(listing.id)}>Reject</Btn>
                 </>
               )}
-              <Btn size="xs" v="outline" onClick={() => onExtendTrial(listing.id)}>Extend Trial</Btn>
-              <Btn size="xs" v="success" onClick={() => onActivate(listing.id)} disabled={listing.status !== 'Hold' && listing.status !== 'Expired' || !listing.registrationReady}>Activate</Btn>
-              <Btn size="xs" v="warning" onClick={() => onForceExpire(listing.id)} disabled={listing.status === 'Expired' || listing.status === 'Rejected'}>Force Expire</Btn>
+              <Btn size="md" v="outline" onClick={() => onEdit?.(listing.id)}>Edit Fields</Btn>
+              <Btn size="md" v="warning" onClick={() => setCorrectionModal({ isOpen: true, items: [], message: '' })}>Mark Correction</Btn>
+              <Btn size="md" v="outline" onClick={() => onExtendTrial(listing.id)}>Extend Trial</Btn>
+              <Btn size="md" v="success" onClick={() => onActivate(listing.id)} disabled={listing.status !== 'Hold' && listing.status !== 'Expired' || !listing.registrationReady}>Activate</Btn>
+              <Btn size="md" v="warning" onClick={() => onForceExpire(listing.id)} disabled={listing.status === 'Expired' || listing.status === 'Rejected'}>Force Expire</Btn>
             </div>
           </div>
         </SectionCard>
@@ -265,33 +331,36 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
           </div>
         </SectionCard>
 
-        {/* Description */}
-        <SectionCard 
-          title="Description" 
-          subtitle="Detailed property summary"
-        >
-          <p className="text-sm leading-relaxed text-[var(--text-main)] break-words">
-            {listing.description}
-          </p>
-        </SectionCard>
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+          <SectionCard 
+            title="Description" 
+            subtitle="Detailed property summary"
+            className="self-start"
+          >
+            <p className="text-sm leading-relaxed text-[var(--text-main)] break-words">
+              {listing.description}
+            </p>
+          </SectionCard>
 
-        {/* Tenant & Location */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <SectionCard 
             title="Tenant Preference" 
             subtitle="Owner requirements"
             icon={<Icon name="user" size={20} />}
+            className="self-start"
           >
             <div className="grid gap-4">
               <InfoRow label="Allowed Tenants" value={listing.tenantPreference} icon="user" />
-              <InfoRow label="Pets Policy" value={listing.petsAllowed ? 'Allowed' : 'Not allowed'} icon={listing.petsAllowed ? 'check' : 'close'} />
+              <InfoRow label="Pets Policy" value={listing.petsAllowed ? 'Pet Friendly' : 'Not pet friendly'} icon={listing.petsAllowed ? 'check' : 'close'} />
             </div>
           </SectionCard>
+        </div>
 
+        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-2">
           <SectionCard 
             title="Owner Info" 
             subtitle="Contact details, registration state, and profile tracking"
             icon={<Icon name="phone" size={20} />}
+            className="h-full"
           >
             <PersonTrackingPanel
               title="Registered Owner Profile"
@@ -321,25 +390,26 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
               ]}
             />
           </SectionCard>
-        </div>
 
-        <SectionCard
-          title="Owner Customer Footprint"
-          subtitle="Track this property owner as a registered customer, including service bookings and complaint history"
-          icon={<Icon name="activity" size={20} />}
-        >
-          {ownerContext.customer ? (
-            <RelatedRecordsPanel
-              summaryItems={ownerSummary}
-              records={ownerRecords}
-              emptyMessage="This owner is registered, but no service bookings or complaints have been logged yet."
-            />
-          ) : (
-            <div className="rounded-2xl border border-dashed border-[var(--border-main)] bg-[var(--bg-main)]/60 px-5 py-8 text-sm text-[var(--text-muted)]">
-              This owner is not yet registered as a customer. Register the owner as a customer profile to track bookings, complaints, and service history directly from the To Let workflow.
-            </div>
-          )}
-        </SectionCard>
+          <SectionCard
+            title="Owner Customer Footprint"
+            subtitle="Registered customer, service bookings, complaints, and repeat ToLet activity"
+            icon={<Icon name="activity" size={20} />}
+            className="h-full"
+          >
+            {ownerContext.customer ? (
+              <RelatedRecordsPanel
+                summaryItems={ownerSummary}
+                records={ownerRecords}
+                emptyMessage="This owner is registered, but no service bookings or complaints have been logged yet."
+              />
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[var(--border-main)] bg-[var(--bg-main)]/60 px-5 py-8 text-sm text-[var(--text-muted)]">
+                This owner is not yet registered as a customer. Register the owner as a customer profile to track bookings, complaints, and service history directly from the To Let workflow.
+              </div>
+            )}
+          </SectionCard>
+        </div>
 
         <SectionCard
           title="Enquiry Pulse"
@@ -485,10 +555,10 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
           icon={<Icon name="map-pin" size={20} />}
           action={<Badge label={listing.locationAccuracy} color="#2563EB" size="xs" />}
         >
-          <InfoRow label="Full Area" value={listing.area} icon="map-pin" className="mb-4" />
+          <InfoRow label="Full Area" value={listing.address || listing.area} icon="map-pin" className="mb-4" />
           {listing.location?.lat && listing.location?.lng ? (
             <div className="rounded-2xl overflow-hidden border border-[var(--border-main)]">
-              <PinMap lat={listing.location.lat} lng={listing.location.lng} label={listing.area} height={200} />
+              <PinMap lat={listing.location.lat} lng={listing.location.lng} label={listing.address || listing.area} height={360} />
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-[var(--border-main)] bg-[var(--bg-main)]/50 p-5 text-sm text-[var(--text-muted)]">
@@ -502,28 +572,92 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
           title="Property Photos" 
           subtitle="Preview of listing images"
           icon={<Icon name="eye" size={20} />}
-          action={<Btn v="ghost" size="xs" onClick={() => setPhotosOpen(true)}>View All Photos</Btn>}
+          action={listingPhotos.length > 0 ? <Btn v="ghost" size="xs" onClick={() => setPhotosOpen(true)}>View All Photos</Btn> : null}
         >
-          <div className="grid grid-cols-3 gap-3">
-            {listing.photos.slice(0, 3).map((photo, index) => (
+          {listingPhotos.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {listingPhotos.slice(0, 3).map((photo, index) => (
               <button
-                key={photo}
+                key={`${photo}-${index}`}
                 onClick={() => {
                   setZoomedPhoto(index)
                   setPhotosOpen(true)
                 }}
-                className={`aspect-video rounded-xl border-2 border-dashed flex items-center justify-center text-[10px] font-black transition-all hover:scale-105 ${
-                  index % 2 === 0 
-                  ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400' 
-                  : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400'
-                }`}
+                className="group aspect-video overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] transition-all hover:border-brand-500/50 hover:shadow-lg"
               >
-                {photo}
+                {isImageUrl(photo) ? (
+                  <img
+                    src={photo}
+                    alt={`${listing.title} photo ${index + 1}`}
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    loading="lazy"
+                  />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center px-3 text-center text-[10px] font-black text-[var(--text-muted)]">{photo}</span>
+                )}
               </button>
             ))}
           </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-[var(--border-main)] bg-[var(--bg-main)]/50 p-5 text-sm text-[var(--text-muted)]">
+              No property photos are available for this listing yet.
+            </div>
+          )}
         </SectionCard>
       </div>
+
+      <Modal
+        isOpen={correctionModal.isOpen}
+        title="Mark Listing For Correction"
+        onClose={() => setCorrectionModal({ isOpen: false, items: [], message: '' })}
+        size="lg"
+        footer={(
+          <>
+            <Btn v="outline" onClick={() => setCorrectionModal({ isOpen: false, items: [], message: '' })}>Cancel</Btn>
+            <Btn v="warning" onClick={handleRequestCorrection} disabled={correctionModal.items.length === 0}>Send Correction</Btn>
+          </>
+        )}
+      >
+        <div className="grid gap-4">
+          <p className="text-sm font-medium text-[var(--text-main)]">Select the listing fields or media files that the user must update.</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {CORRECTION_OPTIONS.map((option) => {
+              const checked = correctionSet.has(option.key)
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => setCorrectionModal((current) => ({
+                    ...current,
+                    items: checked ? current.items.filter((item) => item !== option.key) : [...current.items, option.key],
+                  }))}
+                  className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 text-left text-sm font-bold transition-all ${
+                    checked
+                      ? 'border-amber-500/60 bg-amber-500/12 text-amber-600 dark:text-amber-300'
+                      : 'border-[var(--border-main)] bg-[var(--bg-main)] text-[var(--text-main)] hover:border-brand-500/40'
+                  }`}
+                >
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
+                    checked ? 'border-amber-500 bg-amber-500 text-white' : 'border-[var(--border-main)] text-transparent'
+                  }`}>
+                    ✓
+                  </span>
+                  {option.label}
+                </button>
+              )
+            })}
+          </div>
+          <div>
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Message to user</p>
+            <textarea
+              value={correctionModal.message}
+              onChange={(event) => setCorrectionModal((current) => ({ ...current, message: event.target.value }))}
+              className="min-h-[110px] w-full rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] p-4 text-sm text-[var(--text-main)] outline-none transition-all focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              placeholder="Tell the user what needs to be corrected..."
+            />
+          </div>
+        </div>
+      </Modal>
 
       {/* Photos Modal */}
       <Modal
@@ -534,23 +668,31 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
         footer={<Btn v="outline" onClick={() => setPhotosOpen(false)}>Close</Btn>}
       >
         <div className="grid gap-6">
-          <div className={`min-h-[360px] rounded-2xl border flex items-center justify-center text-2xl font-black text-[var(--text-main)] ${
-            zoomedPhoto % 2 === 0 ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800' : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800'
-          }`}>
-            {listing.photos[zoomedPhoto]}
+          <div className="min-h-[360px] overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] flex items-center justify-center">
+            {isImageUrl(activePhoto) ? (
+              <img
+                src={activePhoto}
+                alt={`${listing.title} selected photo`}
+                className="max-h-[70vh] w-full object-contain"
+              />
+            ) : (
+              <span className="px-5 text-center text-sm font-bold text-[var(--text-muted)]">{activePhoto || 'No photo selected'}</span>
+            )}
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-            {listing.photos.map((photo, index) => (
+            {listingPhotos.map((photo, index) => (
               <button
-                key={photo}
+                key={`${photo}-${index}`}
                 onClick={() => setZoomedPhoto(index)}
-                className={`aspect-video rounded-xl border-2 transition-all cursor-pointer font-bold flex items-center justify-center text-[10px] ${
+                className={`aspect-video overflow-hidden rounded-xl border-2 transition-all cursor-pointer font-bold flex items-center justify-center text-[10px] ${
                   zoomedPhoto === index 
                   ? 'border-emerald-600 dark:border-emerald-500 bg-emerald-100 dark:bg-emerald-900/40' 
                   : 'border-[var(--border-main)] bg-[var(--bg-main)] hover:bg-[var(--card-hover)]'
                 }`}
               >
-                {photo}
+                {isImageUrl(photo) ? (
+                  <img src={photo} alt={`${listing.title} thumbnail ${index + 1}`} className="h-full w-full object-cover" loading="lazy" />
+                ) : photo}
               </button>
             ))}
           </div>

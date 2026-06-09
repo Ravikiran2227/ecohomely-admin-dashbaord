@@ -10,6 +10,7 @@ export const toLetApi = {
   updateListing: (listingId, payload, options = {}) => apiClient.patch(`${TO_LET_PATH}/listings/${listingId}`, payload, options),
   deleteListing: (listingId, options = {}) => apiClient.delete(`${TO_LET_PATH}/listings/${listingId}`, options),
   reviewListing: (listingId, payload, options = {}) => apiClient.post(`${TO_LET_PATH}/listings/${listingId}/review`, payload, options),
+  requestCorrection: (listingId, payload = {}, options = {}) => toLetApi.reviewListing(listingId, { ...payload, action: 'correction' }, options),
   extendListingTrial: (listingId, payload = {}, options = {}) => apiClient.post(`${TO_LET_PATH}/listings/${listingId}/extend-trial`, payload, options),
   listEnquiries: (filters = {}, options = {}) => apiClient.get(`${TO_LET_PATH}/enquiries`, { ...options, query: filters }),
   getEnquiry: (enquiryId, options = {}) => apiClient.get(`${TO_LET_PATH}/enquiries/${enquiryId}`, options),

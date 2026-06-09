@@ -43,6 +43,40 @@ function firstValue(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
 }
 
+function numberValue(value) {
+  if (value === undefined || value === null || value === '') return 0
+  if (typeof value === 'object') {
+    return numberValue(firstValue(value.amount, value.price, value.value, value.total, value.packagePrice))
+  }
+  const parsed = Number(String(value).replace(/[^\d.-]/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function workerPricingAmount(worker = {}, primary = {}) {
+  return numberValue(firstValue(
+    primary.price,
+    primary.startingPrice,
+    primary.basePrice,
+    primary.servicePrice,
+    primary.minimumPrice,
+    primary.minimumVisitPrice,
+    primary.minimumVisitCharge,
+    primary.minimalVisitCharge,
+    primary.pricing?.minimalCharge?.amount,
+    primary.pricing?.price,
+    worker.price,
+    worker.startingPrice,
+    worker.basePrice,
+    worker.servicePrice,
+    worker.minimumPrice,
+    worker.minimumVisitPrice,
+    worker.minimumVisitCharge,
+    worker.minimalVisitCharge,
+    worker.pricing?.minimalCharge?.amount,
+    worker.pricing?.price,
+  ))
+}
+
 function formatDate(value) {
   if (!value) return ''
   if (typeof value === 'string') return value.slice(0, 10)
@@ -122,7 +156,7 @@ function buildChecklist(worker = {}) {
   const primary = getPrimaryProfession(worker) || {}
   const aadhaarOk = hasDocument(worker, /aadhaar|aadhar|adhaar|adhar/)
   const photoOk = !!firstValue(worker.profilePhoto, worker.profilePhotoUrl, worker.profilePhotoURL, worker.photoUrl, worker.imageUrl, worker.image) || hasDocument(worker, /profile|photo|image|avatar/)
-  const pricingOk = Number(firstValue(primary.price, worker.price, worker.basePrice, worker.servicePrice)) > 0
+  const pricingOk = workerPricingAmount(worker, primary) > 0
   const servicesOk = (primary.services || worker.services || []).length > 0 || !!firstValue(primary.profession, worker.profession, worker.primaryProfession)
   return [
     { key: 'aadhaar', label: 'Aadhaar', ok: aadhaarOk },
@@ -153,7 +187,7 @@ function buildCorrectionFieldValues(worker, fields) {
     languages: worker.languages || [],
     image: worker.image || worker.profilePhotoUrl || worker.profilePhoto || '',
     aadhaar: worker.aadhaarUrl || worker.aadhaar || worker.documents?.find((doc) => doc.key === 'aadhaar') || '',
-    pricing: primary.price || worker.price || '',
+    pricing: workerPricingAmount(worker, primary) || '',
     services: primary.services || worker.services || [],
     location: getLocationLabel(worker),
     documents: worker.documents || [],

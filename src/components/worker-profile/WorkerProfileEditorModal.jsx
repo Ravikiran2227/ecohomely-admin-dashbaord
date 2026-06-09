@@ -42,10 +42,96 @@ function joinListInput(value) {
 
 function numberValue(...values) {
   for (const value of values) {
-    if (value !== undefined && value !== null && value !== '') return Number(value) || 0
+    if (value === undefined || value === null || value === '') continue
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+    if (typeof value === 'object') {
+      const nested = numberValue(value.amount, value.price, value.value, value.total, value.packagePrice)
+      if (nested) return nested
+      continue
+    }
+    const parsed = Number(String(value).replace(/,/g, '').match(/-?\d+(\.\d+)?/)?.[0] || 0)
+    if (parsed) return parsed
   }
   return 0
 }
+
+function firstText(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue
+    if (typeof value === 'string' || typeof value === 'number') return String(value)
+    if (typeof value === 'object') {
+      const text = firstText(value.profession, value.name, value.label, value.title, value.value, value.text)
+      if (text) return text
+    }
+  }
+  return ''
+}
+
+function pathMatches(path, patterns) {
+  const normalized = path.join('.').replace(/[_\s-]/g, '').toLowerCase()
+  return patterns.some((pattern) => pattern.test(normalized))
+}
+
+function deepNumberByPath(source, patterns, path = [], seen = new Set()) {
+  if (!source || seen.has(source)) return 0
+  if (typeof source !== 'object') return 0
+  seen.add(source)
+
+  if (Array.isArray(source)) {
+    for (const item of source) {
+      const value = deepNumberByPath(item, patterns, path, seen)
+      if (value) return value
+    }
+    return 0
+  }
+
+  for (const [key, value] of Object.entries(source)) {
+    const nextPath = [...path, key]
+    if (pathMatches(nextPath, patterns)) {
+      const direct = numberValue(value)
+      if (direct) return direct
+    }
+    if (value && typeof value === 'object') {
+      const nested = deepNumberByPath(value, patterns, nextPath, seen)
+      if (nested) return nested
+    }
+  }
+
+  return 0
+}
+
+function deepTextByPath(source, patterns, path = [], seen = new Set()) {
+  if (!source || seen.has(source)) return ''
+  if (typeof source !== 'object') return ''
+  seen.add(source)
+
+  if (Array.isArray(source)) {
+    for (const item of source) {
+      const value = deepTextByPath(item, patterns, path, seen)
+      if (value) return value
+    }
+    return ''
+  }
+
+  for (const [key, value] of Object.entries(source)) {
+    const nextPath = [...path, key]
+    if (pathMatches(nextPath, patterns)) {
+      const direct = firstText(value)
+      if (direct) return direct
+    }
+    if (value && typeof value === 'object') {
+      const nested = deepTextByPath(value, patterns, nextPath, seen)
+      if (nested) return nested
+    }
+  }
+
+  return ''
+}
+
+const PROFESSION_NAME_PATTERNS = [/profession$/, /professionname$/, /primaryprofession$/, /servicecategory$/, /servicename$/, /categoryname$/, /selectedservice$/]
+const STARTING_PRICE_PATTERNS = [/^price$/, /startingprice$/, /startprice$/, /baseprice$/, /serviceprice$/, /amount$/, /charge$/, /pricingamount$/, /pricingminimalchargeamount$/]
+const MINIMUM_PRICE_PATTERNS = [/minimumprice$/, /minimumvisitprice$/, /minimumvisitcharge$/, /minimalvisitprice$/, /minimalvisitcharge$/, /visitcharge$/, /minprice$/, /minimumcharge$/, /pricingminimalchargeamount$/]
+const FULL_PACKAGE_PRICE_PATTERNS = [/fullservicepackageprice$/, /fullserviceprice$/, /fullpackageprice$/, /packageprice$/, /comboprice$/, /combopackageprice$/, /fullservicepackage$/, /fullservice$/]
 
 function mediaSource(value) {
   if (!value) return ''
@@ -112,20 +198,94 @@ function getProfilePhotoUrl(worker) {
 function getProfessionByType(worker, type) {
   const normalizedType = type === 'secondary' ? 'Secondary' : 'Primary'
   const professions = Array.isArray(worker?.professions) ? worker.professions : []
-  return professions.find((profession) => profession?.type === normalizedType) || (type === 'primary' ? professions[0] : null) || {}
+  const arrayMatch = professions.find((profession) => String(profession?.type || '').toLowerCase() === normalizedType.toLowerCase()) || (type === 'primary' ? professions[0] : null)
+  if (arrayMatch) return arrayMatch
+
+  if (type === 'secondary') {
+    return worker?.secondaryProfessionDetails?.secondary
+      || worker?.secondaryProfessionDetails
+      || worker?.professionDetails?.secondary
+      || worker?.professionalDetails?.secondary
+      || worker?.secondaryProfession
+      || worker?.secondaryProfessionalDetails
+      || {}
+  }
+
+  return worker?.primaryProfessionDetails?.primary
+    || worker?.primaryProfessionDetails
+    || worker?.professionDetails?.primary
+    || worker?.professionalDetails?.primary
+    || worker?.primaryProfession
+    || worker?.professionDetails
+    || worker?.professionalDetails
+    || worker?.serviceDetails
+    || worker?.businessDetails
+    || {}
+}
+
+function getProfessionScope(worker, type, source) {
+  if (type === 'secondary') {
+    return {
+      worker,
+      source,
+      secondaryProfession: worker?.secondaryProfession,
+      secondaryProfessionName: worker?.secondaryProfessionName,
+      secondaryProfessionDetails: worker?.secondaryProfessionDetails,
+      secondaryProfessionalDetails: worker?.secondaryProfessionalDetails,
+      professionDetails: worker?.professionDetails?.secondary,
+      professionalDetails: worker?.professionalDetails?.secondary,
+      secondaryPricing: worker?.secondaryPricing,
+      secondaryCharges: worker?.secondaryCharges,
+      secondaryServiceDetails: worker?.secondaryServiceDetails,
+      secondaryPrice: worker?.secondaryPrice,
+      secondaryMinimumPrice: worker?.secondaryMinimumPrice,
+      secondaryFullServicePackagePrice: worker?.secondaryFullServicePackagePrice,
+    }
+  }
+
+  return {
+    worker,
+    source,
+    profession: worker?.profession,
+    professionName: worker?.professionName,
+    primaryProfession: worker?.primaryProfession,
+    primaryProfessionDetails: worker?.primaryProfessionDetails,
+    primaryProfessionalDetails: worker?.primaryProfessionalDetails,
+    professionDetails: worker?.professionDetails?.primary || worker?.professionDetails,
+    professionalDetails: worker?.professionalDetails?.primary || worker?.professionalDetails,
+    serviceDetails: worker?.serviceDetails,
+    businessDetails: worker?.businessDetails,
+    pricing: worker?.pricing,
+    charges: worker?.charges,
+    price: worker?.price,
+    amount: worker?.amount,
+    servicePrice: worker?.servicePrice,
+    minimumPrice: worker?.minimumPrice,
+    fullServicePackagePrice: worker?.fullServicePackagePrice,
+  }
 }
 
 function buildProfessionDraft(worker, type) {
   const source = getProfessionByType(worker, type)
+  const scope = getProfessionScope(worker, type, source)
   const normalizedType = type === 'secondary' ? 'Secondary' : 'Primary'
+  const professionName = firstText(source?.profession, source?.professionName, source?.name, source?.label, source?.title, type === 'primary' ? worker?.profession : worker?.secondaryProfessionName)
+    || deepTextByPath(scope, PROFESSION_NAME_PATTERNS)
+  const startingPrice = numberValue(source?.price, source?.amount, source?.basePrice, source?.servicePrice, source?.startingPrice, source?.startPrice, type === 'primary' ? worker?.price : worker?.secondaryPrice)
+    || deepNumberByPath(scope, STARTING_PRICE_PATTERNS)
+  const minimumPrice = numberValue(source?.minimumPrice, source?.minimumVisitPrice, source?.minimumVisitCharge, source?.minimalVisitPrice, source?.minimalVisitCharge, source?.visitCharge, source?.minPrice, source?.basePrice, source?.price, type === 'primary' ? worker?.minimumVisitPrice || worker?.minimumPrice : worker?.secondaryMinimumVisitPrice || worker?.secondaryMinimumPrice)
+    || deepNumberByPath(scope, MINIMUM_PRICE_PATTERNS)
+    || startingPrice
+  const fullServicePackagePrice = numberValue(source?.fullServicePackagePrice, source?.fullServicePrice, source?.fullPackagePrice, source?.fullServicePackage, source?.fullService, source?.packagePrice, source?.comboPrice, source?.comboPackagePrice, type === 'primary' ? worker?.fullServicePackagePrice || worker?.fullServicePrice || worker?.fullPackagePrice : worker?.secondaryFullServicePackagePrice || worker?.secondaryFullServicePrice || worker?.secondaryFullPackagePrice)
+    || deepNumberByPath(scope, FULL_PACKAGE_PRICE_PATTERNS)
   return {
     _source: source || {},
     type: normalizedType,
-    profession: source?.profession || '',
+    profession: professionName,
     pricingModel: source?.pricingModel || 'hourly',
-    price: numberValue(source?.price, source?.amount, source?.basePrice),
-    minimumPrice: numberValue(source?.minimumPrice, source?.minimumVisitCharge, source?.minimalVisitCharge, source?.visitCharge, source?.basePrice, source?.price),
-    fullServicePackagePrice: numberValue(source?.fullServicePackagePrice, source?.fullServicePackage, source?.fullService, source?.packagePrice, source?.comboPrice, source?.comboPackagePrice),
+    price: startingPrice,
+    minimumPrice,
+    fullServicePackagePrice,
     experienceYears: numberValue(source?.experienceYears, source?.yearsOfExperience, source?.experience),
     teamSize: numberValue(source?.teamSize, source?.teamMembers, source?.teamMemberCount, worker?.teamSize, worker?.teamMembers, worker?.teamMemberCount),
     subType: source?.subType || source?.serviceType || '',
@@ -285,7 +445,42 @@ function sanitizeDraft(draft, worker) {
     profession: primaryProfession.profession,
     amount: primaryProfession.price,
     price: primaryProfession.price,
+    basePrice: primaryProfession.price,
+    servicePrice: primaryProfession.price,
+    minimumPrice: primaryProfession.minimumPrice,
+    minimumVisitPrice: primaryProfession.minimumPrice,
+    minimumVisitCharge: primaryProfession.minimumPrice,
+    minimalVisitCharge: primaryProfession.minimumPrice,
+    visitCharge: primaryProfession.minimumPrice,
+    fullServicePackagePrice: primaryProfession.fullServicePackagePrice,
+    fullServicePrice: primaryProfession.fullServicePackagePrice,
+    fullPackagePrice: primaryProfession.fullServicePackagePrice,
+    fullServicePackage: primaryProfession.fullServicePackagePrice,
+    packagePrice: primaryProfession.fullServicePackagePrice,
+    primaryProfession,
+    primaryProfessionDetails: primaryProfession,
+    professionDetails: {
+      ...(worker?.professionDetails && typeof worker.professionDetails === 'object' ? worker.professionDetails : {}),
+      primary: primaryProfession,
+      ...(secondaryProfession.profession || secondaryProfession.description || secondaryProfession.services.length || secondaryProfession.price || secondaryProfession.minimumPrice || secondaryProfession.fullServicePackagePrice ? { secondary: secondaryProfession } : {}),
+    },
+    professionalDetails: {
+      ...(worker?.professionalDetails && typeof worker.professionalDetails === 'object' ? worker.professionalDetails : {}),
+      primary: primaryProfession,
+      ...(secondaryProfession.profession || secondaryProfession.description || secondaryProfession.services.length || secondaryProfession.price || secondaryProfession.minimumPrice || secondaryProfession.fullServicePackagePrice ? { secondary: secondaryProfession } : {}),
+    },
     professions,
+  }
+
+  if (secondaryProfession.profession || secondaryProfession.description || secondaryProfession.services.length || secondaryProfession.price || secondaryProfession.minimumPrice || secondaryProfession.fullServicePackagePrice) {
+    Object.assign(payload, {
+      secondaryProfession,
+      secondaryProfessionDetails: secondaryProfession,
+      secondaryPrice: secondaryProfession.price,
+      secondaryMinimumPrice: secondaryProfession.minimumPrice,
+      secondaryMinimumVisitPrice: secondaryProfession.minimumPrice,
+      secondaryFullServicePackagePrice: secondaryProfession.fullServicePackagePrice,
+    })
   }
 
   if (draft.profilePhotoDeleted) {
@@ -367,7 +562,7 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
         ...current.professions,
         [type]: {
           ...current.professions?.[type],
-          [field]: ['price', 'minimumPrice', 'fullServicePackagePrice', 'experienceYears', 'teamSize'].includes(field) ? Number(value) || 0 : value,
+          [field]: ['price', 'minimumPrice', 'fullServicePackagePrice', 'experienceYears', 'teamSize'].includes(field) ? numberValue(value) : value,
         },
       },
     }))
@@ -463,6 +658,9 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
             <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Profession</span>
             <select value={profession.profession} onChange={(event) => updateProfessionDraft(type, 'profession', event.target.value)} className="w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500/40">
               <option value="">Select profession</option>
+              {profession.profession && !professionCatalog.includes(profession.profession) && (
+                <option value={profession.profession}>{profession.profession}</option>
+              )}
               {professionCatalog.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>

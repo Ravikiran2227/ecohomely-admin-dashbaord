@@ -19,11 +19,16 @@ export default function RelatedRecordsPanel({
   return (
     <div className="grid gap-4">
       {summaryItems.length > 0 ? (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(145px,1fr))] gap-3">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(128px,1fr))] gap-3">
           {summaryItems.map((item) => (
             <div key={item.label} className="min-w-0 rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4">
               <div className="text-label mb-2 break-words leading-5">{displayValue(item.label)}</div>
-              <div className="text-2xl font-extrabold" style={{ color: item.color || 'var(--text-main)' }}>{displayValue(item.value)}</div>
+              <div
+                className="min-w-0 break-all text-xl font-extrabold leading-tight"
+                style={{ color: item.color || 'var(--text-main)' }}
+              >
+                {displayValue(item.value)}
+              </div>
               {item.meta ? <div className="mt-1 text-xs text-[var(--text-muted)]">{displayValue(item.meta)}</div> : null}
             </div>
           ))}
@@ -35,14 +40,14 @@ export default function RelatedRecordsPanel({
           {emptyMessage}
         </div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-3">
+        <div className="grid auto-rows-fr grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3">
           {records.map((record) => (
             <div
               key={record.id}
-              className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4"
+              className="h-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4"
               style={record.color ? { borderLeft: `4px solid ${record.color}` } : undefined}
             >
-              <div className="grid gap-3">
+              <div className="grid h-full content-start gap-3">
                 <div className="flex min-w-0 gap-3">
                   {record.iconName ? (
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]">

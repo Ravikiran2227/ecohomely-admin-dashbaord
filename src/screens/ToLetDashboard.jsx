@@ -4,11 +4,11 @@ import Icon from '../components/Icon'
 
 export default function ToLetDashboard({ stats, areaDemand, notifications, onNavigate }) {
   const cards = [
-    { label: 'Pending Listings', value: stats.pending, color: 'text-[var(--text-muted)]', tab: 'listings' },
-    { label: 'Live Listings', value: stats.live, color: 'text-emerald-600 dark:text-emerald-400', tab: 'listings' },
-    { label: 'On Hold Listings', value: stats.hold, color: 'text-amber-600 dark:text-amber-400', tab: 'listings' },
-    { label: 'Expired Listings', value: stats.expired, color: 'text-red-600 dark:text-red-400', tab: 'listings' },
-    { label: 'Rejected Listings', value: stats.rejected, color: 'text-red-800 dark:text-red-600', tab: 'listings' },
+    { label: 'Pending Listings', value: stats.pending, color: 'text-[var(--text-muted)]', tab: 'listings', status: 'Pending' },
+    { label: 'Live Listings', value: stats.live, color: 'text-emerald-600 dark:text-emerald-400', tab: 'listings', status: 'Live' },
+    { label: 'On Hold Listings', value: stats.hold, color: 'text-amber-600 dark:text-amber-400', tab: 'listings', status: 'Hold' },
+    { label: 'Expired Listings', value: stats.expired, color: 'text-red-600 dark:text-red-400', tab: 'listings', status: 'Expired' },
+    { label: 'Rejected Listings', value: stats.rejected, color: 'text-red-800 dark:text-red-600', tab: 'listings', status: 'Rejected' },
     { label: 'Enquiries Today', value: stats.enquiriesToday, color: 'text-brand-600 dark:text-brand-400', tab: 'enquiries' },
     { label: 'Total Enquiries', value: stats.totalEnquiries, color: 'text-blue-600 dark:text-blue-400', tab: 'enquiries' },
   ]
@@ -21,7 +21,7 @@ export default function ToLetDashboard({ stats, areaDemand, notifications, onNav
         {cards.map((card) => (
           <Card key={card.label} className="p-0 overflow-hidden group">
             <button
-              onClick={() => onNavigate(card.tab)}
+              onClick={() => onNavigate(card.tab, { status: card.status })}
               className="w-full h-full p-4.5 text-left transition-all hover:bg-[var(--bg-main)]"
             >
               <p className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2 group-hover:text-brand-600 transition-colors">

@@ -86,7 +86,7 @@ export default function CustomerProfile() {
   const [searchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
   const editRequested = searchParams.get('edit') === 'true'
-  const [tab, setTab] = useState(requestedTab || 'overview')
+  const [tab, setTab] = useState(requestedTab === 'complaints' ? 'overview' : (requestedTab || 'overview'))
   const [editMode, setEditMode] = useState(editRequested)
   const [form, setForm] = useState(null)
   const [customerRecords, setCustomerRecords] = useState([])
@@ -458,7 +458,6 @@ export default function CustomerProfile() {
           { id: 'payments',   label: 'Payments',   badge: customerPayments.length   },
           { id: 'location',   label: 'Location'                                    },
           { id: 'bookings',   label: 'Bookings',   badge: customerBookings.length   },
-          { id: 'complaints', label: 'Complaints', badge: customerComplaints.length },
         ]}
         active={tab}
         onChange={setTab}
@@ -750,57 +749,6 @@ export default function CustomerProfile() {
                   <div className="mt-4 flex justify-end">
                     <Btn size="sm" v="outline" onClick={() => navigate(`/bookings/${b.id}`)}>Open Booking</Btn>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-      )}
-
-      {/* COMPLAINTS TAB */}
-      {tab === 'complaints' && (
-        <SectionCard title="Complaints Filed" subtitle="Open issues, assigned owners, and booking references" action={<Badge label={`${customerComplaints.length} total`} color={customerComplaints.length > 0 ? C.danger : C.success} size="xs" />}>
-          {customerComplaints.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[var(--border-main)] px-6 py-12 text-center text-[var(--text-muted)]">
-              <Icon n="check" sz={32} cl={C.success} />
-              <div className="mt-3 text-[14px] font-medium">No complaints filed by this customer.</div>
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              {customerComplaints.map((cp) => (
-                <div key={cp.id} className="rounded-3xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4 shadow-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-main)] pb-4">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] text-red-600">
-                        <Icon n="alert" sz={18} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="break-words text-[16px] font-bold text-[var(--text-main)]">
-                          {firstText(cp, ['issue', 'reason', 'description', 'message', 'title', 'complaint'], 'Issue not recorded')}
-                        </div>
-                        <div className="mt-1 break-words text-[12px] font-bold uppercase tracking-[0.08em] text-red-600">
-                          {firstText(cp, ['complaintId', 'id', 'ticketId'], 'Complaint')}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-[12px] font-medium text-[var(--text-muted)]">{displayDate(cp.date, cp.createdAt, cp.updatedAt) || 'Not recorded'}</div>
-                      <Badge label={statusLabel(cp.status)} color={COMPLAINT_STATUS_COLOR[statusLabel(cp.status)] || C.muted} />
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <DetailCell label="Against Worker" value={firstText(cp, ['worker', 'workerName', 'servicemanName'])} />
-                    <DetailCell label="Booking" value={firstText(cp, ['booking', 'bookingId', 'booking_id'])} />
-                    <DetailCell label="Assigned To" value={firstText(cp, ['assignedTo', 'owner', 'assignee'])} />
-                    <DetailCell label="Category" value={firstText(cp, ['category', 'type', 'complaintType'])} />
-                    <DetailCell label="Priority" value={firstText(cp, ['priority', 'severity'])} />
-                    <DetailCell label="Resolution" value={firstText(cp, ['resolution', 'resolutionNote', 'resolvedBy'])} />
-                  </div>
-                  {firstText(cp, ['notes', 'adminNote', 'customerNote']) ? (
-                    <div className="mt-3 rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] px-4 py-3 text-[13px] leading-6 text-[var(--text-muted)]">
-                      {firstText(cp, ['notes', 'adminNote', 'customerNote'])}
-                    </div>
-                  ) : null}
                 </div>
               ))}
             </div>

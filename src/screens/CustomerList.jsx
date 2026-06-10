@@ -88,7 +88,6 @@ const SORT_OPTIONS = [
   { id: 'email', name: 'Sort By Email' },
   { id: 'phone', name: 'Sort By Phone' },
   { id: 'bookings', name: 'Sort By Bookings' },
-  { id: 'complaints', name: 'Sort By Complaints' },
 ]
 
 const STATUS_OPTIONS = [
@@ -249,7 +248,7 @@ function downloadCsv(filename, rows) {
 
 const COLS = [
   { label: '#' }, { label: 'Customer' }, { label: 'Phone' },
-  { label: 'Area' }, { label: 'Bookings' }, { label: 'Complaints' },
+  { label: 'Area' }, { label: 'Bookings' },
   { label: 'Device' }, { label: 'Joined' }, { label: 'Status' },
   { label: 'Actions', w: 60 },
 ]
@@ -306,7 +305,6 @@ export default function CustomerList() {
       if (sortBy === 'email') return String(left.email || '').localeCompare(String(right.email || ''))
       if (sortBy === 'phone') return String(left.phone || '').localeCompare(String(right.phone || ''))
       if (sortBy === 'bookings') return Number(right.bookings || 0) - Number(left.bookings || 0)
-      if (sortBy === 'complaints') return Number(right.complaints || 0) - Number(left.complaints || 0)
       return (getCustomerCreatedDate(right)?.getTime() || 0) - (getCustomerCreatedDate(left)?.getTime() || 0)
     })
   const pageCount = Math.max(Math.ceil(filtered.length / PAGE_SIZE), 1)
@@ -319,7 +317,7 @@ export default function CustomerList() {
 
   const exportCustomers = () => {
     const rows = [
-      ['S.No', 'Customer', 'Email', 'Phone', 'Area', 'Bookings', 'Complaints', 'Device', 'Joined', 'Status'],
+      ['S.No', 'Customer', 'Email', 'Phone', 'Area', 'Bookings', 'Device', 'Joined', 'Status'],
       ...filtered.map((customer, index) => [
         index + 1,
         customer.name,
@@ -327,7 +325,6 @@ export default function CustomerList() {
         customer.phone || '',
         customer.area || '',
         customer.bookings ?? 0,
-        customer.complaints ?? 0,
         customer.device || '',
         customer.dateJoined || '',
         customer.status || '',
@@ -359,12 +356,11 @@ export default function CustomerList() {
         sub={`${customerRecords.length} total customers registered`}
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         {[
           { label: 'Total', value: customerRecords.length, color: 'border-brand-500', text: 'text-brand-600' },
           { label: 'Active', value: customerRecords.filter(c => c.status === 'Active').length, color: 'border-emerald-500', text: 'text-emerald-600' },
           { label: 'Inactive', value: customerRecords.filter(c => c.status === 'Inactive').length, color: 'border-red-500', text: 'text-red-600' },
-          { label: 'With Complaints', value: customerRecords.filter(c => c.complaints > 0).length, color: 'border-amber-500', text: 'text-amber-600' },
         ].map((s, i) => (
           <Card key={i} className={`border-l-4 ${s.color} p-4.5 shadow-sm`}>
             <p className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5">{s.label}</p>
@@ -439,11 +435,6 @@ export default function CustomerList() {
               <TD>
                 <span className={`text-sm font-black ${c.bookings > 0 ? 'text-brand-600' : 'text-[var(--text-muted)]'}`}>
                   {c.bookings}
-                </span>
-              </TD>
-              <TD>
-                <span className={`text-sm font-black ${c.complaints > 0 ? 'text-red-600' : 'text-[var(--text-muted)]'}`}>
-                  {c.complaints}
                 </span>
               </TD>
               <TD className="text-xs font-medium text-[var(--text-muted)]">{c.device || '-'}</TD>

@@ -461,8 +461,17 @@ function getRatingNumber(worker) {
   return Number.isFinite(number) ? number : 0
 }
 
-function isFlaggedWorker(worker) {
-  return Boolean(worker.flagged || worker.isFlagged || worker.isFlaged || String(worker.flagStatus || worker.status || '').toLowerCase() === 'flagged')
+function isFlaggedWorker(worker = {}) {
+  const moderationStatus = String(worker.moderationStatus || worker.flagStatus || '').toLowerCase()
+  if (['resolved', 'removed', 'closed'].includes(moderationStatus)) return false
+  return Boolean(
+    worker.flagged
+    || worker.isFlagged
+    || worker.isFlaged
+    || moderationStatus === 'under review'
+    || moderationStatus === 'flagged'
+    || String(worker.status || '').toLowerCase() === 'flagged'
+  )
 }
 
 function isPaidWorker(worker) {
@@ -522,15 +531,15 @@ function downloadCsv(filename, rows) {
   URL.revokeObjectURL(url)
 }
 
-function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onDelete }) {
+function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onUnflag, onDelete }) {
   const [open, setOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
+  const menuHeight = flagged ? 208 : 176
 
   function toggleMenu(event) {
     event.stopPropagation()
     const rect = event.currentTarget.getBoundingClientRect()
     const menuWidth = 160
-    const menuHeight = 176
     const gap = 8
     const left = Math.min(Math.max(rect.right - menuWidth, gap), window.innerWidth - menuWidth - gap)
     const fitsBelow = rect.bottom + menuHeight + gap <= window.innerHeight
@@ -572,24 +581,38 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onDele
             >
               Reviews
             </button>
-            <button
-              type="button"
-              onClick={(event) => {
-                setOpen(false)
-                onFlag(event, worker)
-              }}
-              className="w-full border-b border-[var(--border-main)] px-3 py-2.5 text-left text-xs font-bold text-amber-600 hover:bg-amber-500/10"
-              role="menuitem"
-            >
-              {flagged ? 'Unflag' : 'Flag'}
-            </button>
+            {flagged ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  setOpen(false)
+                  onUnflag(event, worker)
+                }}
+                className="w-full border-b border-[var(--border-main)] px-3 py-2.5 text-left text-xs font-bold text-emerald-600 hover:bg-emerald-500/10"
+                role="menuitem"
+              >
+                Unflag
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={(event) => {
+                  setOpen(false)
+                  onFlag(event, worker)
+                }}
+                className="w-full border-b border-[var(--border-main)] px-3 py-2.5 text-left text-xs font-bold text-amber-600 hover:bg-amber-500/10"
+                role="menuitem"
+              >
+                Flag
+              </button>
+            )}
             <button
               type="button"
               onClick={(event) => {
                 setOpen(false)
                 onReject(event, worker)
               }}
-              className="w-full px-3 py-2.5 text-left text-xs font-bold text-red-500 hover:bg-red-500/10"
+              className="w-full border-b border-[var(--border-main)] px-3 py-2.5 text-left text-xs font-bold text-red-500 hover:bg-red-500/10"
               role="menuitem"
             >
               Reject
@@ -774,8 +797,27 @@ export default function WorkerList() {
 
   const flagWorker = async (event, worker) => {
     event.stopPropagation()
-    const nextFlag = !(worker.flagged || worker.isFlagged || worker.isFlaged)
-    await workersApi.updateWorker(worker.id, { flagged: nextFlag, isFlagged: nextFlag, isFlaged: nextFlag })
+    await workersApi.updateWorker(worker.id, {
+      flagged: true,
+      isFlagged: true,
+      isFlaged: true,
+      moderationStatus: 'Under Review',
+      flagStatus: 'Flagged',
+      flaggedAt: new Date().toISOString(),
+    })
+    loadWorkers()
+  }
+
+  const unflagWorker = async (event, worker) => {
+    event.stopPropagation()
+    await workersApi.updateWorker(worker.id, {
+      flagged: false,
+      isFlagged: false,
+      isFlaged: false,
+      moderationStatus: 'Resolved',
+      flagStatus: 'Resolved',
+      resolvedAt: new Date().toISOString(),
+    })
     loadWorkers()
   }
 
@@ -870,7 +912,7 @@ export default function WorkerList() {
             return (
             <TableRow
               key={worker.id}
-              highlight={worker.approvalStatus !== 'Approved'}
+              flagged={flagged}
               onClick={() => navigate(`/workers/${worker.id}?returnPage=${safePage}`, { state: { returnPage: safePage } })}
             >
               <TD className="whitespace-nowrap text-xs font-bold text-[var(--text-muted)]">
@@ -881,7 +923,7 @@ export default function WorkerList() {
                   <div className="relative shrink-0">
                     <WorkerAvatar worker={worker} priority={index < 6} />
                     {flagged && (
-                      <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-red-500 text-white shadow-lg" title="Flagged worker">
+                      <span className="absolute -left-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-red-500 text-white shadow-lg" title="Flagged worker">
                         <Icon n="flag" sz={11} cl="currentColor" />
                       </span>
                     )}
@@ -920,6 +962,7 @@ export default function WorkerList() {
                   onReviews={openReviews}
                   onReject={rejectWorker}
                   onFlag={flagWorker}
+                  onUnflag={unflagWorker}
                   onDelete={deleteWorker}
                 />
               </TD>

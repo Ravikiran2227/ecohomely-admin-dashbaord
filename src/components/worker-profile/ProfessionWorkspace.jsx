@@ -390,6 +390,29 @@ function getProfessionField(profession = {}, worker = {}, paths = []) {
   return undefined
 }
 
+function resolveFullServicePackagePrice(profession = {}, worker = {}) {
+  const candidates = [
+    profession.fullServicePackagePrice,
+    profession.packagePrice,
+    profession.comboPrice,
+    profession.comboPackagePrice,
+    profession.combinedPrice,
+    worker.fullServicePackagePrice,
+    worker.packagePrice,
+    worker.comboPrice,
+    worker.comboPackagePrice,
+    profession.fullServicePackage,
+    profession.fullService,
+    worker.fullServicePackage,
+    worker.fullService,
+  ]
+  for (const candidate of candidates) {
+    const amount = amountFromValue(candidate)
+    if (amount > 0) return amount
+  }
+  return undefined
+}
+
 function buildProfessionInfoRows(profession = {}, worker = {}, reviewCards = []) {
   profession = profession || {}
   worker = worker || {}
@@ -405,8 +428,7 @@ function buildProfessionInfoRows(profession = {}, worker = {}, reviewCards = [])
     { label: 'Team Size', value: getProfessionField(profession, worker, ['teamSize', 'teamMembers', 'teamMemberCount']) },
     { label: 'Minimum Visit Price', value: getProfessionField(profession, worker, ['minimumPrice', 'minimalVisitCharge', 'minimumVisitCharge', 'visitCharge', 'price', 'basePrice']) },
     { label: 'Minimal Visit Includes', value: getProfessionField(profession, worker, ['minimalVisitIncludes', 'minimumVisitIncludes', 'visitIncludes', 'includes']) },
-    { label: 'Full Service Package Price', value: getProfessionField(profession, worker, ['fullServicePackagePrice', 'fullServicePackage', 'fullService', 'packagePrice', 'comboPrice', 'comboPackagePrice']) },
-    { label: 'Full Service Package', value: getProfessionField(profession, worker, ['fullServicePackage', 'fullService', 'package', 'packages']) },
+    { label: 'Full Service Package Price', value: resolveFullServicePackagePrice(profession, worker) },
     { label: 'Brand Certification', value: getProfessionField(profession, worker, ['brandCertification', 'brandCertificate', 'certification', 'brand.certification']) },
   ]
 

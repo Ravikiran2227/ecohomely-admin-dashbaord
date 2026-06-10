@@ -34,16 +34,18 @@ export function TableHead({ cols }) {
   )
 }
 
-export function TableRow({ children, highlight, onClick, selected }) {
+export function TableRow({ children, highlight, flagged, onClick, selected }) {
   return (
     <tr
       onClick={onClick}
       className={`transition-colors duration-150 ${
-        selected 
-          ? 'bg-[var(--color-brand-500)]/10' 
-          : highlight 
-            ? 'bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-950/30' 
-            : 'bg-[var(--card-bg)] hover:bg-[var(--bg-main)]'
+        selected
+          ? 'bg-[var(--color-brand-500)]/10'
+          : flagged
+            ? 'bg-[color-mix(in_srgb,var(--warning)_14%,var(--card-bg))] hover:bg-[color-mix(in_srgb,var(--warning)_20%,var(--card-bg))] ring-1 ring-inset ring-[color-mix(in_srgb,var(--warning)_28%,transparent)]'
+            : highlight
+              ? 'bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-950/30'
+              : 'bg-[var(--card-bg)] hover:bg-[var(--bg-main)]'
       } ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
     >
       {children}

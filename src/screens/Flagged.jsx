@@ -5,7 +5,6 @@ import PageHeader from '../components/PageHeader'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import Icon from '../components/Icon'
-import FilterPills from '../components/FilterPills'
 import EmptyState from '../components/EmptyState'
 import { C } from '../theme'
 import complaintsApi from '../services/complaintsApi'
@@ -41,6 +40,51 @@ function normalizeName(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
+}
+
+function normalizePhone(value) {
+  return String(value || '').replace(/\D+/g, '')
+}
+
+function userPhone(record = {}) {
+  return firstText(
+    record.phone,
+    record.phoneNumber,
+    record.mobile,
+    record.mobileNumber,
+    record.contact,
+    record.contactNumber,
+    ''
+  )
+}
+
+function flaggedSearchText(item, customers, workers) {
+  const matchedCustomer = item.customerId
+    ? customers.find((customer) => customer.id === item.customerId)
+    : customers.find((customer) => isLooseNameMatch(customer.name, item.name))
+  const matchedWorker = item.workerId
+    ? workers.find((worker) => worker.id === item.workerId)
+    : workers.find((worker) => isLooseNameMatch(worker.name, item.name))
+
+  return {
+    text: [
+      item.name,
+      item.phone,
+      matchedCustomer?.name,
+      matchedCustomer?.fullName,
+      matchedCustomer?.displayName,
+      userPhone(matchedCustomer),
+      matchedWorker?.name,
+      matchedWorker?.fullName,
+      matchedWorker?.displayName,
+      userPhone(matchedWorker),
+    ].filter(Boolean).join(' ').toLowerCase(),
+    phone: [
+      item.phone,
+      userPhone(matchedCustomer),
+      userPhone(matchedWorker),
+    ].map(normalizePhone).filter(Boolean).join(' '),
+  }
 }
 
 function isLooseNameMatch(left, right) {
@@ -113,6 +157,7 @@ function flaggedFromComplaint(complaint = {}) {
     source: 'complaint',
     sourceId: complaint.id,
     name: firstText(complaint.customer, complaint.customerName, complaint.worker, complaint.workerName, complaint.id, ''),
+    phone: firstText(complaint.customerPhone, complaint.workerPhone, complaint.phone, complaint.mobile, complaint.contactNumber, ''),
     customerId: complaint.customerId || complaint.userId,
     workerId: complaint.workerId || complaint.servicemanId,
     sourceComplaintId: complaint.id,
@@ -131,6 +176,7 @@ function flaggedFromCustomer(customer = {}) {
     source: 'customer',
     sourceId: customer.id,
     name: firstText(customer.name, customer.fullName, customer.displayName, customer.email, customer.phone, ''),
+    phone: userPhone(customer),
     customerId: customer.id,
     type: 'Customer',
     reason: firstText(customer.flagReason, customer.moderationReason, customer.reviewNote, customer.blockReason, ''),
@@ -146,6 +192,7 @@ function flaggedFromWorker(worker = {}) {
     source: 'worker',
     sourceId: worker.id,
     name: firstText(worker.name, worker.fullName, worker.displayName, worker.phone, ''),
+    phone: userPhone(worker),
     workerId: worker.id,
     type: 'Worker',
     reason: firstText(worker.flagReason, worker.moderationReason, worker.reviewNote, worker.rejectionReason, ''),
@@ -161,7 +208,7 @@ export default function Flagged() {
   const [customers, setCustomers] = useState([])
   const [workers, setWorkers] = useState([])
   const [complaints, setComplaints] = useState([])
-  const [filter, setFilter] = useState('All')
+  const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -202,7 +249,17 @@ export default function Flagged() {
     loadFlagged()
   }, [])
 
-  const filtered = useMemo(() => list.filter(f => filter === 'All' || f.type === filter), [filter, list])
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    const queryPhone = normalizePhone(query)
+
+    return list.filter((f) => {
+      if (!query) return true
+
+      const searchable = flaggedSearchText(f, customers, workers)
+      return searchable.text.includes(query) || (queryPhone && searchable.phone.includes(queryPhone))
+    })
+  }, [customers, list, search, workers])
   const pageCount = Math.max(Math.ceil(filtered.length / PAGE_SIZE), 1)
   const safePage = Math.min(page, pageCount)
   const pagedRecords = useMemo(() => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filtered, safePage])
@@ -265,7 +322,26 @@ export default function Flagged() {
       <PageHeader
         title="Flagged Users"
         sub="Workers and customers flagged for review"
-        action={<Btn v="outline" onClick={loadFlagged} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</Btn>}
+        action={(
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <label className="relative block w-full sm:w-[min(100vw-3rem,360px)]">
+              <Icon n="search" sz={16} cl="var(--text-muted)" className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2" />
+              <input
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value)
+                  setPage(1)
+                }}
+                placeholder="Search by name or phone number"
+                aria-label="Search flagged users by name or phone number"
+                className="h-11 w-full rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] pl-11 pr-4 text-sm font-semibold text-[var(--text-main)] outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15"
+              />
+            </label>
+            <Btn v="outline" onClick={loadFlagged} disabled={loading} className="h-11 shrink-0 px-5">
+              {loading ? 'Loading...' : 'Refresh'}
+            </Btn>
+          </div>
+        )}
       />
 
       {error && (
@@ -297,13 +373,6 @@ export default function Flagged() {
         ))}
       </div>
 
-      <div style={{ marginBottom: 16 }}>
-        <FilterPills options={['All', 'Worker', 'Customer']} active={filter} onChange={(nextFilter) => {
-          setFilter(nextFilter)
-          setPage(1)
-        }} />
-      </div>
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {loading ? (
           <EmptyState
@@ -314,9 +383,9 @@ export default function Flagged() {
         ) : filtered.length === 0 ? (
           <EmptyState
             icon="flag"
-            title={list.length === 0 ? 'No flagged users found' : 'No users in this filter'}
-            description={list.length === 0 ? 'Flagged workers, customers, and high-severity complaints will appear here.' : 'Switch the filter to All to see every flagged record.'}
-            action={<Btn v="outline" onClick={list.length === 0 ? loadFlagged : () => setFilter('All')}>{list.length === 0 ? 'Refresh' : 'Clear Filter'}</Btn>}
+            title={list.length === 0 ? 'No flagged users found' : 'No users match this search'}
+            description={list.length === 0 ? 'Flagged workers, customers, and high-severity complaints will appear here.' : 'Clear the search to see more flagged records.'}
+            action={<Btn v="outline" onClick={list.length === 0 ? loadFlagged : () => { setSearch(''); setPage(1) }}>{list.length === 0 ? 'Refresh' : 'Clear Search'}</Btn>}
           />
         ) : (
           <>

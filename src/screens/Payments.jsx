@@ -431,6 +431,7 @@ function normalizeWorkerPayment(worker = {}, index = 0) {
   return {
     id: displayText(firstText(worker.paymentId, worker.payId, worker.transactionId, worker.subscriptionPaymentId), `PAY-${String(workerId || index + 1).slice(-6).toUpperCase()}`),
     sourceType: 'worker',
+    paymentCategory: 'onboarding',
     worker: getWorkerName(worker),
     workerId: workerId || null,
     phone: worker.phone || worker.phoneNumber || worker.mobile || '',
@@ -449,11 +450,15 @@ function normalizeWorkerPayment(worker = {}, index = 0) {
   }
 }
 
+function isOnboardingPayment(item = {}) {
+  return item.paymentCategory === 'onboarding' || item.sourceType === 'worker'
+}
+
 function buildMonthly(paymentsList) {
   const buckets = new Map()
 
   paymentsList
-    .filter((item) => item.status === 'Paid' || item.status === 'Verified')
+    .filter((item) => isOnboardingPayment(item) && (item.status === 'Paid' || item.status === 'Verified') && item.onboardingFeePaid === 'Yes')
     .forEach((item) => {
       const parsed = item.dateValue || parseFirestoreDate(item.date)
       if (!parsed || Number.isNaN(parsed.getTime())) return
@@ -526,9 +531,14 @@ export default function Payments() {
 
   const selectedPayment = filtered.find((item) => item.id === selectedId) || filtered[0] || null
   const selectedWorker = selectedPayment ? findWorkerByPayment(selectedPayment, workerList) : null
-  const pendingCount = list.filter((item) => item.status === 'Not Paid' || item.status === 'Pending Verify').length
-  const totalRevenue = list.filter((item) => item.status === 'Paid' || item.status === 'Verified').reduce((sum, item) => sum + (item.amt || 0), 0)
-  const monthly = useMemo(() => buildMonthly(list), [list])
+  const onboardingRecords = useMemo(() => list.filter(isOnboardingPayment), [list])
+  const pendingCount = onboardingRecords.filter((item) => item.status === 'Not Paid' || item.status === 'Pending Verify').length
+  const onboardingPaidCount = onboardingRecords.filter((item) => item.onboardingFeePaid === 'Yes').length
+  const onboardingRevenue = onboardingRecords
+    .filter((item) => item.onboardingFeePaid === 'Yes' && (item.status === 'Paid' || item.status === 'Verified'))
+    .reduce((sum, item) => sum + (item.amt || 0), 0)
+  const monthly = useMemo(() => buildMonthly(onboardingRecords), [onboardingRecords])
+  const subscriptionPaymentCount = 0
 
   async function verify(id) {
     setVerifyingId(id)
@@ -552,15 +562,15 @@ export default function Payments() {
     <div className="grid gap-5">
       <PageHeader
         title="Payment History"
-        sub="Serviceman app subscription payments synced from Firebase"
+        sub="Serviceman onboarding fee collections synced from Firebase"
         action={<Btn v="outline"><ArrowUpRight className="h-4 w-4" /> Export CSV</Btn>}
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Paid Revenue" value={`Rs.${totalRevenue.toLocaleString()}`} sub="All paid serviceman subscription collections" tone="emerald" />
-        <Metric label="Not Paid" value={pendingCount} sub="Workers without paid subscription status" tone="amber" />
-        <Metric label={monthly.at(-1)?.month || 'Current'} value={`Rs.${(monthly.at(-1)?.rev || 0).toLocaleString()}`} sub={`${monthly.at(-1)?.count || 0} transactions in the latest month`} tone="brand" />
-        <Metric label="Subscription Payments" value={list.length} sub="Serviceman app subscription records only" tone="blue" />
+        <Metric label="Onboarding Revenue" value={`Rs.${onboardingRevenue.toLocaleString('en-IN')}`} sub="Paid onboarding fee collections from the app" tone="emerald" />
+        <Metric label="Not Paid" value={pendingCount} sub="Workers without paid onboarding fee" tone="amber" />
+        <Metric label={monthly.at(-1)?.month || 'Current'} value={`Rs.${(monthly.at(-1)?.rev || 0).toLocaleString('en-IN')}`} sub={`${monthly.at(-1)?.count || 0} onboarding fees in the latest month`} tone="brand" />
+        <Metric label="Onboarding Records" value={onboardingRecords.length} sub={`${onboardingPaidCount} paid · subscription payments: ${subscriptionPaymentCount}`} tone="blue" />
       </div>
 
       {loading ? <StateCard title="Loading payments" message="Fetching live payment records from the backend." /> : null}
@@ -573,18 +583,18 @@ export default function Payments() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Revenue Trend</div>
-                  <div className="mt-2 text-xl font-black text-[var(--text-main)]">Monthly paid collections</div>
-                  <div className="mt-1 text-sm text-[var(--text-muted)]">Last seven months of subscription flow, including the current partial month.</div>
+                  <div className="mt-2 text-xl font-black text-[var(--text-main)]">Monthly onboarding collections</div>
+                  <div className="mt-1 text-sm text-[var(--text-muted)]">Last seven months of paid onboarding fees, including the current partial month.</div>
                 </div>
                 <Badge label="Paid only" color="#16A34A" />
               </div>
-              {monthly.length > 0 ? <MiniChart data={monthly} /> : <EmptyState title="No revenue trend yet" description="Paid payment records with dates will populate this chart." />}
+              {monthly.length > 0 ? <MiniChart data={monthly} /> : <EmptyState title="No onboarding trend yet" description="Paid onboarding fee records with dates will populate this chart." />}
             </Card>
 
             <ListToolbar
-              title="Payments Ledger"
-              subtitle="Search serviceman subscription payment records from Firebase"
-              resultLabel={filtered.length ? `${pageStart + 1}-${pageEnd} of ${filtered.length} payment records` : '0 payment records'}
+              title="Onboarding Fee Ledger"
+              subtitle="Search serviceman onboarding fee records from Firebase"
+              resultLabel={filtered.length ? `${pageStart + 1}-${pageEnd} of ${filtered.length} onboarding records` : '0 onboarding records'}
               searchValue={search}
               onSearchChange={setSearch}
               searchPlaceholder="Search worker, pay ID, profession, or area"
@@ -616,7 +626,7 @@ export default function Payments() {
                         ) : (
                           <div className="font-bold text-[var(--text-main)]">{item.worker}</div>
                         )}
-                        <div className="mt-1 text-xs text-[var(--text-muted)]">{item.plan}</div>
+                        <div className="mt-1 text-xs text-[var(--text-muted)]">{item.area !== '-' ? item.area : 'Onboarding fee'}</div>
                       </TD>
                       <TD>{item.job}</TD>
                       <TD><Badge label={item.status} color={STATUS_COLORS[item.status] || '#64748B'} /></TD>
@@ -670,12 +680,13 @@ export default function Payments() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                  <DetailRow label="Plan" value={selectedPayment.plan} />
+                  <DetailRow label="Membership Plan" value={selectedPayment.plan} />
                   <DetailRow label="Profession" value={selectedPayment.job} />
-                  <DetailRow label="Payment Status" value={selectedPayment.status} />
+                  <DetailRow label="Onboarding Fee Status" value={selectedPayment.status} />
                   <DetailRow label="Onboarding Fee Paid" value={selectedPayment.onboardingFeePaid || 'No'} />
                   <DetailRow label="Onboarding Fee Amount" value={selectedPayment.onboardingFeeAmount || 'N/A'} />
-                  <DetailRow label="Collection Amount" value={formatAmount(selectedPayment.amt)} />
+                  <DetailRow label="Subscription Payments" value={String(subscriptionPaymentCount)} />
+                  <DetailRow label="Collected Amount" value={formatAmount(selectedPayment.amt)} />
                   <DetailRow label="Collection Date" value={selectedPayment.dateOnly || selectedPayment.date} />
                   <DetailRow label="Collection Time" value={selectedPayment.timeOnly || '-'} />
                 </div>
@@ -686,9 +697,9 @@ export default function Payments() {
                   </div>
                   <div className="mt-4 space-y-3">
                     {[
-                      { icon: Wallet, title: 'Collection method', body: selectedPayment.method === '-' ? 'No payment method is stored for this subscription record.' : `${selectedPayment.method} was used for this subscription collection.` },
-                      { icon: Landmark, title: 'Verification state', body: selectedPayment.status === 'Pending Verify' ? 'This transaction is still waiting for manual verification.' : 'This transaction is already verified and counted in revenue.' },
-                      { icon: CheckCircle2, title: 'Finance rule', body: 'Only verified collections are added to the main revenue summary for dashboard reporting.' },
+                      { icon: Wallet, title: 'Collection method', body: selectedPayment.method === '-' ? 'No payment method is stored for this onboarding fee record.' : `${selectedPayment.method} was used for this onboarding fee collection.` },
+                      { icon: Landmark, title: 'Verification state', body: selectedPayment.status === 'Pending Verify' ? 'This onboarding fee is still waiting for manual verification.' : 'This onboarding fee is already verified and counted in onboarding revenue.' },
+                      { icon: CheckCircle2, title: 'Finance rule', body: 'Subscription billing has not started yet. Only onboarding fee collections are tracked here until plans go live.' },
                     ].map((step) => {
                       const StepIcon = step.icon
                       return (

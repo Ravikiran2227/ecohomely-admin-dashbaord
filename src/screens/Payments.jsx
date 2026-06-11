@@ -20,6 +20,7 @@ const COLS = [
   { label: 'Serviceman' },
   { label: 'Profession' },
   { label: 'Payment Status' },
+  { label: 'Onboarding Fee', w: '150px' },
   { label: 'Amount' },
   { label: 'Method' },
   { label: 'Date' },
@@ -374,6 +375,38 @@ function getWorkerPaymentStatus(worker = {}) {
   return 'Not Paid'
 }
 
+function getOnboardingFeeInfo(worker = {}) {
+  const paidValue = firstText(
+    worker.paid,
+    worker.isPaid,
+    worker.havePaid,
+    worker.paymentDone,
+    worker.subscriptionPaid,
+    worker.paymentStatus,
+  )
+  const paid = paidValue === true || ['paid', 'yes', 'true', 'success', 'completed', 'active'].includes(String(paidValue).toLowerCase())
+  const amountValue = firstText(
+    worker.paymentAmount,
+    worker.amountPaid,
+    worker.paidAmount,
+    worker.subscriptionAmount,
+    worker.planAmount,
+  )
+  const amountNumber = Number(String(amountValue ?? '').replace(/[^\d.-]/g, ''))
+  const amount = !paid || amountValue === undefined || amountValue === null || amountValue === ''
+    ? 'N/A'
+    : Number.isFinite(amountNumber)
+      ? `Rs ${amountNumber}`
+      : String(amountValue)
+
+  return {
+    paid: paid ? 'Yes' : 'No',
+    amount,
+    amountNumber: Number.isFinite(amountNumber) ? amountNumber : 0,
+    isPaid: paid,
+  }
+}
+
 function getWorkerPaymentDate(worker = {}) {
   return firstText(
     worker.paymentDate,
@@ -391,8 +424,10 @@ function getWorkerPaymentDate(worker = {}) {
 }
 
 function normalizeWorkerPayment(worker = {}, index = 0) {
+  const onboardingFee = getOnboardingFeeInfo(worker)
   const rawDate = getWorkerPaymentDate(worker)
   const workerId = firstText(worker.id, worker.uid, worker.userId, worker.workerId, worker.partnerId, worker.servicemanId, worker.authId)
+  const status = getWorkerPaymentStatus(worker)
   return {
     id: displayText(firstText(worker.paymentId, worker.payId, worker.transactionId, worker.subscriptionPaymentId), `PAY-${String(workerId || index + 1).slice(-6).toUpperCase()}`),
     sourceType: 'worker',
@@ -402,13 +437,15 @@ function normalizeWorkerPayment(worker = {}, index = 0) {
     job: getWorkerProfession(worker),
     area: displayText(firstText(worker.areaName, worker.mainArea, worker.area, worker.city, worker.location)),
     plan: displayText(firstText(worker.plan, worker.planName, worker.subscriptionPlan, worker.membership, worker.planType)),
-    amt: 0,
+    amt: onboardingFee.isPaid ? onboardingFee.amountNumber : 0,
+    onboardingFeePaid: onboardingFee.paid,
+    onboardingFeeAmount: onboardingFee.amount,
     method: normalizeMethod(firstText(worker.paymentMethod, worker.method, worker.mode, worker.paymentMode, readPath(worker, 'payment.method'), readPath(worker, 'subscription.method'))),
     date: formatDate(rawDate),
     dateOnly: formatDateOnly(rawDate),
     timeOnly: formatTimeOnly(rawDate),
     dateValue: parseFirestoreDate(rawDate),
-    status: 'Not Paid',
+    status,
   }
 }
 
@@ -583,6 +620,10 @@ export default function Payments() {
                       </TD>
                       <TD>{item.job}</TD>
                       <TD><Badge label={item.status} color={STATUS_COLORS[item.status] || '#64748B'} /></TD>
+                      <TD className="text-xs font-bold text-[var(--text-main)]">
+                        <p>Paid: <span className="font-extrabold">{item.onboardingFeePaid || 'No'}</span></p>
+                        <p>Amount: <span className="font-extrabold">{item.onboardingFeeAmount || 'N/A'}</span></p>
+                      </TD>
                       <TD className="font-black">{formatAmount(item.amt)}</TD>
                       <TD><Badge label={item.method} color={METHOD_COLORS[item.method] || '#64748B'} /></TD>
                       <TD>{item.dateOnly || item.date}</TD>
@@ -632,6 +673,8 @@ export default function Payments() {
                   <DetailRow label="Plan" value={selectedPayment.plan} />
                   <DetailRow label="Profession" value={selectedPayment.job} />
                   <DetailRow label="Payment Status" value={selectedPayment.status} />
+                  <DetailRow label="Onboarding Fee Paid" value={selectedPayment.onboardingFeePaid || 'No'} />
+                  <DetailRow label="Onboarding Fee Amount" value={selectedPayment.onboardingFeeAmount || 'N/A'} />
                   <DetailRow label="Collection Amount" value={formatAmount(selectedPayment.amt)} />
                   <DetailRow label="Collection Date" value={selectedPayment.dateOnly || selectedPayment.date} />
                   <DetailRow label="Collection Time" value={selectedPayment.timeOnly || '-'} />

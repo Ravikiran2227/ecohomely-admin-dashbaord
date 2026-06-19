@@ -376,6 +376,22 @@ function formatProfileFieldValue(value) {
   return String(value)
 }
 
+function isAdminApprovedWorker(worker = {}) {
+  const approvalValues = [
+    worker.Approved,
+    worker.approved,
+    worker.isApproved,
+    worker.adminApproved,
+  ]
+  if (approvalValues.some((value) => value === true || ['true', 'yes', 'approved'].includes(String(value || '').toLowerCase()))) {
+    return true
+  }
+  if (approvalValues.some((value) => value === false || ['false', 'no', 'pending', 'rejected'].includes(String(value || '').toLowerCase()))) {
+    return false
+  }
+  return worker.approvalStatus === 'Approved'
+}
+
 function buildProfileRows(source = {}, definitions = []) {
   return definitions
     .map((definition) => ({
@@ -1062,7 +1078,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const aadhaarDocument = documentCards.find((document) => canonicalDocumentKind(document) === 'aadhaar')
   const hiddenDocumentCards = documentCards.filter(documentLooksHidden)
   const visibleDocumentCards = documentCards.filter((document) => !documentLooksHidden(document))
-  const isVerified = Boolean(worker.verified || worker.isVerified || worker.approvalStatus === 'Approved')
+  const isVerified = isAdminApprovedWorker(worker)
   const workerStatus = isSuspended ? 'Suspended' : (worker.availability === 'Available' ? 'Active' : worker.availability)
   const activePlan = worker.planType || worker.planName || worker.subscriptionPlan || ''
   const planExpiryLabel = worker.planExpiry ? formatDate(worker.planExpiry) : ''
@@ -1100,7 +1116,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
     { label: 'Name', paths: ['name', 'fullName', 'profile.name', 'personalDetails.name'] },
     { label: 'Email', paths: ['email', 'emailId', 'mail', 'profile.email', 'personalDetails.email'] },
     { label: 'Phone', paths: ['phone', 'mobile', 'phoneNumber', 'mobileNumber', 'personalDetails.phone'] },
-    { label: 'Verified', paths: ['verified', 'isVerified', 'approvalStatus'], format: (value) => value === 'Approved' ? 'Yes' : formatProfileFieldValue(value) },
+    { label: 'Verified', paths: [], format: () => isVerified ? 'Yes' : 'No' },
     { label: 'Date of Birth', paths: ['dateOfBirth', 'dob', 'birthDate', 'profile.dateOfBirth', 'personalDetails.dateOfBirth'] },
     { label: 'Location', paths: ['address', 'location.address', 'serviceLocation.address', 'fullAddress'], format: (value) => formatProfileFieldValue(value) || workerLocation },
     { label: 'Primary Area', paths: ['areaName', 'mainArea', 'primaryArea', 'area', 'location.area'] },
@@ -1596,7 +1612,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
                 <span>{totalReviews} reviews</span>
               </div>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                {isVerified && <StatusChip label="Verified" className="border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" />}
+                <StatusChip
+                  label={isVerified ? 'Verified' : 'Not Verified'}
+                  className={isVerified
+                    ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                    : 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'}
+                />
                 <StatusChip label={workerStatus} className={isSuspended ? 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'} />
                 <MembershipBadge badge={membershipBadge} />
               </div>

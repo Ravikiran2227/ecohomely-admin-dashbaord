@@ -288,10 +288,10 @@ function getWorkerExperienceYears(worker = {}) {
 }
 
 function normalizeApprovalStatus(worker = {}) {
-  const explicitStatus = firstValue(worker.approvalStatus, worker.approval_status, worker.approvalState, worker.reviewStatus, worker.status)
+  const explicitStatus = firstValue(worker.approvalStatus, worker.approval_status, worker.approvalState, worker.reviewStatus)
   if (explicitStatus) {
     const normalized = String(explicitStatus).toLowerCase()
-    if (['approved', 'active'].includes(normalized)) return 'Approved'
+    if (normalized === 'approved') return 'Approved'
     if (['rejected', 'blocked', 'suspended'].includes(normalized)) return 'Rejected'
     if (normalized.includes('correction')) return 'Correction Required'
     if (normalized.includes('pending') || normalized.includes('review')) return 'Pending'
@@ -301,6 +301,12 @@ function normalizeApprovalStatus(worker = {}) {
   if (hasValue(worker.approved)) return toBoolean(worker.approved) ? 'Approved' : 'Pending'
   if (hasValue(worker.isApproved)) return toBoolean(worker.isApproved) ? 'Approved' : 'Pending'
   if (hasValue(worker.adminApproved)) return toBoolean(worker.adminApproved) ? 'Approved' : 'Pending'
+
+  const operationalStatus = String(worker.status || '').toLowerCase()
+  if (['rejected', 'blocked', 'suspended'].includes(operationalStatus)) return 'Rejected'
+  if (operationalStatus.includes('correction')) return 'Correction Required'
+  if (operationalStatus.includes('pending') || operationalStatus.includes('review')) return 'Pending'
+  if (operationalStatus === 'approved') return 'Approved'
 
   return 'Pending'
 }

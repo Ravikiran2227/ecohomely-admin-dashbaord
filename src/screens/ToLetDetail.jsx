@@ -84,7 +84,15 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
 
   const listingPhotos = Array.isArray(listing.photos) ? listing.photos.filter(Boolean) : []
   const activePhoto = listingPhotos[zoomedPhoto] || listingPhotos[0] || ''
-  const isImageUrl = (value = '') => /^https?:\/\//i.test(String(value)) || /^data:image\//i.test(String(value))
+  const isVideoUrl = (value = '') => {
+    const text = String(value)
+    return /^data:video\//i.test(text)
+      || /\.(mp4|webm|ogg|mov|m4v|avi|mkv)(\?.*)?$/i.test(text)
+      || /\.(mp4|webm|ogg|mov|m4v|avi|mkv)(\?|&|%3F)/i.test(text)
+      || /\/video\/upload\//i.test(text)
+      || /(^|\/|%2F)videos?(\/|%2F)/i.test(text)
+  }
+  const isImageUrl = (value = '') => !isVideoUrl(value) && (/^https?:\/\//i.test(String(value)) || /^data:image\//i.test(String(value)))
   const correctionSet = new Set(correctionModal.items)
 
   const recentEnquiries = [...listingEnquiries].sort((left, right) => right.date.localeCompare(left.date)).slice(0, 4)
@@ -585,7 +593,20 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
                 }}
                 className="group aspect-video overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] transition-all hover:border-brand-500/50 hover:shadow-lg"
               >
-                {isImageUrl(photo) ? (
+                {isVideoUrl(photo) ? (
+                  <div className="relative h-full w-full">
+                    <video
+                      src={photo}
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      muted
+                      playsInline
+                      preload="metadata"
+                    />
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white">▶</span>
+                    </span>
+                  </div>
+                ) : isImageUrl(photo) ? (
                   <img
                     src={photo}
                     alt={`${listing.title} photo ${index + 1}`}
@@ -669,7 +690,15 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
       >
         <div className="grid gap-6">
           <div className="min-h-[360px] overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] flex items-center justify-center">
-            {isImageUrl(activePhoto) ? (
+            {isVideoUrl(activePhoto) ? (
+              <video
+                src={activePhoto}
+                className="max-h-[70vh] w-full object-contain"
+                controls
+                autoPlay
+                playsInline
+              />
+            ) : isImageUrl(activePhoto) ? (
               <img
                 src={activePhoto}
                 alt={`${listing.title} selected photo`}
@@ -690,7 +719,14 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
                   : 'border-[var(--border-main)] bg-[var(--bg-main)] hover:bg-[var(--card-hover)]'
                 }`}
               >
-                {isImageUrl(photo) ? (
+                {isVideoUrl(photo) ? (
+                  <div className="relative h-full w-full">
+                    <video src={photo} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-[10px] text-white">▶</span>
+                    </span>
+                  </div>
+                ) : isImageUrl(photo) ? (
                   <img src={photo} alt={`${listing.title} thumbnail ${index + 1}`} className="h-full w-full object-cover" loading="lazy" />
                 ) : photo}
               </button>

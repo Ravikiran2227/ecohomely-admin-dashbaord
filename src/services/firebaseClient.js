@@ -1260,14 +1260,29 @@ function existingPropertyPhotos(row = {}) {
     .filter((value) => /^https?:\/\//i.test(String(value)))
 }
 
+async function listPropertyListingVideoUrls(userId, listingId) {
+  if (!userId || !listingId) return []
+  const folders = [
+    `propertyListings/${userId}/${listingId}/video`,
+    `propertyListings/${userId}/${listingId}/videos`,
+  ]
+  for (const folder of folders) {
+    const urls = await listStorageImageUrls(folder)
+    if (urls.length > 0) return urls
+  }
+  return []
+}
+
 async function enrichPropertyListingPhotos(rows = []) {
   return Promise.all(rows.map(async (row) => {
-    const existing = existingPropertyPhotos(row)
-    if (existing.length > 0) return { ...row, photoUrls: existing }
-
     const userId = row.userId || row.ownerCustomerId || row.uid || row.form?.userId || row.__parentId
     const listingId = row.id || row.listingId
-    if (!userId || !listingId) return row
+    const videoUrls = await listPropertyListingVideoUrls(userId, listingId)
+
+    const existing = existingPropertyPhotos(row)
+    if (existing.length > 0) return { ...row, photoUrls: [...existing, ...videoUrls] }
+
+    if (!userId || !listingId) return videoUrls.length > 0 ? { ...row, photoUrls: videoUrls } : row
 
     const folders = [
       `propertyListings/${userId}/${listingId}/photos`,
@@ -1275,9 +1290,9 @@ async function enrichPropertyListingPhotos(rows = []) {
     ]
     for (const folder of folders) {
       const urls = await listStorageImageUrls(folder)
-      if (urls.length > 0) return { ...row, photoUrls: urls }
+      if (urls.length > 0) return { ...row, photoUrls: [...urls, ...videoUrls] }
     }
-    return row
+    return videoUrls.length > 0 ? { ...row, photoUrls: videoUrls } : row
   }))
 }
 

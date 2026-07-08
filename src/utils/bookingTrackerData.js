@@ -73,8 +73,8 @@ export function normalizeStatusLabel(status = '') {
   if (value === 'pending') return 'Pending'
   if (value === 'booked' || value === 'created' || value === 'new') return 'Pending'
   if (value === 'completed' || value === 'done') return 'Completed'
-  if (value === 'cancelled' || value === 'canceled' || value === 'rejected') return 'Rejected'
-  if (value === 'accepted') return 'Accepted'
+  if (value === 'cancelled' || value === 'canceled' || value === 'rejected' || value === 'declined' || value === 'denied') return 'Rejected'
+  if (value === 'accepted' || value === 'approved' || value === 'confirmed') return 'Accepted'
   if (value === 'assigned') return 'Assigned'
   if (value.includes('progress') || value === 'active') return 'In Progress'
   return status || ''
@@ -140,10 +140,15 @@ export function buildIssueList(booking, now) {
 export function deriveBookingStatus(booking, now) {
   const value = String(booking.rawStatus || booking.status || '').trim().toLowerCase()
   if (booking.invoiceGenerated || booking.invoiceId || booking.invoiceNumber || booking.completedAt) return 'Completed'
-  if (value === 'cancelled' || value === 'canceled' || value === 'rejected') return 'Rejected'
-  if (value === 'accepted') return 'Accepted'
+  if (value === 'completed' || value === 'complete' || value === 'done' || value === 'paid') return 'Completed'
+  if (value === 'cancelled' || value === 'canceled' || value === 'rejected' || value === 'declined' || value === 'denied') return 'Rejected'
+  if (booking.rejectedAt || booking.cancelledAt) return 'Rejected'
+  if (value === 'accepted' || value === 'approved' || value === 'confirmed') return 'Accepted'
+  if (booking.acceptedAt) return 'Accepted'
   if (value === 'assigned') return 'Assigned'
+  if (booking.assignedAt) return 'Assigned'
   if (value.includes('progress') || value === 'started' || value === 'active') return 'In Progress'
+  if (booking.startedAt) return 'In Progress'
   return 'Pending'
 }
 

@@ -85,6 +85,8 @@ export function hasWorkerResubmittedCorrection(worker = {}) {
 
 export function isUnreadProfileUpdate(worker = {}) {
   if (!hasWorkerResubmittedCorrection(worker)) return false
+  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
+  if (['approved', 'rejected', 'blocked', 'suspended'].includes(status)) return false
   return worker.adminCorrectionNotificationRead !== true
 }
 
@@ -122,4 +124,22 @@ export function countUnreadProfileUpdates(workers = [], notifications = [], { la
   })
 
   return unreadIds.size
+}
+
+export function countPendingProfileUpdates(workers = []) {
+  const pendingIds = new Set()
+
+  ;(Array.isArray(workers) ? workers : []).forEach((worker) => {
+    const id = workerIdentity(worker)
+    const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
+    if (
+      id
+      && hasWorkerResubmittedCorrection(worker)
+      && !['approved', 'rejected', 'blocked', 'suspended'].includes(status)
+    ) {
+      pendingIds.add(id)
+    }
+  })
+
+  return pendingIds.size
 }

@@ -9,7 +9,7 @@ import Modal from '../components/Modal'
 import { C } from '../theme'
 import { getLocationLabel, getPrimaryProfession } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
-import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
+import { dispatchProfileUpdatesChanged, hasWorkerResubmittedCorrection } from '../utils/profileUpdateNotifications'
 
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
@@ -166,6 +166,13 @@ function buildChecklist(worker = {}) {
   ]
 }
 
+function shouldShowInApprovalQueue(worker = {}) {
+  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
+  if (status === 'approved') return false
+  if (status.includes('correction') && !hasWorkerResubmittedCorrection(worker)) return false
+  return true
+}
+
 function correctionValue(value) {
   if (value === undefined || value === null) return ''
   if (Array.isArray(value)) return value.map((item) => (typeof item === 'object' ? item : String(item || '').trim())).filter(Boolean)
@@ -308,7 +315,7 @@ export default function WorkerApproval() {
     setError('')
     try {
       const workers = await workersApi.listWorkers()
-      setQueue(workers.filter(w => w.approvalStatus !== 'Approved').map(mapQueueWorker))
+      setQueue(workers.filter(shouldShowInApprovalQueue).map(mapQueueWorker))
       setApprovedCount(workers.filter(w => w.approvalStatus === 'Approved').length)
     } catch (err) {
       setError(err.message || 'Unable to load approval queue.')
@@ -336,6 +343,7 @@ export default function WorkerApproval() {
     await workersApi.rejectWorker(modal.worker.id, { reason: modal.message, note: modal.message })
     setQueue(prev => prev.filter(w => w.id !== modal.worker.id))
     setHistory(prev => [...prev, { id: modal.worker.id, type: 'reject', name: modal.worker.name, note: modal.message }])
+    dispatchProfileUpdatesChanged()
     closeModal()
   }
 
@@ -344,6 +352,7 @@ export default function WorkerApproval() {
     setQueue(prev => prev.filter(w => w.id !== worker.id))
     setApprovedCount(prev => prev + 1)
     setHistory(prev => [...prev, { id: worker.id, type: 'approve', name: worker.name }])
+    dispatchProfileUpdatesChanged()
   }
 
   const handleRequestFix = async () => {

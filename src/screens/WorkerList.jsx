@@ -15,6 +15,7 @@ import { DataTable, TableRow, TD } from '../components/Table'
 import locationsApi from '../services/locationsApi'
 import workersApi from '../services/workersApi'
 import { resolveWorkerAssetUrl } from '../services/firebaseClient'
+import { correctionSubmittedAt, hasWorkerResubmittedCorrection } from '../utils/profileUpdateNotifications'
 
 function FilterField({ value, onChange, options, placeholder, icon }) {
   const [open, setOpen] = useState(false)
@@ -399,6 +400,8 @@ function getWorkerJoinedDateValue(worker = {}) {
 
 function getWorkerUpdatedDateValue(worker = {}) {
   return firstText(
+    worker.correctionSubmittedAt,
+    worker.resubmittedAt,
     worker.updatedAt,
     worker.UpdatedAt,
     worker.updated_at,
@@ -407,6 +410,19 @@ function getWorkerUpdatedDateValue(worker = {}) {
     worker.modifiedAt,
     worker.lastUpdatedAt,
   )
+}
+
+function compareCorrectionUpdatePriority(left = {}, right = {}) {
+  const leftUpdatedAfterCorrection = hasWorkerResubmittedCorrection(left)
+  const rightUpdatedAfterCorrection = hasWorkerResubmittedCorrection(right)
+  if (leftUpdatedAfterCorrection !== rightUpdatedAfterCorrection) {
+    return Number(rightUpdatedAfterCorrection) - Number(leftUpdatedAfterCorrection)
+  }
+  if (!leftUpdatedAfterCorrection) return 0
+
+  const rightSubmittedAt = getDateMs(correctionSubmittedAt(right))
+  const leftSubmittedAt = getDateMs(correctionSubmittedAt(left))
+  return rightSubmittedAt - leftSubmittedAt
 }
 
 function getWorkerCreatedDate(worker) {
@@ -479,6 +495,10 @@ function isPaidWorker(worker) {
 }
 
 function compareBySort(left, right, sortBy) {
+  if (sortBy === 'date' || sortBy === 'accountEdited') {
+    const correctionPriority = compareCorrectionUpdatePriority(left, right)
+    if (correctionPriority !== 0) return correctionPriority
+  }
   if (sortBy === 'id') return String(left.id || '').localeCompare(String(right.id || ''))
   if (sortBy === 'name') return String(left.name || '').localeCompare(String(right.name || ''))
   if (sortBy === 'profession') return getProfessionLabel(left).localeCompare(getProfessionLabel(right))
@@ -533,24 +553,14 @@ function downloadCsv(filename, rows) {
 
 function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onUnflag, onDelete }) {
   const [open, setOpen] = useState(false)
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
-  const menuHeight = flagged ? 208 : 176
 
   function toggleMenu(event) {
     event.stopPropagation()
-    const rect = event.currentTarget.getBoundingClientRect()
-    const menuWidth = 160
-    const gap = 8
-    const left = Math.min(Math.max(rect.right - menuWidth, gap), window.innerWidth - menuWidth - gap)
-    const fitsBelow = rect.bottom + menuHeight + gap <= window.innerHeight
-    const top = fitsBelow ? rect.bottom + gap : Math.max(rect.top - menuHeight - gap, gap)
-
-    setMenuPos({ top, left })
     setOpen((current) => !current)
   }
 
   return (
-    <div className="inline-flex" onClick={(event) => event.stopPropagation()}>
+    <div className="relative inline-flex" onClick={(event) => event.stopPropagation()}>
       <button
         type="button"
         onClick={toggleMenu}
@@ -566,8 +576,7 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onUnfl
         <>
           <div className="fixed inset-0 z-[80]" onClick={() => setOpen(false)} />
           <div
-            className="fixed z-[90] w-40 overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-xl"
-            style={{ left: menuPos.left, top: menuPos.top }}
+            className="absolute right-0 top-full z-[90] mt-2 w-40 overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-xl"
             role="menu"
           >
             <button

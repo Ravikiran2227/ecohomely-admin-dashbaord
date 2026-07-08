@@ -643,8 +643,33 @@ app.put("/servicemen/:id", async (req, res) => {
         .json({ error: "Services must be an array" });
     }
 
+    // If the serviceman was asked for a profile correction and is now submitting a
+    // real profile edit, mark it as a resubmission so it surfaces in the admin's
+    // Profile Updates review inbox (mirrors isWorkerCorrectionResubmission in
+    // src/services/firebaseClient.js, which only runs for admin-initiated writes).
+    const existingData = doc.data() || {};
+    const correctionWasActive = Boolean(
+      existingData.correctionRequired
+      || existingData.requiresCorrection
+      || existingData.needsCorrection
+      || existingData.correctionRequested
+      || String(existingData.approvalStatus || "").toLowerCase().includes("correction")
+    );
+
     // Handle isFlaged field deletion - if it's null, delete the field
     const updateData = { ...servicemanData };
+
+    if (correctionWasActive) {
+      updateData.correctionSubmittedAt = new Date().toISOString();
+      updateData.correctionStatus = "Submitted";
+      updateData.correctionRequired = false;
+      updateData.requiresCorrection = false;
+      updateData.needsCorrection = false;
+      updateData.correctionRequested = false;
+      updateData.adminCorrectionNotificationRead = false;
+      updateData.approvalStatus = "Pending";
+      updateData.reviewStatus = "Pending";
+    }
     if (updateData.isFlaged === null) {
       // Use FieldValue.delete() to remove the field from Firestore
       updateData.isFlaged = admin.firestore.FieldValue.delete();

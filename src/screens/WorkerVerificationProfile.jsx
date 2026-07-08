@@ -531,6 +531,7 @@ export default function WorkerVerificationProfile() {
       setStatusOverrides((prev) => ({ ...prev, [statusKey]: 'Approved' }))
     }
     setAlert({ type: 'success', text: 'Worker approved and moved to active status. Notification sent.' })
+    dispatchProfileUpdatesChanged()
     closeAction()
   }
 
@@ -541,6 +542,7 @@ export default function WorkerVerificationProfile() {
       setStatusOverrides((prev) => ({ ...prev, [statusKey]: 'Rejected' }))
     }
     setAlert({ type: 'danger', text: 'Worker rejected and notified.' })
+    dispatchProfileUpdatesChanged()
     closeAction()
   }
 

@@ -740,8 +740,28 @@ export const workersApi = {
   },
   submitOnboarding: async (payload, options = {}) => normalizeWorker(await apiClient.post(`${WORKERS_PATH}/onboarding`, normalizeOnboardingPayload(payload), options)),
   reviewWorker: async (workerId, payload, options = {}) => normalizeWorker(await apiClient.post(`${WORKERS_PATH}/${workerId}/review`, payload, options)),
-  approveWorker: (workerId, payload = {}, options = {}) => workersApi.reviewWorker(workerId, { ...payload, action: 'approve' }, options),
-  rejectWorker: (workerId, payload = {}, options = {}) => workersApi.reviewWorker(workerId, { ...payload, action: 'reject' }, options),
+  approveWorker: async (workerId, payload = {}, options = {}) => {
+    const reviewed = await workersApi.reviewWorker(workerId, { ...payload, action: 'approve' }, options)
+    return workersApi.updateWorker(workerId, {
+      adminCorrectionNotificationRead: true,
+      correctionRequired: false,
+      requiresCorrection: false,
+      needsCorrection: false,
+      correctionRequested: false,
+      correctionStatus: null,
+    }, options).catch(() => reviewed)
+  },
+  rejectWorker: async (workerId, payload = {}, options = {}) => {
+    const reviewed = await workersApi.reviewWorker(workerId, { ...payload, action: 'reject' }, options)
+    return workersApi.updateWorker(workerId, {
+      adminCorrectionNotificationRead: true,
+      correctionRequired: false,
+      requiresCorrection: false,
+      needsCorrection: false,
+      correctionRequested: false,
+      correctionStatus: null,
+    }, options).catch(() => reviewed)
+  },
   requestCorrection: (workerId, payload = {}, options = {}) => workersApi.reviewWorker(workerId, { ...payload, action: 'correction' }, options),
   suspendWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, { ...payload, status: 'Suspended', availability: 'Offline' }, options),
   reactivateWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, { ...payload, status: 'Active', availability: payload.availability || 'Available' }, options),

@@ -6,11 +6,11 @@ import { NAV_SECTIONS } from '../config/navigation'
 import ecohomelyLogo from '../assets/ecohomely-logo.svg'
 import complaintsApi from '../services/complaintsApi'
 import customersApi from '../services/customersApi'
-import notificationsApi from '../services/notificationsApi'
 import workersApi from '../services/workersApi'
 import {
   PROFILE_UPDATES_CHANGED_EVENT,
-  countUnreadProfileUpdates,
+  countPendingProfileUpdates,
+  hasWorkerResubmittedCorrection,
 } from '../utils/profileUpdateNotifications'
 
 function toBoolean(value) {
@@ -47,10 +47,13 @@ function isOpenComplaint(complaint = {}) {
 function needsApproval(worker = {}) {
   const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || '').toLowerCase()
   if (status === 'approved') return false
+  const resubmittedCorrection = hasWorkerResubmittedCorrection(worker)
+  if (status.includes('correction') && !resubmittedCorrection) return false
   if (status) return true
   const fallbackStatus = String(worker.status || '').toLowerCase()
   if (['approved', 'active', 'verified'].includes(fallbackStatus)) return false
-  if (fallbackStatus.includes('pending') || fallbackStatus.includes('review') || fallbackStatus.includes('correction')) return true
+  if (fallbackStatus.includes('correction') && !resubmittedCorrection) return false
+  if (fallbackStatus.includes('pending') || fallbackStatus.includes('review')) return true
   return worker.approved === false || worker.isApproved === false || worker.adminApproved === false
 }
 
@@ -87,11 +90,10 @@ export default function Sidebar({ collapsed, onCollapse }) {
     let cancelled = false
 
     async function loadBadgeCounts() {
-      const [complaintRows, customerRows, workerRows, notificationRows] = await Promise.all([
+      const [complaintRows, customerRows, workerRows] = await Promise.all([
         complaintsApi.listComplaints().catch(() => []),
         customersApi.listCustomers().catch(() => []),
         workersApi.listWorkers().catch(() => []),
-        notificationsApi.listNotifications().catch(() => []),
       ])
 
       if (cancelled) return
@@ -99,11 +101,10 @@ export default function Sidebar({ collapsed, onCollapse }) {
       const complaints = Array.isArray(complaintRows) ? complaintRows : []
       const customers = Array.isArray(customerRows) ? customerRows : []
       const workers = Array.isArray(workerRows) ? workerRows : []
-      const notifications = Array.isArray(notificationRows) ? notificationRows : []
 
       setBadgeCounts({
         approvalQueue: workers.filter(needsApproval).length,
-        profileUpdates: countUnreadProfileUpdates(workers, notifications),
+        profileUpdates: countPendingProfileUpdates(workers),
         complaints: complaints.filter(isOpenComplaint).length,
         flagged: [
           ...complaints.filter(complaintNeedsReview),
@@ -125,19 +126,13 @@ export default function Sidebar({ collapsed, onCollapse }) {
     }
   }, [])
 
-  const onProfileUpdatesPage = location.pathname.startsWith('/profile-updates')
-
   const navSections = useMemo(() => NAV_SECTIONS.map((section) => ({
     ...section,
     items: section.items.map((item) => ({
       ...item,
-      badge: item.badgeKey === 'profileUpdates' && onProfileUpdatesPage
-        ? 0
-        : item.badgeKey
-          ? badgeCounts[item.badgeKey]
-          : item.badge,
+      badge: item.badgeKey ? badgeCounts[item.badgeKey] : item.badge,
     })),
-  })), [badgeCounts, onProfileUpdatesPage])
+  })), [badgeCounts])
 
   return (
     <aside

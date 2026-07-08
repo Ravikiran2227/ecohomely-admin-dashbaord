@@ -472,11 +472,26 @@ function collectAdditionalWorkerDetails(worker = {}) {
     'mpin', 'mPin', 'otpVerified', 'isOtpVerified', 'otp_verified', 'otpStatus', 'otp', 'amountPaid', 'paidAmount', 'havePaid', 'hasPaid', 'isPaid',
   ])
   const usefulPattern = /(gender|email|experience|language|address|service|brand|certification|shop|business|bank|account|ifsc|upi|aadhaar|aadhar|pan|device|model|version|verified|active|approved|created|updated|joined|coupon|discount|referral)/i
+  const canonicalLabel = (key) => String(key || '')
+    .replace(/secondary|primary/i, '')
+    .replace(/packageprice|package|price/i, '')
+    .replace(/km$/i, '')
+    .replace(/[_\s-]+/g, '')
+    .toLowerCase()
+  const canonicalValue = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '')
+  const seen = new Set()
 
   return Object.entries(worker)
     .filter(([key, value]) => !hiddenKeys.has(key) && !/otp/i.test(key) && usefulPattern.test(key) && displayScalar(value))
+    .map(([key, value]) => ({ key, label: titleCaseField(key), value: displayScalar(value) }))
+    .filter(({ key, value }) => {
+      const signature = `${canonicalLabel(key)}:${canonicalValue(value)}`
+      if (seen.has(signature)) return false
+      seen.add(signature)
+      return true
+    })
     .slice(0, 24)
-    .map(([key, value]) => ({ label: titleCaseField(key), value: displayScalar(value) }))
+    .map(({ label, value }) => ({ label, value }))
 }
 
 function firstProfilePhotoCandidate(worker = {}) {

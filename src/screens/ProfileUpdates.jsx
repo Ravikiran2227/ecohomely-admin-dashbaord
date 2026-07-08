@@ -83,6 +83,14 @@ function latestVersion(worker = {}) {
   return Math.max(fromRows, Number(worker.currentVersion || worker.version || worker.profileVersion || 1) || 1)
 }
 
+// A version bump alone isn't proof the worker resubmitted anything - admin actions
+// (mark for correction, approve, reject) also append a version entry. Only trust an
+// entry whose own note says the worker resubmitted.
+function hasResubmittedVersionEntry(worker = {}) {
+  const rows = versionRows(worker)
+  return rows.some((row) => String(row.note || '').toLowerCase().includes('resubmit'))
+}
+
 function submittedAt(worker = {}) {
   const rows = versionRows(worker)
   const latest = rows
@@ -287,7 +295,7 @@ function hasProfileUpdate(worker = {}) {
     || ['submitted', 'resubmitted', 'updated', 'ready_for_review'].includes(status)
     || worker.updatedAfterCorrection === true
     || worker.profileUpdatePending === true
-    || latestVersion(worker) > 1
+    || hasResubmittedVersionEntry(worker)
     || (requestMs > 0 && submitMs >= requestMs)
   )
 }

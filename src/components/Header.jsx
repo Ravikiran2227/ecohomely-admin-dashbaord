@@ -9,6 +9,10 @@ import { useAuth } from '../context/authContextValue'
 import { ROLES } from '../config/rbac'
 import adminApi from '../services/adminApi'
 import notificationsApi from '../services/notificationsApi'
+import bookingsApi from '../services/bookingsApi'
+import workersApi from '../services/workersApi'
+import accountDeletionsApi from '../services/accountDeletionsApi'
+import { countPendingProfileUpdates } from '../utils/profileUpdateNotifications'
 
 function getInitials(name = '') {
   const letters = String(name || 'Admin')
@@ -59,9 +63,16 @@ export default function Header() {
   useEffect(() => {
     let cancelled = false
     async function loadNotifications() {
-      const rows = await notificationsApi.listNotifications().catch(() => [])
+      const [rows, bookings, workers, deletions] = await Promise.all([
+        notificationsApi.listNotifications().catch(() => []),
+        bookingsApi.listBookings().catch(() => []),
+        workersApi.listWorkers().catch(() => []),
+        accountDeletionsApi.listRequests().catch(() => []),
+      ])
       if (cancelled) return
-      setNotificationCount((Array.isArray(rows) ? rows : []).filter((item) => !item.read && (item.workerId || item.type === 'worker_profile_update')).length)
+      const profileNotificationCount = (Array.isArray(rows) ? rows : []).filter((item) => !item.read && (item.workerId || item.type === 'worker_profile_update')).length
+      const profileUpdates = countPendingProfileUpdates(Array.isArray(workers) ? workers : [])
+      setNotificationCount((Array.isArray(bookings) ? bookings : []).length + profileUpdates + profileNotificationCount + (Array.isArray(deletions) ? deletions : []).length)
     }
     loadNotifications()
     const timer = window.setInterval(loadNotifications, 60000)
@@ -179,7 +190,7 @@ export default function Header() {
           type="button"
           onClick={() => navigate('/notifications')}
           aria-label="Open notifications"
-          className="relative w-10 h-10 flex items-center justify-center rounded-2xl border border-[var(--border-main)] hover:bg-dark-50 dark:hover:bg-dark-900 transition-colors group"
+          className={`relative w-10 h-10 flex items-center justify-center rounded-2xl border border-[var(--border-main)] hover:bg-dark-50 dark:hover:bg-dark-900 transition-colors group ${notificationCount > 0 ? 'admin-bell-ring' : ''}`}
         >
           <Icon n="bell" sz={20} cl="var(--color-dark-500)" className="group-hover:text-brand-600 transition-colors" />
           {notificationCount > 0 ? (

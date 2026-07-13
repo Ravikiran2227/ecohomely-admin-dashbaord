@@ -763,7 +763,7 @@ export async function resolveWorkerMediaFiles(worker = {}) {
 
 export async function resolveWorkerAssetUrl(worker = {}, kind = 'profile') {
   const directFields = kind === 'aadhaar'
-    ? ['aadhaarUrl', 'aadhaarURL', 'aadhaarImage', 'aadhaarPhoto', 'aadhaarFile', 'aadhaarUploaded', 'aadharUrl', 'aadharImage', 'adhaarUrl', 'adhaarImage']
+    ? ['aadhaarUrl', 'aadhaarURL', 'aadhaarImage', 'aadhaarImageUrl', 'aadhaarPhoto', 'aadhaarFile', 'aadhaarUploaded', 'aadharUrl', 'aadharURL', 'aadharImage', 'aadharPhoto', 'aadharFile', 'adhaarUrl', 'adhaarURL', 'adhaarImage']
     : ['profilePhotoUrl', 'profilePhotoURL', 'photoUrl', 'photoURL', 'profileImageUrl', 'profileImage', 'imageUrl', 'image', 'avatarUrl', 'avatar', 'photo', 'profilePhoto']
   const direct = firstNestedAssetValue(worker, directFields)
   if (direct && typeof direct === 'string') {
@@ -1091,6 +1091,21 @@ function appendWorkerVersion(current = {}, status, note = '', extra = {}) {
 function isWorkerCorrectionResubmission(current = {}, payload = {}) {
   const correctionActive = current.correctionRequired || current.requiresCorrection || current.needsCorrection || current.correctionRequested || String(current.approvalStatus || '').toLowerCase().includes('correction')
   if (!correctionActive) return false
+  // An admin "Mark For Correction" (re-)asserts the correction on its own follow-up write (it sets
+  // correctionStatus:'Pending', correctionRequired:true, reviewStatus/approvalStatus 'Correction
+  // Required'). That is the admin REQUESTING a correction, not the serviceman resubmitting one - and
+  // must never be counted as a resubmission, or the worker flips to 'Submitted' the instant they are
+  // marked (before editing anything), which both fake-populates the admin queues and makes the
+  // partner app skip the edit wizard. A genuine resubmission is written by the partner app directly.
+  const assertsCorrectionRequest =
+    payload.correctionRequired === true
+    || payload.requiresCorrection === true
+    || payload.needsCorrection === true
+    || payload.correctionRequested === true
+    || String(payload.correctionStatus || '').toLowerCase() === 'pending'
+    || String(payload.reviewStatus || '').toLowerCase().includes('correction')
+    || String(payload.approvalStatus || '').toLowerCase().includes('correction')
+  if (assertsCorrectionRequest) return false
   const ignored = new Set(['updatedAt', 'createdAt', 'approvalStatus', 'status', 'correctionStatus', 'correctionRequired', 'requiresCorrection', 'needsCorrection', 'correctionRequested'])
   return Object.keys(payload || {}).some((key) => !ignored.has(key))
 }
@@ -2089,6 +2104,7 @@ async function handleWorkers(parts, method, body, queryOptions) {
       approvalStatus: status,
       approved: status === 'Approved',
       adminApproved: status === 'Approved',
+      profileReviewClearedAt: status === 'Approved' || status === 'Rejected' ? new Date().toISOString() : null,
       reviewNote: correctionNote,
       rejectionReason: body?.reason || null,
       correctionItems: correctionFields,
@@ -2100,6 +2116,7 @@ async function handleWorkers(parts, method, body, queryOptions) {
       correctionRequested: isCorrection,
       correctionRequestedAt,
       correctionStatus: isCorrection ? 'Pending' : null,
+      reviewStatus: status,
       adminCorrectionNotificationRead: isCorrection || status === 'Approved' || status === 'Rejected',
       partnerAppPopup: correctionRequest,
       profileCorrectionRequest: correctionRequest,

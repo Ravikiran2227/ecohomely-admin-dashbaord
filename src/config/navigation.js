@@ -48,7 +48,8 @@ export const NAV_SECTIONS = [
     label: 'Marketing',
     items: [
       { path: '/announcements', icon: 'bell', label: 'New Features', isNew: true, summary: 'Create and manage Firebase app announcements.' },
-      { path: '/notifications', icon: 'bell', label: 'Notifications', summary: 'Send and track customer and worker campaigns.' },
+      { path: '/push-notifications', icon: 'bell', label: 'Push Notifications', summary: 'Send and track customer and worker campaigns.' },
+      { path: '/notifications', icon: 'bell', label: 'Notifications', badgeKey: 'adminNotifications', badgeColor: '#EF4444', summary: 'Review booking, profile, and account deletion alerts.' },
     ],
   },
   {
@@ -82,6 +83,8 @@ export const ROUTE_LABELS = Object.fromEntries(ROUTE_ITEMS.map((item) => [item.p
 export const BREADCRUMBS = {
   '/workers/approval': ['People', 'Approval Queue'],
   '/profile-updates': ['People', 'Profile Updates'],
+  '/push-notifications': ['Marketing', 'Push Notifications'],
+  '/notifications': ['Marketing', 'Notifications'],
   '/heatmap': ['Maps', 'GPS Heatmap'],
   '/expansion': ['Maps', 'Expansion System'],
 }

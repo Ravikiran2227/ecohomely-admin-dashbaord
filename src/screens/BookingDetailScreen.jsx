@@ -41,6 +41,41 @@ export default function BookingDetailScreen() {
   const booking = processed.find((item) => item.id === id)
   const nearbyWorkers = useMemo(() => buildNearbyWorkers(booking, availableWorkers), [availableWorkers, booking])
 
+  // The booking document does not carry denormalized customerBookings / workerRating / workerStatus,
+  // so derive them from data already loaded on this screen: the full bookings list (from context) and
+  // the worker directory (availableWorkers). Falls back to whatever the record itself carried.
+  const customerBookingCount = useMemo(() => {
+    const customerId = booking?.customerId
+    if (!customerId) return booking?.customerDetails?.bookings || 0
+    const derived = bookings.filter((row) => (row.customerId || row.userId) === customerId).length
+    return derived || booking?.customerDetails?.bookings || 0
+  }, [bookings, booking?.customerId, booking?.customerDetails?.bookings])
+
+  const bookingWorker = useMemo(() => {
+    const workerId = booking?.workerId || booking?.workerDetails?.id
+    if (!workerId) return null
+    return availableWorkers.find((worker) => (worker.id || worker.uid) === workerId) || null
+  }, [availableWorkers, booking?.workerId, booking?.workerDetails?.id])
+
+  const workerRating = useMemo(() => {
+    const candidates = [
+      booking?.workerDetails?.rating,
+      bookingWorker?.avgRating,
+      bookingWorker?.averageRating,
+      bookingWorker?.rating,
+      bookingWorker?.performance?.rating,
+    ]
+    const found = candidates.map(Number).find((value) => Number.isFinite(value) && value > 0)
+    return found || null
+  }, [bookingWorker, booking?.workerDetails?.rating])
+
+  const workerStatus = useMemo(() => {
+    if (booking?.workerDetails?.status) return booking.workerDetails.status
+    if (!bookingWorker) return ''
+    if (bookingWorker.isOnline === true || String(bookingWorker.availability || '').toLowerCase() === 'available') return 'Active'
+    return bookingWorker.status || bookingWorker.availability || ''
+  }, [bookingWorker, booking?.workerDetails?.status])
+
   useEffect(() => {
     loadBooking(id)
   }, [id, loadBooking])
@@ -287,7 +322,7 @@ export default function BookingDetailScreen() {
             <InfoRow label="Phone" value={booking.customerDetails?.phone || ''} />
             <InfoRow label="Email" value={booking.customerDetails?.email || booking.customerEmail || ''} />
             <InfoRow label="Location" value={booking.customerDetails?.area || booking.area} className="sm:col-span-2" />
-            <InfoRow label="Booking Count" value={booking.customerDetails?.bookings || 0} />
+            <InfoRow label="Booking Count" value={customerBookingCount} />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Btn v="primary" size="sm" onClick={() => booking.customerId && navigate(`/customers/${booking.customerId}`)} disabled={!booking.customerId}>View Customer</Btn>
@@ -306,8 +341,8 @@ export default function BookingDetailScreen() {
               <InfoRow label="Name" value={booking.workerDetails?.name || booking.workerName || ''} />
               <InfoRow label="Profession" value={booking.workerDetails?.profession || booking.service} />
               <InfoRow label="Phone" value={booking.workerDetails?.phone || booking.workerPhone || ''} />
-              <InfoRow label="Rating" value={booking.workerDetails?.rating ? `${booking.workerDetails.rating.toFixed(1)} / 5` : ''} />
-              <InfoRow label="Status" value={booking.workerDetails?.status || ''} />
+              <InfoRow label="Rating" value={workerRating ? `${workerRating.toFixed(1)} / 5` : ''} />
+              <InfoRow label="Status" value={workerStatus} />
             </div>
             <div className="flex flex-wrap gap-2">
               <Btn v="outline" size="sm" onClick={() => booking.workerDetails?.phone && window.open(`tel:${booking.workerDetails.phone}`, '_self')} disabled={!booking.workerDetails?.phone}>Call</Btn>

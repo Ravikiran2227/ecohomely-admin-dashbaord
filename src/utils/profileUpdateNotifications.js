@@ -1,6 +1,9 @@
 export const PROFILE_UPDATES_CHANGED_EVENT = 'ecohomely:profile-updates-changed'
 const PROFILE_UPDATES_VIEWED_KEY = 'ecohomely:profileUpdatesLastViewedAt'
 
+// Correction status values the partner app writes once a worker resubmits requested corrections.
+const RESUBMITTED_CORRECTION_STATUSES = ['submitted', 'resubmitted', 'ready_for_review']
+
 export function dispatchProfileUpdatesChanged() {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(PROFILE_UPDATES_CHANGED_EVENT))
@@ -46,6 +49,28 @@ function correctionMeta(worker = {}) {
   return String(popup.type || popup.notificationType || '').toLowerCase() === 'profile_correction' ? popup : {}
 }
 
+// The partner app records a resubmission on the nested profileCorrectionRequest/correctionRequest
+// status, which does not always propagate to the top-level correctionStatus (that can stay at its
+// requested-time "Pending"). Collect every place the status can live so a resubmission is detected
+// from whichever field the app set - we must NOT short-circuit on the first non-empty value, or a
+// stale top-level "Pending" would mask a nested "submitted".
+export function correctionStatusValues(worker = {}) {
+  const correction = correctionMeta(worker)
+  return [
+    worker.correctionStatus,
+    worker.profileReviewStatus,
+    worker.correctionState,
+    correction.status,
+    correction.state,
+  ]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean)
+}
+
+export function hasResubmittedCorrectionStatus(worker = {}) {
+  return correctionStatusValues(worker).some((status) => RESUBMITTED_CORRECTION_STATUSES.includes(status))
+}
+
 export function correctionRequestedAt(worker = {}) {
   const correction = correctionMeta(worker)
   return worker.correctionRequestedAt
@@ -68,25 +93,83 @@ export function correctionSubmittedAt(worker = {}) {
     .slice()
     .sort((a, b) => toMillis(b.updatedAt || b.submittedAt || b.createdAt) - toMillis(a.updatedAt || a.submittedAt || a.createdAt))[0]
 
-  return worker.correctionSubmittedAt
-    || worker.resubmittedAt
-    || worker.profileSubmittedAt
-    || worker.profileUpdatedAt
+  // Pick the MOST RECENT submission signal, not the first non-empty one. A stale
+  // correctionSubmittedAt left over from an earlier correction cycle must not shadow a
+  // newer profileUpdatedAt/resubmittedAt - otherwise a genuine resubmission whose fresh
+  // timestamp only landed in profileUpdatedAt looks older than the latest correction
+  // request, and the worker is wrongly hidden from the approval queue and profile updates.
+  const submissionSignal = [
+    worker.correctionSubmittedAt,
+    worker.resubmittedAt,
+    worker.profileSubmittedAt,
+    worker.profileUpdatedAt,
+  ]
+    .filter(Boolean)
+    .reduce((mostRecent, value) => (toMillis(value) > toMillis(mostRecent) ? value : mostRecent), null)
+
+  return submissionSignal
     || latest?.updatedAt
     || latest?.submittedAt
     || latest?.createdAt
 }
 
+export function profileUpdatedAt(worker = {}) {
+  return worker.profileUpdatedAt
+    || worker.profile_updated_at
+    || worker.profileSubmittedAt
+    || worker.updatedAt
+}
+
+export function profileReviewedAt(worker = {}) {
+  return worker.profileReviewClearedAt
+    || worker.profileApprovedAt
+    || worker.approvedAt
+    || worker.reviewedAt
+    || worker.reviewWindowStartAt
+    || worker.createdAt
+}
+
+function isApprovedWorker(worker = {}) {
+  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || '').toLowerCase()
+  return status === 'approved'
+    || worker.Approved === true
+    || worker.approved === true
+    || worker.isApproved === true
+    || worker.adminApproved === true
+}
+
+export function hasProfileUpdateAfterReview(worker = {}) {
+  if (!isApprovedWorker(worker)) return false
+  const updatedMs = toMillis(profileUpdatedAt(worker))
+  const reviewedMs = Math.max(
+    toMillis(worker.profileReviewClearedAt),
+    toMillis(worker.profileApprovedAt),
+    toMillis(worker.approvedAt),
+    toMillis(worker.reviewedAt),
+  )
+  return updatedMs > 0 && reviewedMs > 0 && updatedMs > reviewedMs
+}
+
+export function hasPendingProfileUpdate(worker = {}) {
+  if (hasResubmittedCorrectionStatus(worker)) return true
+  if (hasProfileUpdateAfterReview(worker)) return true
+  return false
+}
+
 export function hasWorkerResubmittedCorrection(worker = {}) {
-  const requestMs = toMillis(correctionRequestedAt(worker))
-  const submitMs = toMillis(correctionSubmittedAt(worker))
-  return requestMs > 0 && submitMs >= requestMs
+  // A resubmission is trusted ONLY from the explicit correction status the partner app writes
+  // ('Submitted') when the worker completes the fix-up flow - never inferred from timestamps.
+  // A timestamp rule (correctionSubmittedAt >= correctionRequestedAt) is unreliable here because
+  // correctionSubmittedAt() falls back to profileUpdatedAt / updatedAt / version-row times that the
+  // admin's own "Mark for Correction" write bumps, which would flag a just-requested worker (who has
+  // NOT resubmitted anything in the app) as resubmitted.
+  return hasResubmittedCorrectionStatus(worker)
 }
 
 export function isUnreadProfileUpdate(worker = {}) {
-  if (!hasWorkerResubmittedCorrection(worker)) return false
+  if (!hasPendingProfileUpdate(worker)) return false
   const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
-  if (['approved', 'rejected', 'blocked', 'suspended'].includes(status)) return false
+  if (['rejected', 'blocked', 'suspended'].includes(status)) return false
   return worker.adminCorrectionNotificationRead !== true
 }
 
@@ -99,8 +182,9 @@ function notificationActivityAt(notification = {}) {
 }
 
 function isBadgeCandidateAfterView(worker = {}, lastViewedAt = 0) {
-  if (!isUnreadProfileUpdate(worker)) return false
-  return toMillis(correctionSubmittedAt(worker)) > lastViewedAt
+  if (!hasPendingProfileUpdate(worker)) return false
+  if (worker.adminCorrectionNotificationRead === true) return false
+  return Math.max(toMillis(correctionSubmittedAt(worker)), toMillis(profileUpdatedAt(worker))) > lastViewedAt
 }
 
 function isBadgeCandidateNotification(notification = {}, lastViewedAt = 0) {
@@ -134,8 +218,8 @@ export function countPendingProfileUpdates(workers = []) {
     const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
     if (
       id
-      && hasWorkerResubmittedCorrection(worker)
-      && !['approved', 'rejected', 'blocked', 'suspended'].includes(status)
+      && hasPendingProfileUpdate(worker)
+      && !['rejected', 'blocked', 'suspended'].includes(status)
     ) {
       pendingIds.add(id)
     }

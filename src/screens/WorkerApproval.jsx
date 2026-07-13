@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card } from '../components/Card'
 import PageHeader from '../components/PageHeader'
@@ -9,7 +9,7 @@ import Modal from '../components/Modal'
 import { C } from '../theme'
 import { getLocationLabel, getPrimaryProfession } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
-import { dispatchProfileUpdatesChanged, hasWorkerResubmittedCorrection } from '../utils/profileUpdateNotifications'
+import { dispatchProfileUpdatesChanged, hasPendingProfileUpdate, hasWorkerResubmittedCorrection } from '../utils/profileUpdateNotifications'
 
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
@@ -168,6 +168,7 @@ function buildChecklist(worker = {}) {
 
 function shouldShowInApprovalQueue(worker = {}) {
   const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
+  if (hasPendingProfileUpdate(worker)) return true
   if (status === 'approved') return false
   if (status.includes('correction') && !hasWorkerResubmittedCorrection(worker)) return false
   return true
@@ -291,6 +292,7 @@ export default function WorkerApproval() {
   const [modal, setModal] = useState({ isOpen: false, type: null, worker: null, items: [], message: '' })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [search, setSearch] = useState('')
 
   const mapQueueWorker = (worker) => ({
     ...worker,
@@ -329,6 +331,17 @@ export default function WorkerApproval() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const filteredQueue = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return queue
+    return queue.filter((worker) => [
+      worker.name,
+      worker.fullName,
+      worker.phone,
+      worker.profession,
+      worker.area,
+    ].some((value) => String(value || '').toLowerCase().includes(term)))
+  }, [queue, search])
   const waitingCount = queue.length
   const rejectedCount = history.filter(item => item.type === 'reject').length
 
@@ -417,8 +430,22 @@ export default function WorkerApproval() {
         </Card>
       )}
 
+      {!loading && !error && (
+        <Card className="p-4">
+          <div className="relative">
+            <Icon n="search" sz={16} cl="var(--text-muted)" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search serviceman by name..."
+              className="w-full rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] py-3 pl-10 pr-4 text-sm font-semibold text-[var(--text-main)] outline-none focus:border-brand-500"
+            />
+          </div>
+        </Card>
+      )}
+
       {!loading && !error && <div className="grid gap-4">
-        {queue.map(worker => (
+        {filteredQueue.map(worker => (
           <div key={worker.id} className="grid gap-3">
             <WorkerCard
               worker={worker}
@@ -432,11 +459,11 @@ export default function WorkerApproval() {
         ))}
       </div>}
 
-      {!loading && !error && queue.length === 0 && (
+      {!loading && !error && filteredQueue.length === 0 && (
         <Card className="text-center py-16">
           <div className="text-5xl mb-4">✅</div>
-          <h3 className="text-xl font-black text-[var(--text-main)] mb-1.5">No pending workers</h3>
-          <p className="text-sm text-[var(--text-muted)]">The approval queue is clear for now.</p>
+          <h3 className="text-xl font-black text-[var(--text-main)] mb-1.5">{queue.length ? 'No matching workers' : 'No pending workers'}</h3>
+          <p className="text-sm text-[var(--text-muted)]">{queue.length ? 'Try another name.' : 'The approval queue is clear for now.'}</p>
         </Card>
       )}
 

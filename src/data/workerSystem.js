@@ -433,6 +433,16 @@ export function getWorkerById(id) {
 }
 
 export function getLocationLabel(worker) {
+  const address = [
+    worker.address,
+    worker.fullAddress,
+    worker.serviceAddress,
+    worker.locationAddress,
+    worker.location?.address,
+    worker.serviceLocation?.address,
+  ].find((item) => item !== undefined && item !== null && String(item).trim() !== '')
+  if (address) return String(address).trim()
+
   const state = stateMap[worker.state_id]
   const district = districtMap[worker.district_id]
   const city = cityMap[worker.city_id]

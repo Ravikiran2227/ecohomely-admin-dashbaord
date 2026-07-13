@@ -108,11 +108,13 @@ function canonicalDocumentKind(document = {}) {
     document.src,
   ].filter(Boolean).join(' ').toLowerCase()
 
+  const explicitWorkPhoto = /previous|work[-_ ]?photo|portfolio/.test(directLabel)
+  if (explicitWorkPhoto) return 'previousWorkPhotos'
   if (/aadhaar|aadhar|adhaar|adhar/.test(text)) return 'aadhaar'
   if (/\bpan\b|pan[-_ ]?card|pancard/.test(text)) return 'pan'
   if (/experience/.test(text)) return 'experienceLetter'
   if (/govt|government|skill/.test(text)) return 'govtSkillCertificate'
-  if (/previous|work[-_ ]?photo|portfolio|media/.test(text)) return 'previousWorkPhotos'
+  if (/previous|work[-_ ]?photo|portfolio/.test(text)) return 'previousWorkPhotos'
   if (/certificat/.test(text)) return 'certificates'
   if (/(^|\s)(image|photo|profile photo|profile picture|profile image|avatar)(\s|$)/.test(directLabel)) return 'photo'
   if (/profile[-_ ]?(photo|picture|image)|avatar/.test(text)) return 'photo'
@@ -199,6 +201,160 @@ function mergeDocument(previous = {}, next = {}) {
   }
 }
 
+function isAadhaarLikeAsset(value = '') {
+  return /aadhaar|aadhar|adhaar|adhar/i.test(String(value || ''))
+}
+
+function isProfileImageLikeAsset(value = '') {
+  return /profile[-_ ]?(photo|picture|image)|profilephotos?|profilepictures?|avatar/i.test(String(value || ''))
+}
+
+function isProfessionMediaLikeAsset(value = '') {
+  return /(profession[-_ ]?media|portfolio|work[-_ ]?photo|work[-_ ]?image|work[-_ ]?reference|reference[-_ ]?image|gallery|before|after|service[-_ ]?photo|service[-_ ]?image|primary[-_ ]?media|secondary[-_ ]?media)/i.test(String(value || ''))
+}
+
+function mediaAssetFromValue(item, index) {
+  const url = typeof item === 'string'
+    ? item
+    : item?.url || item?.src || item?.downloadUrl || item?.downloadURL || item?.fileUrl || item?.path || item?.filePath || ''
+  const identity = [
+    url,
+    typeof item === 'object' ? item?.fileName : '',
+    typeof item === 'object' ? item?.name : '',
+    typeof item === 'object' ? item?.key : '',
+    typeof item === 'object' ? item?.type : '',
+  ].filter(Boolean).join(' ')
+
+  if (!url || isAadhaarLikeAsset(identity) || isProfileImageLikeAsset(identity)) return null
+
+  return typeof item === 'string'
+    ? { key: 'previousWorkPhotos', name: 'Previous Work Photos', url, isImage: true, fileName: `work-photo-${index + 1}` }
+    : { ...item, key: 'previousWorkPhotos', name: 'Previous Work Photos', url, src: item.src || item.url || url, isImage: true }
+}
+
+function mediaListFromObject(source = {}) {
+  if (!source || typeof source !== 'object') return []
+  return [
+    source.media,
+    source.professionMedia,
+    source.primaryProfessionMedia,
+    source.secondaryProfessionMedia,
+    source.workPhotos,
+    source.workPhotoUrls,
+    source.workImages,
+    source.images,
+    source.photos,
+    source.gallery,
+    source.portfolio,
+    source.portfolioPhotos,
+    source.referenceImages,
+    source.workReferenceImages,
+    source.primaryWorkReferenceImages,
+    source.secondaryWorkReferenceImages,
+    source.primaryReferenceWorkPhotos,
+    source.secondaryReferenceWorkPhotos,
+    source.primaryReferencePhotos,
+    source.secondaryReferencePhotos,
+    source.primaryReferenceImages,
+    source.secondaryReferenceImages,
+    source.primaryWorkPhotos,
+    source.secondaryWorkPhotos,
+    source.primaryMedia,
+    source.secondaryMedia,
+    source.primaryMediaUrls,
+    source.secondaryMediaUrls,
+    source.primaryProfessionMedia,
+    source.secondaryProfessionMedia,
+  ].flatMap((value) => Array.isArray(value) ? value : value ? [value] : [])
+}
+
+function directAadhaarDocument(documents = [], worker = {}) {
+  const directUrl = firstText(
+    worker.aadhaarUrl,
+    worker.aadhaarURL,
+    worker.aadhaarImage,
+    worker.aadhaarImageUrl,
+    worker.aadhaarPhoto,
+    worker.aadhaarFile,
+    worker.aadharUrl,
+    worker.aadharURL,
+    worker.aadharImage,
+    worker.aadharPhoto,
+    worker.aadharFile,
+    worker.adhaarUrl,
+    worker.adhaarURL,
+    worker.adhaarImage,
+  )
+  if (directUrl && isAadhaarLikeAsset(directUrl)) {
+    return { key: 'aadhaar', name: 'Aadhaar', url: directUrl, src: directUrl, isImage: true, status: 'Uploaded' }
+  }
+
+  return documents.find((document) => isAadhaarLikeAsset([
+    document.fileName,
+    document.path,
+    document.filePath,
+    document.storagePath,
+    firebaseStoragePath(document.url || document.src || document.downloadURL || document.downloadUrl),
+  ].filter(Boolean).join(' ')))
+}
+
+function documentToProfessionMedia(document = {}, index = 0) {
+  const identity = [
+    document.url,
+    document.src,
+    document.path,
+    document.filePath,
+    document.storagePath,
+    document.fullPath,
+    document.fileName,
+    document.name,
+    document.key,
+    document.type,
+  ].filter(Boolean).join(' ')
+
+  if (!isProfessionMediaLikeAsset(identity) || isAadhaarLikeAsset(identity) || isProfileImageLikeAsset(identity)) return null
+
+  return {
+    ...document,
+    key: 'previousWorkPhotos',
+    name: 'Previous Work Photos',
+    url: document.url || document.src || document.downloadUrl || document.downloadURL || document.fileUrl || document.path || document.filePath || '',
+    src: document.src || document.url || document.downloadUrl || document.downloadURL || document.fileUrl || '',
+    fileName: document.fileName || `work-photo-${index + 1}`,
+    isImage: true,
+  }
+}
+
+function workPhotoGalleryDocument(documents = []) {
+  const byAsset = new Map()
+  documents.filter(Boolean).forEach((document, index) => {
+    const url = document.url || document.src || document.downloadUrl || document.downloadURL || document.fileUrl || document.path || document.filePath || ''
+    const signature = normalizeAssetIdentity(url) || `${document.fileName || document.name || 'work-photo'}-${index}`
+    if (!byAsset.has(signature)) byAsset.set(signature, document)
+  })
+  const gallery = [...byAsset.values()].map(documentWithUploadStatus)
+  const first = gallery[0]
+  return first
+    ? {
+        ...first,
+        key: 'previousWorkPhotos',
+        name: 'Previous Work Photos',
+        description: `${gallery.length} profession photo${gallery.length === 1 ? '' : 's'} uploaded.`,
+        gallery,
+      }
+    : null
+}
+
+function isDuplicateOfAnyDocument(document = {}, documents = []) {
+  const values = documentAssetValues(document).map(normalizeAssetIdentity).filter(Boolean)
+  if (!values.length) return false
+  return documents.some((item) => {
+    if (canonicalDocumentKind(item) === 'previousWorkPhotos') return false
+    const itemValues = documentAssetValues(item).map(normalizeAssetIdentity).filter(Boolean)
+    return values.some((value) => itemValues.includes(value))
+  })
+}
+
 function uniqueDocuments(documents = []) {
   const bySignature = new Map()
   documents.filter(Boolean).forEach((document, index) => {
@@ -229,16 +385,32 @@ function documentWithUploadStatus(document = {}) {
 }
 
 function withRequiredDocumentCards(documents = [], worker = {}) {
+  const primaryProfession = getPrimaryProfession(worker) || {}
+  const secondaryProfession = getSecondaryProfession(worker) || {}
+  const professionDocuments = documents.map(documentToProfessionMedia).filter(Boolean)
   const mediaDocuments = [
+    ...mediaListFromObject(worker),
+    ...mediaListFromObject(primaryProfession),
+    ...mediaListFromObject(secondaryProfession),
+    ...mediaListFromObject(worker.primaryProfession),
+    ...mediaListFromObject(worker.secondaryProfession),
+    ...mediaListFromObject(worker.professionDetails?.primary),
+    ...mediaListFromObject(worker.professionDetails?.secondary),
+    ...mediaListFromObject(worker.primaryProfessionDetails),
+    ...mediaListFromObject(worker.secondaryProfessionDetails),
     ...(Array.isArray(worker.professionMedia) ? worker.professionMedia : []),
     ...(Array.isArray(worker.workPhotos) ? worker.workPhotos : []),
     ...(Array.isArray(worker.portfolioPhotos) ? worker.portfolioPhotos : []),
-  ].map((item, index) => (typeof item === 'string'
-    ? { key: 'previousWorkPhotos', name: 'Previous Work Photos', url: item, isImage: true, fileName: `work-photo-${index + 1}` }
-    : { ...item, key: 'previousWorkPhotos', name: 'Previous Work Photos', url: item.url || item.src || item.downloadUrl || item.downloadURL || item.fileUrl || item.path || item.filePath || '', src: item.src || item.url || '', isImage: true }))
+    ...professionDocuments,
+  ].map(mediaAssetFromValue).filter(Boolean)
+    .filter((document) => !isDuplicateOfAnyDocument(document, documents))
 
-  const unique = uniqueDocuments([...documents, ...mediaDocuments]).map(documentWithUploadStatus)
+  const unique = uniqueDocuments(documents).map(documentWithUploadStatus)
   const byKind = new Map(unique.map((document) => [canonicalDocumentKind(document), document]))
+  const aadhaarDocument = directAadhaarDocument(documents, worker)
+  if (aadhaarDocument) byKind.set('aadhaar', documentWithUploadStatus(aadhaarDocument))
+  else byKind.delete('aadhaar')
+  if (mediaDocuments.length > 0) byKind.set('previousWorkPhotos', workPhotoGalleryDocument(mediaDocuments))
   const required = REQUIRED_DOCUMENT_SLOTS.map((slot) => documentWithUploadStatus(byKind.get(slot.key) || {
     key: slot.key,
     name: slot.name,
@@ -246,7 +418,14 @@ function withRequiredDocumentCards(documents = [], worker = {}) {
     isImage: false,
     description: `${slot.name} is not uploaded.`,
   }))
-  const extras = unique.filter((document) => !REQUIRED_DOCUMENT_SLOTS.some((slot) => slot.key === canonicalDocumentKind(document)))
+  const hasAadhaar = documentHasAsset(byKind.get('aadhaar') || {})
+  const extras = unique.filter((document) => {
+    const kind = canonicalDocumentKind(document)
+    if (REQUIRED_DOCUMENT_SLOTS.some((slot) => slot.key === kind)) return false
+    if (kind === 'photo') return false
+    if (hasAadhaar && genericDocumentGroup(document.fileName || document.name || document.path || document.filePath || firebaseStoragePath(document.url || document.src))) return false
+    return true
+  })
   return [...required, ...extras]
 }
 
@@ -455,43 +634,16 @@ function buildCallActionRows(worker = {}) {
 }
 
 function collectAdditionalWorkerDetails(worker = {}) {
-  const hiddenKeys = new Set([
-    'id', 'uid', 'authId', 'workerId', 'servicemanId', 'name', 'fullName', 'phone', 'mobile',
-    'profilePhoto', 'profilePhotoUrl', 'profileImage', 'imageUrl', 'image', 'photoUrl', 'photo',
-    'documents', 'professions', 'performance', 'ranking', 'verificationVersions', 'reviews',
-    'bookings', 'workPhotos', 'professionMedia', 'about', 'languages', 'skills', 'profileBadges',
-    'profileHighlights', 'availability', 'approvalStatus', 'status', 'planType', 'membership',
-    'createdAt', 'createdDate', 'dateAdded', 'updatedAt', 'areaName', 'area', 'cityName', 'city',
-    'districtName', 'district', 'stateName', 'state', 'state_id', 'district_id', 'city_id', 'area_id',
-    'address', 'fullAddress', 'serviceAddress', 'locationAddress',
-    'email', 'emailId', 'mail', 'verified', 'isVerified', 'active', 'isActive', 'approved', 'Approved',
-    'deviceType', 'device', 'platform', 'os', 'appPlatform', 'referralCode', 'referCode', 'inviteCode',
-    'couponCode', 'couponDiscount', 'couponType', 'couponAppliedAt', 'profileComplete', 'isProfileComplete',
-    'profileCompleted', 'onlineNow', 'isOnline', 'online', 'bookingsCount', 'bookingCount', 'totalBookings',
-    'callNowCount', 'callCount', 'callsCount', 'impressions', 'impressionCount', 'views', 'profileViews',
-    'mpin', 'mPin', 'otpVerified', 'isOtpVerified', 'otp_verified', 'otpStatus', 'otp', 'amountPaid', 'paidAmount', 'havePaid', 'hasPaid', 'isPaid',
+  return buildProfileRows(worker, [
+    { label: 'Secondary Full Service Package Price', paths: ['secondaryFullServicePackagePrice', 'secondaryFullServicePrice', 'secondaryFullPackagePrice', 'secondaryProfession.fullServicePackagePrice', 'secondaryProfessionDetails.fullServicePackagePrice', 'professionDetails.secondary.fullServicePackagePrice'] },
+    { label: 'Profile Updated At', paths: ['profileUpdatedAt', 'correctionSubmittedAt', 'updatedAt', 'lastUpdatedAt'] },
+    { label: 'Service Radius Km', paths: ['serviceRadiusKm', 'serviceRadiusKM', 'serviceRadius', 'radiusKm'] },
+    { label: 'Experience', paths: ['experienceRange', 'secondaryExperienceRange', 'experienceYears', 'yearsOfExperience', 'experience'], format: (value) => formatProfileFieldValue(value) },
+    { label: 'Gender', paths: ['gender', 'personalDetails.gender', 'profile.gender'] },
+    { label: 'Admin Approved', paths: [], format: () => isAdminApprovedWorker(worker) ? 'Yes' : 'No' },
+    { label: 'Service Price', paths: ['servicePrice', 'price', 'basePrice', 'startingPrice', 'primaryProfession.price', 'professionDetails.primary.price'] },
+    { label: 'Service Mode', paths: ['serviceMode', 'mode', 'workMode', 'businessMode'] },
   ])
-  const usefulPattern = /(gender|email|experience|language|address|service|brand|certification|shop|business|bank|account|ifsc|upi|aadhaar|aadhar|pan|device|model|version|verified|active|approved|created|updated|joined|coupon|discount|referral)/i
-  const canonicalLabel = (key) => String(key || '')
-    .replace(/secondary|primary/i, '')
-    .replace(/packageprice|package|price/i, '')
-    .replace(/km$/i, '')
-    .replace(/[_\s-]+/g, '')
-    .toLowerCase()
-  const canonicalValue = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '')
-  const seen = new Set()
-
-  return Object.entries(worker)
-    .filter(([key, value]) => !hiddenKeys.has(key) && !/otp/i.test(key) && usefulPattern.test(key) && displayScalar(value))
-    .map(([key, value]) => ({ key, label: titleCaseField(key), value: displayScalar(value) }))
-    .filter(({ key, value }) => {
-      const signature = `${canonicalLabel(key)}:${canonicalValue(value)}`
-      if (seen.has(signature)) return false
-      seen.add(signature)
-      return true
-    })
-    .slice(0, 24)
-    .map(({ label, value }) => ({ label, value }))
 }
 
 function firstProfilePhotoCandidate(worker = {}) {
@@ -606,6 +758,41 @@ function getExperienceYears(worker, profession) {
   ].map(numberFromValue)
 
   return values.find((value) => value > 0) || 0
+}
+
+function normalizeProfessionComparable(value) {
+  if (value === undefined || value === null) return ''
+  if (Array.isArray(value)) return value.map(normalizeProfessionComparable).filter(Boolean).sort().join('|')
+  if (typeof value === 'object') {
+    return firstText(value.profession, value.professionName, value.name, value.label, value.title, value.value, value.price, value.amount) || ''
+  }
+  return String(value).trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function hasSecondaryProfessionData(secondary = null, primary = null) {
+  if (!secondary || typeof secondary !== 'object') return false
+
+  const fields = [
+    'profession',
+    'professionName',
+    'name',
+    'description',
+    'jobDescription',
+    'services',
+    'price',
+    'minimumPrice',
+    'minimumVisitPrice',
+    'fullServicePackagePrice',
+    'experienceYears',
+    'experienceRange',
+  ]
+  const secondaryHasValue = fields.some((field) => normalizeProfessionComparable(secondary[field]))
+  if (!secondaryHasValue) return false
+  if (!primary || typeof primary !== 'object') return true
+
+  const primaryValues = fields.map((field) => normalizeProfessionComparable(primary[field]))
+  const secondaryValues = fields.map((field) => normalizeProfessionComparable(secondary[field]))
+  return secondaryValues.some((value, index) => value && value !== primaryValues[index])
 }
 
 function extractExperienceYears(...sources) {
@@ -1030,8 +1217,8 @@ function WorkerProfileDetailViewContent({ workerId }) {
             document.key === 'aadhaar' && /licen[cs]e|driving|driver/i.test(`${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`)
               ? { ...document, key: 'license', name: 'Driving License' }
               : document
-          )))
-          setWorker((current) => current?.id === data.id ? { ...current, documents: cleanDocuments, professionMedia, workPhotos: professionMedia } : current)
+          )), { ...data, aadhaarUrl: aadhaarDocumentUrl || data.aadhaarUrl, professionMedia, workPhotos: professionMedia })
+          setWorker((current) => current?.id === data.id ? { ...current, aadhaarUrl: aadhaarDocumentUrl || current.aadhaarUrl, documents: cleanDocuments, professionMedia, workPhotos: professionMedia } : current)
           if (profileUrl) setWorkerPhotoUrl(profileUrl)
           setAadhaarUrl(aadhaarDocumentUrl)
         }).finally(() => setAssetsLoading(false))
@@ -1083,6 +1270,9 @@ function WorkerProfileDetailViewContent({ workerId }) {
 
   const primaryProfession = worker ? getPrimaryProfession(worker) : null
   const secondaryProfession = worker ? getSecondaryProfession(worker) : null
+  const hasSecondaryProfession = hasSecondaryProfessionData(secondaryProfession, primaryProfession)
+  const visibleTabItems = hasSecondaryProfession ? TAB_ITEMS : TAB_ITEMS.filter((tab) => tab.id !== 'secondary')
+  const effectiveActiveTab = activeTab === 'secondary' && !hasSecondaryProfession ? 'primary' : activeTab
   const workerLocation = worker ? getLocationLabel(worker) : ''
   const joinedDate = formatDate(worker.verificationVersions?.[0]?.updatedAt || worker.lastActive)
   const documentCards = withRequiredDocumentCards(worker.documents || [], worker)
@@ -1380,23 +1570,25 @@ function WorkerProfileDetailViewContent({ workerId }) {
               </div>
             </div>
           </div>
-          <div className="grid gap-2">
+          <div className="min-w-0 grid gap-2">
             <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-4 py-3 backdrop-blur">
-              <div className="flex items-center justify-between gap-4">
+              <div className="grid min-w-0 gap-1 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-center">
                 <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Primary Profession</div>
-                <div className="max-w-[58%] truncate text-sm font-black text-[var(--text-main)]">{primaryProfession?.profession || 'Not set'}</div>
+                <div className="min-w-0 break-words text-sm font-black text-[var(--text-main)]">{primaryProfession?.profession || 'Not set'}</div>
               </div>
             </div>
             <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-4 py-3 backdrop-blur">
-              <div className="flex items-center justify-between gap-4">
+              <div className="grid min-w-0 gap-1 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-start">
                 <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Location</div>
-                <div className="max-w-[62%] truncate text-sm font-black text-[var(--text-main)]" title={workerLocation}>{workerLocation}</div>
+                <div className="min-w-0 break-words text-sm font-black leading-5 text-[var(--text-main)]" title={workerLocation}>{workerLocation}</div>
               </div>
             </div>
             <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)]/90 px-4 py-3 backdrop-blur">
-              <div className="flex items-center justify-between gap-4">
+              <div className="grid min-w-0 gap-1 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-center">
                 <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Verification</div>
-                <Badge label={worker.approvalStatus || 'Pending'} color={worker.approvalStatus === 'Approved' ? '#10B981' : worker.approvalStatus === 'Rejected' ? '#EF4444' : '#F59E0B'} size="xs" />
+                <div className="min-w-0">
+                  <Badge label={worker.approvalStatus || 'Pending'} color={worker.approvalStatus === 'Approved' ? '#10B981' : worker.approvalStatus === 'Rejected' ? '#EF4444' : '#F59E0B'} size="xs" />
+                </div>
               </div>
             </div>
           </div>
@@ -1550,13 +1742,15 @@ function WorkerProfileDetailViewContent({ workerId }) {
             onOpen={() => navigate(`/workers/${worker.id}/profession/primary`)}
             onEdit={() => setEditTarget('primary')}
           />
-          <ProfessionSummaryCard
-            type="secondary"
-            worker={worker}
-            profession={secondaryProfession}
-            onOpen={() => navigate(`/workers/${worker.id}/profession/secondary`)}
-            onEdit={() => setEditTarget('secondary')}
-          />
+          {hasSecondaryProfession && (
+            <ProfessionSummaryCard
+              type="secondary"
+              worker={worker}
+              profession={secondaryProfession}
+              onOpen={() => navigate(`/workers/${worker.id}/profession/secondary`)}
+              onEdit={() => setEditTarget('secondary')}
+            />
+          )}
         </div>
       </WorkerDetailSection>
 
@@ -1594,12 +1788,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
       <div className="mb-4 rounded-[22px] border border-[var(--border-main)] bg-[var(--card-bg)] p-2 shadow-[0_14px_34px_rgba(15,23,42,0.05)]">
         <div className="flex items-center gap-2">
           <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
-          {TAB_ITEMS.map((tab) => (
+          {visibleTabItems.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => handleTabChange(tab.id)}
-              className={`shrink-0 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-all ${activeTab === tab.id ? 'border-brand-500/30 bg-brand-500/10 text-brand-700 shadow-sm dark:text-brand-300' : 'border-transparent bg-[var(--bg-main)]/70 text-[var(--text-main)] hover:border-[var(--border-main)]'}`}
+              className={`shrink-0 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-all ${effectiveActiveTab === tab.id ? 'border-brand-500/30 bg-brand-500/10 text-brand-700 shadow-sm dark:text-brand-300' : 'border-transparent bg-[var(--bg-main)]/70 text-[var(--text-main)] hover:border-[var(--border-main)]'}`}
             >
               {tab.label}
             </button>
@@ -1676,12 +1870,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
               Opening tab...
             </div>
           )}
-          <div key={activeTab} className="smooth-panel space-y-6">
-          {activeTab === 'overview' && renderOverview()}
-          {activeTab === 'primary' && renderProfessionTab('primary', primaryProfession)}
-          {activeTab === 'secondary' && renderProfessionTab('secondary', secondaryProfession)}
+          <div key={effectiveActiveTab} className="smooth-panel space-y-6">
+          {effectiveActiveTab === 'overview' && renderOverview()}
+          {effectiveActiveTab === 'primary' && renderProfessionTab('primary', primaryProfession)}
+          {effectiveActiveTab === 'secondary' && hasSecondaryProfession && renderProfessionTab('secondary', secondaryProfession)}
 
-          {activeTab === 'documents' && (
+          {effectiveActiveTab === 'documents' && (
             <WorkerDetailSection title="Documents" subtitle="Verification-ready document cards with status visibility">
               {assetsLoading && (
                 <div className="mb-4 rounded-xl border border-brand-500/20 bg-brand-500/10 px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">
@@ -1720,7 +1914,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
             </WorkerDetailSection>
           )}
 
-          {activeTab === 'bookings' && (
+          {effectiveActiveTab === 'bookings' && (
             <WorkerDetailSection title="Bookings" subtitle="Card-based booking view with customer, service, date, status, and earnings">
               {bookingCards.length > 0 ? (
                 <div className="grid gap-4 lg:grid-cols-2">
@@ -1732,13 +1926,13 @@ function WorkerProfileDetailViewContent({ workerId }) {
             </WorkerDetailSection>
           )}
 
-          {activeTab === 'earnings' && (
+          {effectiveActiveTab === 'earnings' && (
             <WorkerDetailSection title="Earnings / Revenue" subtitle="Clear income visibility with simple daily, weekly, and monthly breakdowns">
               <EarningsBreakdown total={totalEarnings} />
             </WorkerDetailSection>
           )}
 
-          {activeTab === 'reviews' && (
+          {effectiveActiveTab === 'reviews' && (
             <WorkerDetailSection title="Reviews & Ratings" subtitle="Customer feedback collected from completed bookings">
               {reviewCards.length > 0 ? (
                 <div className="grid gap-4 lg:grid-cols-2">
@@ -1757,7 +1951,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
             </WorkerDetailSection>
           )}
 
-          {activeTab === 'availability' && (
+          {effectiveActiveTab === 'availability' && (
             <WorkerDetailSection title="Availability / Schedule" subtitle="Working days, service windows, and booking readiness">
               <div className="space-y-4">
                 <AvailabilityBlock days={workingDays} slots={workingSlots} isActive={worker.availability === 'Available'} />
@@ -1775,7 +1969,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
             </WorkerDetailSection>
           )}
 
-          {activeTab === 'settings' && (
+          {effectiveActiveTab === 'settings' && (
             <WorkerDetailSection title="Settings / Edit Profile" subtitle="Administrative controls and profile management actions">
               <SettingsPanel
                 worker={worker}

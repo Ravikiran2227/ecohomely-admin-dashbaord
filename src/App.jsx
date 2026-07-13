@@ -39,7 +39,8 @@ const AccountDeletions = lazy(() => import('./screens/AccountDeletions'))
 const ControlVersions = lazy(() => import('./screens/ControlVersions'))
 const AreaManagement = lazy(() => import('./screens/AreaManagement'))
 const Announcements = lazy(() => import('./screens/Announcements'))
-const Notifications = lazy(() => import('./screens/Notifications'))
+const PushNotifications = lazy(() => import('./screens/Notifications'))
+const AdminNotifications = lazy(() => import('./screens/AdminNotifications'))
 const GPSHeatmap = lazy(() => import('./screens/GPSHeatmap'))
 const CityExpansion = lazy(() => import('./screens/CityExpansion'))
 const Flagged = lazy(() => import('./screens/Flagged'))
@@ -113,7 +114,8 @@ export default function App() {
               <Route path="/announcements"      element={<Announcements />} />
               <Route path="/announcements/new"  element={<Announcements />} />
               <Route path="/announcements/edit/:id" element={<Announcements />} />
-              <Route path="/notifications"     element={<Notifications />} />
+              <Route path="/push-notifications" element={<PushNotifications />} />
+              <Route path="/notifications"     element={<AdminNotifications />} />
               <Route path="/heatmap"           element={<GPSHeatmap />} />
               <Route path="/expansion"         element={<CityExpansion />} />
               <Route path="/flagged"           element={<ProtectedRoute requiredRoles={[ROLES.SUPER_ADMIN, ROLES.ADMIN]}><Flagged /></ProtectedRoute>} />

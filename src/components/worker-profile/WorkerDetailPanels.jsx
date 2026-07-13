@@ -80,11 +80,11 @@ function isPdfDocument(document = {}) {
 function DocumentThumbnail({ document }) {
   const previewUrl = document.url || document.src || document.downloadUrl || document.downloadURL || document.fileUrl || ''
   if (document.isImage && previewUrl) {
-    return <img src={previewUrl} alt={document.name} loading="lazy" decoding="async" className="h-36 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
+    return <img src={previewUrl} alt={document.name} loading="lazy" decoding="async" className="h-full min-h-20 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
   }
 
   return (
-    <div className="flex h-36 flex-col items-center justify-center gap-3 bg-[var(--bg-main)] text-center">
+    <div className="flex h-full min-h-20 flex-col items-center justify-center gap-3 bg-[var(--bg-main)] text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-500/20 bg-brand-500/10 text-brand-600 dark:text-brand-300">
         <FileText className="h-6 w-6" />
       </div>
@@ -97,8 +97,9 @@ function DocumentThumbnail({ document }) {
 }
 
 function DocumentPreviewModal({ document, onClose }) {
+  const gallery = Array.isArray(document?.gallery) ? document.gallery : []
   const previewUrl = document?.url || document?.src || document?.downloadUrl || document?.downloadURL || document?.fileUrl || ''
-  if (!previewUrl) return null
+  if (!previewUrl && !gallery.length) return null
   const pdf = isPdfDocument(document)
 
   return createPortal(
@@ -119,7 +120,18 @@ function DocumentPreviewModal({ document, onClose }) {
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-4">
-          {document.isImage ? (
+          {gallery.length > 1 ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {gallery.map((item, index) => {
+                const itemUrl = item.url || item.src || item.downloadUrl || item.downloadURL || item.fileUrl || ''
+                return itemUrl ? (
+                  <a key={itemUrl || index} href={itemUrl} target="_blank" rel="noreferrer" className="overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]">
+                    <img src={itemUrl} alt={item.name || item.fileName || `Profession photo ${index + 1}`} loading="eager" decoding="async" className="h-56 w-full object-cover" />
+                  </a>
+                ) : null
+              })}
+            </div>
+          ) : document.isImage ? (
             <img src={previewUrl} alt={document.name} loading="eager" decoding="async" className="mx-auto max-h-[78vh] w-full rounded-[24px] object-contain bg-black/25" />
           ) : pdf ? (
             <iframe title={document.name || 'Document preview'} src={previewUrl} className="h-[78vh] w-full rounded-[24px] border border-white/10 bg-white" />
@@ -141,6 +153,10 @@ function DocumentPreviewModal({ document, onClose }) {
 
 export const DocumentCard = memo(function DocumentCard({ document, onEdit, onDelete }) {
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [activeGalleryIndex, setActiveGalleryIndex] = useState(0)
+  const gallery = Array.isArray(document.gallery) ? document.gallery : []
+  const activeGalleryItem = gallery[activeGalleryIndex] || document
+  const previewDocument = gallery.length ? activeGalleryItem : document
   const previewUrl = document.url || document.src || document.downloadUrl || document.downloadURL || document.fileUrl || ''
 
   return (
@@ -157,13 +173,31 @@ export const DocumentCard = memo(function DocumentCard({ document, onEdit, onDel
       </div>
       {previewUrl ? (
         <button type="button" onClick={() => setPreviewOpen(true)} className="group mt-4 block w-full overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] text-left">
-          <DocumentThumbnail document={document} />
+          <div className="h-36">
+            <DocumentThumbnail document={previewDocument} />
+          </div>
           <div className="flex items-center justify-between gap-3 border-t border-[var(--border-main)] px-3 py-2 text-xs font-bold text-brand-600 dark:text-brand-300">
             <span>Preview before opening</span>
             <Eye className="h-4 w-4" />
           </div>
         </button>
       ) : null}
+      {gallery.length > 1 && (
+        <div className="mt-3 grid grid-cols-4 gap-2">
+          {gallery.slice(0, 8).map((item, index) => (
+            <button
+              key={item.url || item.src || item.path || item.fileName || index}
+              type="button"
+              onClick={() => setActiveGalleryIndex(index)}
+              className={`overflow-hidden rounded-lg border ${activeGalleryIndex === index ? 'border-brand-500' : 'border-[var(--border-main)]'} bg-[var(--bg-main)]`}
+            >
+              <div className="h-16">
+                <DocumentThumbnail document={item} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -181,7 +215,7 @@ export const DocumentCard = memo(function DocumentCard({ document, onEdit, onDel
           Delete Image
         </button>
       </div>
-      {previewOpen && <DocumentPreviewModal document={document} onClose={() => setPreviewOpen(false)} />}
+      {previewOpen && <DocumentPreviewModal document={gallery.length ? document : previewDocument} onClose={() => setPreviewOpen(false)} />}
     </div>
   )
 })

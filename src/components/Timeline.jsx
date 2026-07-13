@@ -11,9 +11,12 @@ export default function Timeline({ booking, statusColor, palette = {} }) {
   const colorForStatus = statusColor || defaultStatusColor
   const steps = buildBookingTimelineSteps(booking)
 
+  // Stages that have not happened yet show a blank line (keeping the row's height) rather than the
+  // word "Pending" - e.g. "Started", which this product's flow never records.
+  const EMPTY_TIME = ' '
   const formatTime = (value) => {
-    if (!value) return 'Pending'
-    return formatDateTime(value) || 'Pending'
+    if (!value) return EMPTY_TIME
+    return formatDateTime(value) || EMPTY_TIME
   }
 
   return (

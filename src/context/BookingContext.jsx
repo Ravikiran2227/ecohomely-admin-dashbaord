@@ -13,15 +13,36 @@ function asArray(value) {
   return Array.isArray(value) ? value : []
 }
 
+function pad2(value) {
+  return String(value).padStart(2, '0')
+}
+
+// Render an absolute instant as a LOCAL wall-clock "YYYY-MM-DD HH:mm" string. The previous version
+// used toISOString(), which emitted UTC wall-clock and dropped the timezone marker - downstream
+// parseDateTime() then re-read that UTC text as local time, shifting every Firestore Timestamp by the
+// viewer's offset (IST bookings showed ~5.5h early). Formatting with the local getters keeps the round
+// trip through parseDateTime() (which also reads a tz-less string as local) faithful to the real time.
+function formatLocalDateTime(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
 function toDateTimeString(value) {
   if (!value) return null
-  if (typeof value === 'string') return value.replace('T', ' ').slice(0, 16)
-  if (typeof value === 'number') return new Date(value).toISOString().replace('T', ' ').slice(0, 16)
-  if (value instanceof Date) return value.toISOString().replace('T', ' ').slice(0, 16)
-  if (typeof value.toDate === 'function') return value.toDate().toISOString().replace('T', ' ').slice(0, 16)
-  if (typeof value.toMillis === 'function') return new Date(value.toMillis()).toISOString().replace('T', ' ').slice(0, 16)
-  if (value._seconds) return new Date(value._seconds * 1000).toISOString().replace('T', ' ').slice(0, 16)
-  if (value.seconds) return new Date(value.seconds * 1000).toISOString().replace('T', ' ').slice(0, 16)
+  if (typeof value === 'string') {
+    // A plain "YYYY-MM-DD HH:mm" (no timezone) is already local wall-clock - keep it verbatim.
+    // Anything carrying a timezone (ISO 'Z' or numeric offset) is an absolute instant that must be
+    // converted to local wall-clock so it lines up with the Firestore Timestamp path below.
+    const hasTimezone = /[zZ]$/.test(value) || /[+-]\d{2}:?\d{2}$/.test(value)
+    if (!hasTimezone) return value.replace('T', ' ').slice(0, 16)
+    return formatLocalDateTime(new Date(value)) || value
+  }
+  if (typeof value === 'number') return formatLocalDateTime(new Date(value))
+  if (value instanceof Date) return formatLocalDateTime(value)
+  if (typeof value.toDate === 'function') return formatLocalDateTime(value.toDate())
+  if (typeof value.toMillis === 'function') return formatLocalDateTime(new Date(value.toMillis()))
+  if (value._seconds) return formatLocalDateTime(new Date(value._seconds * 1000))
+  if (value.seconds) return formatLocalDateTime(new Date(value.seconds * 1000))
   return null
 }
 
@@ -48,6 +69,11 @@ function normalizeBooking(record = {}) {
   const normalizedStatus = invoiceGenerated ? 'Completed' : normalizeStatusLabel(rawStatus)
   const rejectedAt = toDateTimeString(record.rejectedAt || record.cancelledAt || record.canceledAt)
   const invoiceCreatedAt = toDateTimeString(invoiceRecord?.createdAt || invoiceRecord?.invoiceDate || invoiceRecord?.date || invoiceRecord?.paidAt)
+  // Accept time: the partner app writes a dedicated `acceptedAt` on accept. Existing bookings created
+  // before that change only carry `partnerDecisionAt` (set by the same accept tap) - reuse it as the
+  // accept time UNLESS the partner decision was reject/cancel (where partnerDecisionAt is the reject time).
+  const partnerDecisionRejected = ['rejected', 'cancelled', 'canceled', 'declined'].includes(String(record.partnerDecision || '').toLowerCase())
+  const acceptedAtValue = record.acceptedAt || (partnerDecisionRejected ? null : record.partnerDecisionAt)
   const customerLocation = record.userLocation || record.customerDetails?.location || record.location || null
   const workerLocation = record.servicemanLocation || record.workerLocation || record.workerDetails?.location || null
   const booking = {
@@ -64,8 +90,8 @@ function normalizeBooking(record = {}) {
     rawStatus,
     status: normalizedStatus,
     requestedAt,
-    assignedAt: toDateTimeString(record.assignedAt),
-    acceptedAt: toDateTimeString(record.acceptedAt),
+    assignedAt: toDateTimeString(record.assignedAt || record.bookedAt || record.createdAt) || requestedAt,
+    acceptedAt: toDateTimeString(acceptedAtValue),
     startedAt: toDateTimeString(record.startedAt),
     rejectedAt,
     cancelledAt: rejectedAt,

@@ -323,6 +323,17 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
+  @keyframes admin-bell-ring {
+    0%, 45%, 100% { transform: rotate(0); }
+    5%, 15%, 25%, 35% { transform: rotate(10deg); }
+    10%, 20%, 30%, 40% { transform: rotate(-10deg); }
+  }
+
+  .admin-bell-ring svg {
+    animation: admin-bell-ring 1.8s ease-in-out infinite;
+    transform-origin: 50% 10%;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .smooth-panel,
     .loading-shimmer::after {

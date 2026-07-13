@@ -518,16 +518,18 @@ function firstArrayLabel(value) {
 function normalizeProfessionList(worker = {}) {
   if (Array.isArray(worker.professions) && worker.professions.length > 0) {
     return worker.professions.map((profession, index) => {
+      const type = typeof profession === 'object' && profession.type ? profession.type : (index === 0 ? 'Primary' : 'Secondary')
+      const isSecondary = String(type || '').toLowerCase() === 'secondary'
       const professionName = labelOf(profession)
-      const price = professionPriceFrom(profession, worker)
-      const fullServicePackagePrice = fullPackagePriceFrom(profession, worker)
-      const packages = pricingPackagesFrom(profession, worker)
+      const price = professionPriceFrom(profession, isSecondary ? {} : worker)
+      const fullServicePackagePrice = fullPackagePriceFrom(profession, isSecondary ? {} : worker)
+      const packages = pricingPackagesFrom(profession, isSecondary ? {} : worker)
       return {
         ...(typeof profession === 'object' && !Array.isArray(profession) ? profession : {}),
-        type: typeof profession === 'object' && profession.type ? profession.type : (index === 0 ? 'Primary' : 'Secondary'),
-        profession: professionName || labelOf(worker.profession) || 'Not set',
-        services: Array.isArray(profession?.services) ? profession.services : Array.isArray(worker.services) ? worker.services : [],
-        pricingModel: profession?.pricingModel || profession?.pricing?.model || worker.pricingModel || worker.pricing?.model || (packages.length ? 'package' : 'hourly'),
+        type,
+        profession: professionName || (!isSecondary ? labelOf(worker.profession) : '') || 'Not set',
+        services: Array.isArray(profession?.services) ? profession.services : (!isSecondary && Array.isArray(worker.services) ? worker.services : []),
+        pricingModel: profession?.pricingModel || profession?.pricing?.model || (!isSecondary ? worker.pricingModel || worker.pricing?.model : '') || (packages.length ? 'package' : 'hourly'),
         price,
         minimumPrice: firstNumberIncludingZero(profession?.minimumPrice, profession?.minimumVisitPrice, profession?.minimumVisitCharge, profession?.minimalVisitPrice, profession?.minimalVisitCharge, profession?.visitCharge, price),
         fullServicePackagePrice,
@@ -547,24 +549,29 @@ function normalizeProfessionList(worker = {}) {
           profession?.experice,
           profession?.experince,
           profession?.exprience,
-          worker.experienceYears,
-          worker.experienceRange,
-          worker.secondaryExperienceRange,
-          worker.experienceYear,
-          worker.yearsOfExperience,
-          worker.yearOfExperience,
-          worker.totalExperience,
-          worker.workExperience,
-          worker.experience,
-          worker.experice,
-          worker.experince,
-          worker.exprience,
-          worker.experienceInYears,
-          worker.experience_years,
-          worker.work_experience,
-          worker.professionalExperience,
-          worker.total_exp,
-          deepValue(worker, ['exper', 'work.*exp', 'total.*exp', 'years.*service']),
+          ...(isSecondary ? [
+            worker.secondaryExperienceYears,
+            worker.secondaryExperienceRange,
+            worker.secondaryYearsOfExperience,
+          ] : [
+            worker.experienceYears,
+            worker.experienceRange,
+            worker.experienceYear,
+            worker.yearsOfExperience,
+            worker.yearOfExperience,
+            worker.totalExperience,
+            worker.workExperience,
+            worker.experience,
+            worker.experice,
+            worker.experince,
+            worker.exprience,
+            worker.experienceInYears,
+            worker.experience_years,
+            worker.work_experience,
+            worker.professionalExperience,
+            worker.total_exp,
+            deepValue(worker, ['exper', 'work.*exp', 'total.*exp', 'years.*service']),
+          ]),
         ),
       }
     })
@@ -632,6 +639,7 @@ export function normalizeWorker(worker = {}) {
     profilePhoto: worker.profilePhoto || worker.image || worker.photoUrl || worker.profileImage || worker.profilePhotoUploaded || false,
     status: worker.status || (approvalStatus === 'Approved' ? (worker.active === false ? 'Inactive' : 'Active') : 'Pending'),
     approvalStatus,
+    rawApprovalStatus: approvalStatus,
     availability,
     planType: worker.planType || 'Free',
     membership: normalizeMembership(worker.membership),
@@ -743,26 +751,52 @@ export const workersApi = {
   approveWorker: async (workerId, payload = {}, options = {}) => {
     const reviewed = await workersApi.reviewWorker(workerId, { ...payload, action: 'approve' }, options)
     return workersApi.updateWorker(workerId, {
+      profileReviewClearedAt: new Date().toISOString(),
       adminCorrectionNotificationRead: true,
       correctionRequired: false,
       requiresCorrection: false,
       needsCorrection: false,
       correctionRequested: false,
       correctionStatus: null,
+      // reviewStatus is set to 'Pending' when a serviceman resubmits a correction (both here and in
+      // the mobile backend) and is what the partner app reads for its "profile under review" banner.
+      // Nothing else ever resets it, so it must be re-aligned to the decision on approve/reject -
+      // otherwise a corrected-then-approved worker stays "under review" in the app forever.
+      reviewStatus: 'Approved',
+      correctionRequestedAt: null,
+      correctionSubmittedAt: null,
     }, options).catch(() => reviewed)
   },
   rejectWorker: async (workerId, payload = {}, options = {}) => {
     const reviewed = await workersApi.reviewWorker(workerId, { ...payload, action: 'reject' }, options)
     return workersApi.updateWorker(workerId, {
+      profileReviewClearedAt: new Date().toISOString(),
       adminCorrectionNotificationRead: true,
       correctionRequired: false,
       requiresCorrection: false,
       needsCorrection: false,
       correctionRequested: false,
       correctionStatus: null,
+      // Keep reviewStatus aligned to the decision (see approveWorker) so a rejected worker does not
+      // stay stuck showing "profile under review" in the partner app.
+      reviewStatus: 'Rejected',
+      correctionRequestedAt: null,
+      correctionSubmittedAt: null,
     }, options).catch(() => reviewed)
   },
-  requestCorrection: (workerId, payload = {}, options = {}) => workersApi.reviewWorker(workerId, { ...payload, action: 'correction' }, options),
+  requestCorrection: async (workerId, payload = {}, options = {}) => {
+    const reviewed = await workersApi.reviewWorker(workerId, { ...payload, action: 'correction' }, options)
+    return workersApi.updateWorker(workerId, {
+      approvalStatus: 'Correction Required',
+      reviewStatus: 'Correction Required',
+      correctionRequired: true,
+      requiresCorrection: true,
+      needsCorrection: true,
+      correctionRequested: true,
+      correctionStatus: 'Pending',
+      correctionSubmittedAt: null,
+    }, options).catch(() => reviewed)
+  },
   suspendWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, { ...payload, status: 'Suspended', availability: 'Offline' }, options),
   reactivateWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, { ...payload, status: 'Active', availability: payload.availability || 'Available' }, options),
   updateProfession,

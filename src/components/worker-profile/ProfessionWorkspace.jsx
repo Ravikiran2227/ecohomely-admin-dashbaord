@@ -275,6 +275,65 @@ function buildGalleryItems(profession, worker, type) {
 function buildPackages(profession = {}, worker = {}) {
   profession = profession || {}
   worker = worker || {}
+  const minimalCharge = firstText(
+    profession.minimumPrice,
+    profession.minimumVisitPrice,
+    profession.minimalVisitPrice,
+    profession.minimalVisitCharge,
+    profession.minimumVisitCharge,
+    profession.visitCharge,
+    profession.basePrice,
+    profession.startingPrice,
+    profession.startPrice,
+    profession.servicePrice,
+    profession.price,
+    profession.pricing?.minimalCharge?.amount,
+    profession.pricing?.minimumCharge?.amount,
+    profession.pricing?.startingPrice,
+    profession.pricing?.price,
+    worker.minimumPrice,
+    worker.minimumVisitPrice,
+    worker.minimalVisitPrice,
+    worker.minimalVisitCharge,
+    worker.minimumVisitCharge,
+    worker.visitCharge,
+    worker.basePrice,
+    worker.startingPrice,
+    worker.servicePrice,
+    worker.price,
+    worker.pricing?.minimalCharge?.amount,
+    worker.pricing?.minimumCharge?.amount,
+    worker.pricing?.startingPrice,
+    worker.pricing?.price,
+  )
+  const minimalPrice = amountFromValue(minimalCharge)
+  const minimalIncludes = profession.minimalVisitIncludes || profession.minimumVisitIncludes || profession.visitIncludes || profession.includes || worker.minimalVisitIncludes || worker.minimumVisitIncludes || worker.visitIncludes
+  const fullPackage = firstText(
+    profession.fullServicePackagePrice,
+    profession.fullServicePrice,
+    profession.fullPackagePrice,
+    profession.fullServicePackage,
+    profession.fullService,
+    profession.packagePrice,
+    profession.comboPrice,
+    profession.comboPackagePrice,
+    profession.combinedPrice,
+    profession.packageComboPrice,
+    profession.pricing?.packagePricing?.amount,
+    profession.pricing?.fullServicePackage?.amount,
+    worker.fullServicePackagePrice,
+    worker.fullServicePrice,
+    worker.fullPackagePrice,
+    worker.fullServicePackage,
+    worker.fullService,
+    worker.packagePrice,
+    worker.comboPrice,
+    worker.comboPackagePrice,
+    worker.pricing?.packagePricing?.amount,
+    worker.pricing?.fullServicePackage?.amount,
+  )
+  const fullPackagePrice = amountFromValue(fullPackage)
+  const fullIncludes = profession.fullServiceIncludes || profession.packageIncludes || profession.fullServiceItems || worker.fullServiceIncludes || worker.packageIncludes || []
   const rawPackages = firstText(
     profession?.packages,
     profession?.pricingPackages,
@@ -298,34 +357,20 @@ function buildPackages(profession = {}, worker = {}) {
     return packages.map((item, index) => ({
       id: item.id || item.key || `package-${index}`,
       label: item.label || item.name || item.title || `Package ${index + 1}`,
-      price: amountFromValue(firstText(item.price, item.amount, item.value, item.total, item.packagePrice, item.packageAmount, item.charge)),
+      price: amountFromValue(firstText(item.price, item.amount, item.value, item.total, item.packagePrice, item.packageAmount, item.charge))
+        || (/full|package/i.test(String(item.label || item.name || item.title || item.key || '')) ? fullPackagePrice : minimalPrice),
       recommended: Boolean(item.recommended || item.isRecommended),
       description: item.description || item.details || '',
       features: Array.isArray(item.features) ? item.features : Array.isArray(item.includes) ? item.includes : [],
     }))
   }
 
-  const minimalCharge = firstText(
-    profession.minimumPrice,
-    profession.minimalVisitCharge,
-    profession.minimumVisitCharge,
-    profession.visitCharge,
-    profession.basePrice,
-    profession.price,
-    worker.minimalVisitCharge,
-    worker.minimumVisitCharge,
-    worker.visitCharge,
-  )
-  const minimalIncludes = profession.minimalVisitIncludes || profession.minimumVisitIncludes || profession.visitIncludes || profession.includes || worker.minimalVisitIncludes
-  const fullPackage = firstText(profession.fullServicePackagePrice, profession.fullServicePackage, profession.fullService, profession.packagePrice, profession.comboPrice, profession.comboPackagePrice, worker.fullServicePackage)
-  const fullIncludes = profession.fullServiceIncludes || profession.packageIncludes || profession.fullServiceItems || []
-
   return [
     minimalCharge !== undefined && minimalCharge !== null && String(minimalCharge).trim() !== ''
       ? {
         id: 'minimal-visit',
         label: 'Minimal Visit',
-        price: amountFromValue(minimalCharge),
+        price: minimalPrice,
         recommended: false,
         description: 'Minimal visit pricing from Firebase',
         features: Array.isArray(minimalIncludes) ? minimalIncludes : String(minimalIncludes || '').split(/[,/|]+/).map((item) => item.trim()).filter(Boolean),
@@ -335,13 +380,42 @@ function buildPackages(profession = {}, worker = {}) {
       ? {
         id: 'full-service',
         label: 'Full Service Package',
-        price: amountFromValue(fullPackage),
+        price: fullPackagePrice,
         recommended: true,
         description: 'Full service package from Firebase',
         features: Array.isArray(fullIncludes) ? fullIncludes : String(fullIncludes || '').split(/[,/|]+/).map((item) => item.trim()).filter(Boolean),
       }
       : null,
   ].filter(Boolean)
+}
+
+function scopedWorkerForProfession(worker = {}, type = 'primary') {
+  if (type !== 'secondary') return worker || {}
+
+  const secondary = worker?.secondaryProfession
+    || worker?.professionDetails?.secondary
+    || worker?.secondaryProfessionDetails
+    || {}
+
+  return {
+    id: worker?.id,
+    gender: worker?.gender,
+    planType: worker?.planType,
+    planExpiry: worker?.planExpiry,
+    serviceRadiusKm: worker?.serviceRadiusKm,
+    ...secondary,
+    packages: secondary.packages || secondary.pricingPackages || worker?.secondaryPackages || worker?.secondaryPricingPackages || [],
+    pricingPackages: secondary.pricingPackages || secondary.packages || worker?.secondaryPricingPackages || worker?.secondaryPackages || [],
+    servicePackages: secondary.servicePackages || worker?.secondaryServicePackages || [],
+    pricing: secondary.pricing || worker?.secondaryPricing || worker?.secondaryProfessionPricing || {},
+    services: Array.isArray(secondary.services) ? secondary.services : (Array.isArray(worker?.secondaryServices) ? worker.secondaryServices : []),
+    subServices: secondary.subServices || secondary.subservices || worker?.secondarySubServices || worker?.secondaryServices || [],
+    minimumPrice: secondary.minimumPrice ?? secondary.minimumVisitPrice ?? secondary.minimalVisitCharge ?? worker?.secondaryMinimumPrice ?? worker?.secondaryMinimumVisitPrice,
+    minimumVisitPrice: secondary.minimumVisitPrice ?? worker?.secondaryMinimumVisitPrice,
+    minimalVisitCharge: secondary.minimalVisitCharge ?? worker?.secondaryMinimalVisitCharge,
+    fullServicePackagePrice: secondary.fullServicePackagePrice ?? secondary.fullServicePackage ?? secondary.packagePrice ?? worker?.secondaryFullServicePackagePrice,
+    packagePrice: secondary.packagePrice ?? worker?.secondaryPackagePrice,
+  }
 }
 
 function buildReviews(reviews = [], profession) {
@@ -678,11 +752,29 @@ export function ProfessionWorkspace({
   const uploadInputRef = useRef(null)
 
   const visual = useMemo(() => getProfessionVisual(profession?.profession), [profession])
+  const scopedWorker = useMemo(() => scopedWorkerForProfession(worker, type), [worker, type])
   const galleryItems = useMemo(() => [...buildGalleryItems(profession, worker, type), ...uploadedGallery], [profession, uploadedGallery, worker, type])
-  const packageCards = useMemo(() => buildPackages(profession, worker), [profession, worker])
+  const packageCards = useMemo(() => buildPackages(profession, scopedWorker), [profession, scopedWorker])
   const reviewCards = useMemo(() => buildReviews(reviews, profession), [reviews, profession])
-  const professionInfoRows = useMemo(() => buildProfessionInfoRows(profession, worker, reviewCards), [profession, worker, reviewCards])
-  const professionMetaRows = useMemo(() => buildProfessionMetaRows(profession, worker), [profession, worker])
+  const professionInfoRows = useMemo(() => buildProfessionInfoRows(profession, scopedWorker, reviewCards), [profession, scopedWorker, reviewCards])
+  const professionMetaRows = useMemo(() => buildProfessionMetaRows(profession, scopedWorker), [profession, scopedWorker])
+  const serviceTags = useMemo(() => {
+    const value = firstText(
+      profession?.services,
+      profession?.subServices,
+      profession?.subservices,
+      profession?.sub_service,
+      profession?.subService,
+      scopedWorker?.services,
+      scopedWorker?.subServices,
+      scopedWorker?.subservices,
+      scopedWorker?.sub_service,
+      scopedWorker?.subService,
+    )
+    return Array.isArray(value)
+      ? value
+      : String(value || '').split(/[,/|]+/).map((item) => item.trim()).filter(Boolean)
+  }, [profession, scopedWorker])
 
   useEffect(() => {
     if (!worker?.id || !type) return
@@ -718,18 +810,18 @@ export function ProfessionWorkspace({
     profession.pricing?.startingPrice,
     profession.pricing?.price,
     profession.price,
-    worker?.minimumPrice,
-    worker?.minimumVisitPrice,
-    worker?.minimumVisitCharge,
-    worker?.minimalVisitCharge,
-    worker?.basePrice,
-    worker?.startingPrice,
-    worker?.servicePrice,
-    worker?.pricing?.minimalCharge?.amount,
-    worker?.pricing?.minimumCharge?.amount,
-    worker?.pricing?.startingPrice,
-    worker?.pricing?.price,
-    worker?.price,
+    scopedWorker?.minimumPrice,
+    scopedWorker?.minimumVisitPrice,
+    scopedWorker?.minimumVisitCharge,
+    scopedWorker?.minimalVisitCharge,
+    scopedWorker?.basePrice,
+    scopedWorker?.startingPrice,
+    scopedWorker?.servicePrice,
+    scopedWorker?.pricing?.minimalCharge?.amount,
+    scopedWorker?.pricing?.minimumCharge?.amount,
+    scopedWorker?.pricing?.startingPrice,
+    scopedWorker?.pricing?.price,
+    scopedWorker?.price,
   ))
   const fullServicePackagePrice = amountFromValue(firstText(profession.fullServicePackagePrice, profession.fullServicePackage, profession.fullService, profession.packagePrice, profession.comboPrice, profession.comboPackagePrice, profession.combinedPrice, profession.packageComboPrice))
   const professionDescription = firstText(
@@ -743,9 +835,9 @@ export function ProfessionWorkspace({
     profession.summary,
     type === 'primary' ? worker.primaryProfessionDescription : worker.secondaryProfessionDescription,
     type === 'primary' ? worker.primaryDescription : worker.secondaryDescription,
-    worker.professionDescription,
-    worker.jobDescription,
-    worker.description,
+    type === 'primary' ? worker.professionDescription : '',
+    type === 'primary' ? worker.jobDescription : '',
+    type === 'primary' ? worker.description : '',
   )
   const quickFacts = [
     experienceYears > 0 ? { label: 'Experience', value: `${experienceYears}+ years` } : null,
@@ -929,7 +1021,7 @@ export function ProfessionWorkspace({
 
           <SectionCard title="Services Offered" subtitle="Core service categories and skill tags visible for this profession">
             <div className="flex flex-wrap gap-2">
-              {profession.services?.length > 0 ? profession.services.map((service) => (
+              {serviceTags.length > 0 ? serviceTags.map((service) => (
                 <span key={service} className="rounded-full border border-brand-500/15 bg-brand-500/8 px-3 py-1.5 text-sm font-semibold text-brand-700 dark:text-brand-300">
                   #{service.replace(/\s+/g, '')}
                 </span>

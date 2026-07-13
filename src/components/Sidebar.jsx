@@ -7,9 +7,12 @@ import ecohomelyLogo from '../assets/ecohomely-logo.svg'
 import complaintsApi from '../services/complaintsApi'
 import customersApi from '../services/customersApi'
 import workersApi from '../services/workersApi'
+import bookingsApi from '../services/bookingsApi'
+import accountDeletionsApi from '../services/accountDeletionsApi'
 import {
   PROFILE_UPDATES_CHANGED_EVENT,
   countPendingProfileUpdates,
+  hasPendingProfileUpdate,
   hasWorkerResubmittedCorrection,
 } from '../utils/profileUpdateNotifications'
 
@@ -46,6 +49,7 @@ function isOpenComplaint(complaint = {}) {
 
 function needsApproval(worker = {}) {
   const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || '').toLowerCase()
+  if (hasPendingProfileUpdate(worker)) return true
   if (status === 'approved') return false
   const resubmittedCorrection = hasWorkerResubmittedCorrection(worker)
   if (status.includes('correction') && !resubmittedCorrection) return false
@@ -90,10 +94,12 @@ export default function Sidebar({ collapsed, onCollapse }) {
     let cancelled = false
 
     async function loadBadgeCounts() {
-      const [complaintRows, customerRows, workerRows] = await Promise.all([
+      const [complaintRows, customerRows, workerRows, bookingRows, deletionRows] = await Promise.all([
         complaintsApi.listComplaints().catch(() => []),
         customersApi.listCustomers().catch(() => []),
         workersApi.listWorkers().catch(() => []),
+        bookingsApi.listBookings().catch(() => []),
+        accountDeletionsApi.listRequests().catch(() => []),
       ])
 
       if (cancelled) return
@@ -101,10 +107,13 @@ export default function Sidebar({ collapsed, onCollapse }) {
       const complaints = Array.isArray(complaintRows) ? complaintRows : []
       const customers = Array.isArray(customerRows) ? customerRows : []
       const workers = Array.isArray(workerRows) ? workerRows : []
+      const bookings = Array.isArray(bookingRows) ? bookingRows : []
+      const deletions = Array.isArray(deletionRows) ? deletionRows : []
 
       setBadgeCounts({
         approvalQueue: workers.filter(needsApproval).length,
         profileUpdates: countPendingProfileUpdates(workers),
+        adminNotifications: bookings.length + countPendingProfileUpdates(workers) + deletions.length,
         complaints: complaints.filter(isOpenComplaint).length,
         flagged: [
           ...complaints.filter(complaintNeedsReview),

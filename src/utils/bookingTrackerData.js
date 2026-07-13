@@ -172,7 +172,7 @@ export function buildBookingTimelineSteps(booking = {}) {
   const terminalTime = booking.completedAt || booking.invoiceCreatedAt || booking.invoiceGeneratedAt || booking.rejectedAt || booking.cancelledAt || booking.updatedAt
 
   return [
-    { key: 'requestedAt', label: 'Booking Created', time: booking.requestedAt || booking.bookedAt || booking.bookingDate, done: true },
+    { key: 'requestedAt', label: 'Booking Created', time: booking.bookedAt || booking.createdAt || booking.requestedAt || booking.bookingDate, done: true },
     { key: 'assignedAt', label: 'Assigned', time: booking.assignedAt, done: !isRejected && isAssigned },
     { key: 'acceptedAt', label: 'Accepted', time: booking.acceptedAt, done: !isRejected && isAccepted },
     { key: 'startedAt', label: 'Started', time: booking.startedAt, done: !isRejected && (isInProgress || isCompleted || Boolean(booking.startedAt)) },

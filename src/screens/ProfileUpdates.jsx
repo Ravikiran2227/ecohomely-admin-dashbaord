@@ -7,7 +7,7 @@ import {
   acknowledgeProfileUpdatesInbox,
   correctionRequestedAt,
   correctionSubmittedAt,
-  hasWorkerResubmittedCorrection,
+  hasPendingProfileUpdate,
 } from '../utils/profileUpdateNotifications'
 
 function toMillis(value) {
@@ -81,38 +81,6 @@ function latestVersion(worker = {}) {
   const rows = versionRows(worker)
   const fromRows = rows.reduce((max, row) => Math.max(max, Number(row.version || row.versionNumber || row.v || 0)), 0)
   return Math.max(fromRows, Number(worker.currentVersion || worker.version || worker.profileVersion || 1) || 1)
-}
-
-// A version bump alone isn't proof the worker resubmitted anything - admin actions
-// (mark for correction, approve, reject) also append a version entry. Only trust an
-// entry whose own note says the worker resubmitted.
-function hasResubmittedVersionEntry(worker = {}) {
-  const rows = versionRows(worker)
-  return rows.some((row) => String(row.note || '').toLowerCase().includes('resubmit'))
-}
-
-function submittedAt(worker = {}) {
-  const rows = versionRows(worker)
-  const latest = rows
-    .slice()
-    .sort((a, b) => toMillis(b.updatedAt || b.submittedAt || b.createdAt) - toMillis(a.updatedAt || a.submittedAt || a.createdAt))[0]
-  return worker.correctionSubmittedAt
-    || worker.resubmittedAt
-    || worker.profileSubmittedAt
-    || worker.profileUpdatedAt
-    || latest?.updatedAt
-    || latest?.submittedAt
-    || latest?.createdAt
-    || worker.updatedAt
-}
-
-function requestedAt(worker = {}) {
-  const correction = correctionMeta(worker)
-  return worker.correctionRequestedAt
-    || worker.markedForCorrectionAt
-    || worker.requestedCorrectionAt
-    || correction.requestedAt
-    || correction.createdAt
 }
 
 function correctionMeta(worker = {}) {
@@ -286,18 +254,13 @@ function correctionDetails(worker = {}) {
 }
 
 function hasProfileUpdate(worker = {}) {
-  const correction = correctionMeta(worker)
-  const requestMs = toMillis(correctionRequestedAt(worker))
-  const submitMs = toMillis(correctionSubmittedAt(worker))
-  const status = String(worker.correctionStatus || correction.status || worker.profileReviewStatus || '').toLowerCase()
-  return (
-    hasWorkerResubmittedCorrection(worker)
-    || ['submitted', 'resubmitted', 'updated', 'ready_for_review'].includes(status)
-    || worker.updatedAfterCorrection === true
-    || worker.profileUpdatePending === true
-    || hasResubmittedVersionEntry(worker)
-    || (requestMs > 0 && submitMs >= requestMs)
-  )
+  // Show a worker here only once they have actually resubmitted corrections (the partner app sets
+  // correctionStatus to 'Submitted'), or an approved worker edited their profile after review.
+  // hasPendingProfileUpdate is the single shared source of truth, so this screen stays in exact
+  // agreement with the Approval Queue and the sidebar badge. We must NOT fall back to timestamp
+  // comparisons - those get tripped by the admin's own "Mark for Correction" write and would show
+  // a worker who has not resubmitted anything in the app.
+  return hasPendingProfileUpdate(worker)
 }
 
 function initials(name) {

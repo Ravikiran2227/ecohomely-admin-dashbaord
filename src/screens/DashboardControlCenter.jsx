@@ -12,11 +12,11 @@ import {
   buildChartConfig,
   buildChartInsight,
   buildDashboardPerformanceSnapshot,
+  buildDashboardTabStatus,
+  buildDashboardTabSummary,
   formatDashboardDate,
-  getCompletedInRange,
   getDashboardRecords,
   getRecentDashboardBookings,
-  getSelectedDayBookings,
 } from '../services/dashboardPerformance'
 
 function statusIs(row, values) {
@@ -109,30 +109,25 @@ function addMonths(date, amount) {
 
 function getRecordTitle(record, activeTab) {
   if (!record) return 'Record'
-  if (activeTab === 'revenue') return record.paymentId || record.transactionId || record.id || 'Payment'
-  if (activeTab === 'workers') return record.name || record.fullName || record.workerName || record.id || 'Worker'
+  if (activeTab === 'servicemen' || activeTab === 'flagged') return record.name || record.fullName || record.workerName || record.id || 'Serviceman'
   if (activeTab === 'customers') return record.name || record.fullName || record.customerName || record.id || 'Customer'
-  if (activeTab === 'tolet') return record.title || record.propertyName || record.ownerName || record.id || 'ToLet listing'
+  if (activeTab === 'referrals') return record.referrerName || record.referredToName || record.referralCode || record.id || 'Referral'
   return record.customerName || record.customer || record.name || record.bookingId || record.id || 'Booking'
 }
 
 function getRecordMeta(record, activeTab) {
   if (!record) return ''
-  if (activeTab === 'revenue') {
-    const amount = Number(record.amt || record.amount || record.total || record.value || 0)
-    return [`Rs ${amount.toLocaleString('en-IN')}`, record.status].filter(Boolean).join(' - ')
-  }
-  if (activeTab === 'workers') return [record.profession || record.primaryProfession, record.area || record.city, record.status].filter(Boolean).join(' - ')
+  if (activeTab === 'servicemen' || activeTab === 'flagged') return [record.profession || record.primaryProfession, record.area || record.city, record.phone || record.mobile, record.status].filter(Boolean).join(' - ')
   if (activeTab === 'customers') return [record.phone || record.mobile, record.area || record.city, record.status].filter(Boolean).join(' - ')
-  if (activeTab === 'tolet') return [record.area || record.city, record.status].filter(Boolean).join(' - ')
+  if (activeTab === 'referrals') return [record.referrerName, record.referredToName, record.status].filter(Boolean).join(' - ')
   return [record.service || record.category, record.area || record.city, record.status].filter(Boolean).join(' - ')
 }
 
 function getRecordPath(record, activeTab) {
   if (!record?.id) return ''
-  if (activeTab === 'workers') return `/workers/${record.id}`
+  if (activeTab === 'servicemen' || activeTab === 'flagged') return `/workers/${record.id}`
   if (activeTab === 'customers') return `/customers/${record.id}`
-  if (activeTab === 'tolet') return '/tolet'
+  if (activeTab === 'referrals') return '/referrals'
   if (activeTab === 'bookings') return `/bookings/${record.id}`
   return ''
 }
@@ -286,11 +281,20 @@ export default function DashboardControlCenter() {
   const records = useMemo(() => getDashboardRecords(dashboardData || {}), [dashboardData])
   const performance = useMemo(() => buildDashboardPerformanceSnapshot(dashboardData || {}), [dashboardData])
   const activeDate = selectedDate || todayValue
-  const selectedDayBookings = useMemo(() => getSelectedDayBookings(dashboardData || {}, activeDate), [activeDate, dashboardData])
-  const completedInRange = useMemo(() => getCompletedInRange(dashboardData || {}, activeDate, activeRange), [activeDate, activeRange, dashboardData])
   const chartConfig = useMemo(() => buildChartConfig(dashboardData || {}, activeTab, activeRange, activeDate), [activeDate, activeRange, activeTab, dashboardData])
   const chartInsight = useMemo(() => buildChartInsight(chartConfig, activeRange), [activeRange, chartConfig])
   const recentBookings = useMemo(() => getRecentDashboardBookings(dashboardData || {}), [dashboardData])
+  const summaryCards = useMemo(
+    () => buildDashboardTabSummary(dashboardData || {}, activeTab, activeDate).map((card) => ({
+      ...card,
+      onClick: () => navigate(card.onClickPath || '/dashboard'),
+    })),
+    [activeDate, activeTab, dashboardData, navigate],
+  )
+  const statusCards = useMemo(
+    () => buildDashboardTabStatus(dashboardData || {}, activeTab, activeDate, activeRange),
+    [activeDate, activeRange, activeTab, dashboardData],
+  )
   const selectedPoint = useMemo(() => {
     if (!chartConfig.points?.length) return null
     return chartConfig.points.find((point) => (point.key || point.label) === selectedPointKey) || chartConfig.points.find((point) => point.value > 0) || chartConfig.points[0]
@@ -308,11 +312,8 @@ export default function DashboardControlCenter() {
     const bookingDate = parseDashboardDate(getBookingDateValue(booking))
     return bookingDate && bookingDate >= monthStart && bookingDate < monthEnd
   })
-  const selectedBookingRows = activeTab === 'bookings' && selectedPointKey ? (selectedPoint?.items || []) : monthBookings
-  const selectedCompletedCount = selectedBookingRows.filter((booking) => getBookingStatusGroup(booking) === 'completed').length
-  const pendingCount = selectedBookingRows.filter((booking) => getBookingStatusGroup(booking) === 'pending').length
   const unassignedBookings = monthBookings.filter((booking) => !getBookingWorkerId(booking) && getBookingStatusGroup(booking) === 'pending')
-  const cancelledCount = selectedBookingRows.filter((booking) => getBookingStatusGroup(booking) === 'cancelled').length
+  const pendingBookingsCount = monthBookings.filter((booking) => getBookingStatusGroup(booking) === 'pending').length
   const workerApprovalQueue = records.workers.filter(workerNeedsApproval)
   const openComplaints = records.complaints.filter((item) => statusIn(item, ['Open', 'Pending', 'In Progress', 'Under Review']))
   const pendingToLet = records.toLetListings.filter((listing) => statusIn(listing, ['Pending', 'Under Review']))
@@ -330,39 +331,6 @@ export default function DashboardControlCenter() {
   if (!hasDashboardRows) {
     return <DashboardStateCard title="No dashboard data yet" message="Bookings, workers, customers, payments, assistance, and ToLet records will appear here after Firebase has records." actionLabel="Retry" onAction={loadDashboard} />
   }
-
-  const summaryCards = [
-    {
-      label: 'Today Bookings',
-      value: selectedDayBookings.length,
-      sub: formatDashboardDate(activeDate, { day: 'numeric', month: 'short', year: 'numeric' }),
-      color: '#0F766E',
-      icon: 'calendar',
-      onClick: () => navigate('/bookings'),
-    },
-    {
-      label: 'Completed',
-      value: completedInRange,
-      sub: activeRange === 'today' ? 'Completed on selected day' : `Completed this ${activeRange}`,
-      color: '#10B981',
-      icon: 'check',
-      onClick: () => navigate('/bookings'),
-    },
-    {
-      label: 'Pending',
-      value: pendingCount,
-      sub: `${unassignedBookings.length} waiting for assignment`,
-      color: '#F59E0B',
-      icon: 'clock',
-      onClick: () => navigate('/bookings'),
-    },
-  ]
-
-  const statusCards = [
-    { label: 'Completed', value: selectedCompletedCount, color: '#10B981' },
-    { label: 'Pending', value: pendingCount, color: '#F59E0B' },
-    { label: 'Cancelled', value: cancelledCount, color: '#EF4444' },
-  ]
 
   const alertCards = [
     {
@@ -415,7 +383,7 @@ export default function DashboardControlCenter() {
   const queueSummary = [
     {
       label: 'Pending bookings',
-      value: pendingCount,
+      value: pendingBookingsCount,
       sub: `${unassignedBookings.length} unassigned`,
       color: '#F59E0B',
       path: '/bookings',
@@ -464,7 +432,15 @@ export default function DashboardControlCenter() {
         <Badge label={`Focus date ${formatDashboardDate(activeDate)}`} color="#0F766E" size="sm" />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${
+        summaryCards.length >= 5
+          ? 'xl:grid-cols-5'
+          : summaryCards.length === 4
+            ? 'xl:grid-cols-4'
+            : summaryCards.length === 1
+              ? 'max-w-sm'
+              : 'md:grid-cols-3'
+      }`}>
         {summaryCards.map((card) => (
           <StatCard key={card.label} {...card} />
         ))}
@@ -656,7 +632,7 @@ export default function DashboardControlCenter() {
         <div className="min-w-0 space-y-4">
           <SectionCard
             title="Status"
-            subtitle="Quick booking health snapshot"
+            subtitle={`Quick ${DASHBOARD_GRAPH_TABS.find((tab) => tab.id === activeTab)?.label || 'dashboard'} snapshot`}
             icon={<Icon name="check" size={18} />}
           >
             <div className="grid gap-3">

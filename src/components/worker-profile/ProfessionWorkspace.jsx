@@ -96,12 +96,43 @@ function amountFromValue(value) {
       value.value,
       value.total,
       value.packagePrice,
-      value.fullServicePackage,
+      value.fullServicePackagePrice,
       value.charge,
       value.cost,
+      value.packageAmount,
     ))
   }
   return numberFromValue(value)
+}
+
+function firstPositiveAmount(...values) {
+  for (const value of values) {
+    const amount = amountFromValue(value)
+    if (amount > 0) return amount
+  }
+  return 0
+}
+
+function listFromValue(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') return value.split(/[,/|]+/).map((item) => item.trim()).filter(Boolean)
+  return []
+}
+
+function serviceChargeRows(source = {}) {
+  const rows = Array.isArray(source.serviceCharges) ? source.serviceCharges : []
+  return rows
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') {
+        const amount = amountFromValue(item)
+        return amount > 0 ? { id: `service-charge-${index}`, service: `Service ${index + 1}`, charge: amount } : null
+      }
+      const service = firstText(item.service, item.name, item.label, item.title, item.subService, item.subservice, `Service ${index + 1}`)
+      const charge = firstPositiveAmount(item.charge, item.price, item.amount, item.value, item.cost)
+      return charge > 0 ? { id: item.id || `service-charge-${index}`, service, charge } : null
+    })
+    .filter(Boolean)
 }
 
 function getExperienceYears(worker, profession) {
@@ -275,7 +306,7 @@ function buildGalleryItems(profession, worker, type) {
 function buildPackages(profession = {}, worker = {}) {
   profession = profession || {}
   worker = worker || {}
-  const minimalCharge = firstText(
+  const minimalPrice = firstPositiveAmount(
     profession.minimumPrice,
     profession.minimumVisitPrice,
     profession.minimalVisitPrice,
@@ -306,9 +337,16 @@ function buildPackages(profession = {}, worker = {}) {
     worker.pricing?.startingPrice,
     worker.pricing?.price,
   )
-  const minimalPrice = amountFromValue(minimalCharge)
-  const minimalIncludes = profession.minimalVisitIncludes || profession.minimumVisitIncludes || profession.visitIncludes || profession.includes || worker.minimalVisitIncludes || worker.minimumVisitIncludes || worker.visitIncludes
-  const fullPackage = firstText(
+  const minimalIncludes = listFromValue(
+    profession.minimalVisitIncludes
+    || profession.minimumVisitIncludes
+    || profession.visitIncludes
+    || profession.includes
+    || worker.minimalVisitIncludes
+    || worker.minimumVisitIncludes
+    || worker.visitIncludes,
+  )
+  const fullPackagePrice = firstPositiveAmount(
     profession.fullServicePackagePrice,
     profession.fullServicePrice,
     profession.fullPackagePrice,
@@ -332,8 +370,16 @@ function buildPackages(profession = {}, worker = {}) {
     worker.pricing?.packagePricing?.amount,
     worker.pricing?.fullServicePackage?.amount,
   )
-  const fullPackagePrice = amountFromValue(fullPackage)
-  const fullIncludes = profession.fullServiceIncludes || profession.packageIncludes || profession.fullServiceItems || worker.fullServiceIncludes || worker.packageIncludes || []
+  const fullIncludes = listFromValue(
+    profession.fullServiceIncludes
+    || profession.packageIncludes
+    || profession.fullServiceItems
+    || profession.fullServicePackage?.includes
+    || worker.fullServiceIncludes
+    || worker.packageIncludes
+    || worker.fullServicePackage?.includes,
+  )
+  const serviceCharges = serviceChargeRows(profession).length ? serviceChargeRows(profession) : serviceChargeRows(worker)
   const rawPackages = firstText(
     profession?.packages,
     profession?.pricingPackages,
@@ -353,44 +399,93 @@ function buildPackages(profession = {}, worker = {}) {
     : rawPackages && typeof rawPackages === 'object'
       ? Object.entries(rawPackages).map(([key, value]) => ({ key, ...(typeof value === 'object' ? value : { price: value }) }))
       : []
+
+  const builtPackages = []
+
   if (packages.length > 0) {
-    return packages.map((item, index) => ({
-      id: item.id || item.key || `package-${index}`,
-      label: item.label || item.name || item.title || `Package ${index + 1}`,
-      price: amountFromValue(firstText(item.price, item.amount, item.value, item.total, item.packagePrice, item.packageAmount, item.charge))
-        || (/full|package/i.test(String(item.label || item.name || item.title || item.key || '')) ? fullPackagePrice : minimalPrice),
-      recommended: Boolean(item.recommended || item.isRecommended),
-      description: item.description || item.details || '',
-      features: Array.isArray(item.features) ? item.features : Array.isArray(item.includes) ? item.includes : [],
-    }))
+    packages.forEach((item, index) => {
+      const label = item.label || item.name || item.title || `Package ${index + 1}`
+      const price = firstPositiveAmount(item.price, item.amount, item.value, item.total, item.packagePrice, item.packageAmount, item.charge)
+        || (/full|package/i.test(String(label || item.key || '')) ? fullPackagePrice : minimalPrice)
+      if (price <= 0 && !firstText(item.description, item.details) && !(Array.isArray(item.features) && item.features.length) && !(Array.isArray(item.includes) && item.includes.length)) return
+      builtPackages.push({
+        id: item.id || item.key || `package-${index}`,
+        label,
+        price,
+        recommended: Boolean(item.recommended || item.isRecommended),
+        description: item.description || item.details || '',
+        features: Array.isArray(item.features) ? item.features : Array.isArray(item.includes) ? item.includes : [],
+      })
+    })
   }
 
-  return [
-    minimalCharge !== undefined && minimalCharge !== null && String(minimalCharge).trim() !== ''
-      ? {
-        id: 'minimal-visit',
-        label: 'Minimal Visit',
-        price: minimalPrice,
-        recommended: false,
-        description: 'Minimal visit pricing from Firebase',
-        features: Array.isArray(minimalIncludes) ? minimalIncludes : String(minimalIncludes || '').split(/[,/|]+/).map((item) => item.trim()).filter(Boolean),
-      }
-      : null,
-    fullPackage !== undefined && fullPackage !== null && String(fullPackage).trim() !== ''
-      ? {
-        id: 'full-service',
-        label: 'Full Service Package',
-        price: fullPackagePrice,
-        recommended: true,
-        description: 'Full service package from Firebase',
-        features: Array.isArray(fullIncludes) ? fullIncludes : String(fullIncludes || '').split(/[,/|]+/).map((item) => item.trim()).filter(Boolean),
-      }
-      : null,
-  ].filter(Boolean)
+  if (minimalPrice > 0 && !builtPackages.some((item) => /minimal|visit/i.test(item.label))) {
+    builtPackages.push({
+      id: 'minimal-visit',
+      label: 'Minimal Visit',
+      price: minimalPrice,
+      recommended: false,
+      description: 'Minimum visit charge for this profession',
+      features: minimalIncludes,
+    })
+  }
+
+  if (fullPackagePrice > 0 && !builtPackages.some((item) => /full|package/i.test(item.label))) {
+    builtPackages.push({
+      id: 'full-service',
+      label: 'Full Service Package',
+      price: fullPackagePrice,
+      recommended: true,
+      description: 'Complete service package pricing',
+      features: fullIncludes,
+    })
+  }
+
+  const additionalPackages = [
+    ...(Array.isArray(profession.additionalFullServicePackages) ? profession.additionalFullServicePackages : []),
+    ...(Array.isArray(worker.additionalFullServicePackages) ? worker.additionalFullServicePackages : []),
+  ]
+  additionalPackages.forEach((item, index) => {
+    const label = firstText(item?.label, item?.name, item?.title, `Additional Package ${index + 1}`)
+    const price = firstPositiveAmount(item?.price, item?.amount, item?.packagePrice, item?.value, item)
+    if (price <= 0) return
+    builtPackages.push({
+      id: item?.id || `additional-package-${index}`,
+      label,
+      price,
+      recommended: Boolean(item?.recommended),
+      description: firstText(item?.description, item?.details, 'Additional full service package'),
+      features: listFromValue(item?.includes || item?.features || item?.items),
+    })
+  })
+
+  serviceCharges.forEach((item) => {
+    builtPackages.push({
+      id: item.id,
+      label: item.service,
+      price: item.charge,
+      recommended: false,
+      description: 'Service included charge',
+      features: ['Included in selected service pricing'],
+      kind: 'service-charge',
+    })
+  })
+
+  return builtPackages
 }
 
 function scopedWorkerForProfession(worker = {}, type = 'primary') {
-  if (type !== 'secondary') return worker || {}
+  if (type !== 'secondary') {
+    return {
+      ...worker,
+      minimalVisitCharge: worker?.minimalVisitCharge ?? worker?.minimumVisitCharge ?? worker?.minimumVisitPrice,
+      minimalVisitIncludes: worker?.minimalVisitIncludes ?? worker?.minimumVisitIncludes ?? worker?.visitIncludes,
+      fullServicePackage: worker?.fullServicePackage,
+      fullServiceIncludes: worker?.fullServiceIncludes ?? worker?.packageIncludes ?? worker?.fullServicePackage?.includes,
+      serviceCharges: worker?.serviceCharges,
+      additionalFullServicePackages: worker?.additionalFullServicePackages,
+    }
+  }
 
   const secondary = worker?.secondaryProfession
     || worker?.professionDetails?.secondary
@@ -415,6 +510,10 @@ function scopedWorkerForProfession(worker = {}, type = 'primary') {
     minimalVisitCharge: secondary.minimalVisitCharge ?? worker?.secondaryMinimalVisitCharge,
     fullServicePackagePrice: secondary.fullServicePackagePrice ?? secondary.fullServicePackage ?? secondary.packagePrice ?? worker?.secondaryFullServicePackagePrice,
     packagePrice: secondary.packagePrice ?? worker?.secondaryPackagePrice,
+    serviceCharges: secondary.serviceCharges ?? worker?.secondaryServiceCharges ?? [],
+    minimalVisitIncludes: secondary.minimalVisitIncludes ?? secondary.minimumVisitIncludes ?? worker?.secondaryMinimalVisitIncludes ?? [],
+    fullServiceIncludes: secondary.fullServiceIncludes ?? secondary.packageIncludes ?? secondary.fullServicePackage?.includes ?? worker?.secondaryFullServiceIncludes ?? [],
+    additionalFullServicePackages: secondary.additionalFullServicePackages ?? worker?.secondaryAdditionalFullServicePackages ?? [],
   }
 }
 
@@ -423,15 +522,17 @@ function buildReviews(reviews = [], profession) {
   return (Array.isArray(reviews) ? reviews : [])
     .filter((review) => {
       if (!professionName) return true
-      const service = String(review.service || review.title || '').toLowerCase()
-      return !service || service.includes(professionName) || professionName.includes(service)
+      const service = String(review.service || review.profession || review.title || review.job || '').toLowerCase()
+      if (!service) return true
+      return service.includes(professionName) || professionName.includes(service)
     })
     .map((review, index) => ({
-      id: review.id || review.reviewId || `review-${index}`,
-      customer: review.customer || review.customerName || 'Customer',
-      title: review.service || review.title || profession?.profession || 'Review',
-      rating: Number(review.rating || 0),
-      feedback: review.feedback || review.comment || review.review || '',
+      id: review.id || review.reviewId || review.ratingId || `review-${index}`,
+      customer: review.customer || review.customerName || review.userName || review.name || (review.uid ? `Customer ${String(review.uid).slice(-6)}` : 'Customer'),
+      title: review.service || review.profession || review.title || review.job || profession?.profession || 'Review',
+      rating: Number(review.rating || review.stars || review.score || 0),
+      feedback: review.feedback || review.comment || review.review || review.message || review.description || '',
+      date: review.date || review.createdAt || review.updatedAt || review.reviewedAt || '',
     }))
 }
 
@@ -465,32 +566,28 @@ function getProfessionField(profession = {}, worker = {}, paths = []) {
 }
 
 function resolveFullServicePackagePrice(profession = {}, worker = {}) {
-  const candidates = [
+  return firstPositiveAmount(
     profession.fullServicePackagePrice,
     profession.packagePrice,
     profession.comboPrice,
     profession.comboPackagePrice,
     profession.combinedPrice,
+    profession.fullServicePackage,
+    profession.fullService,
     worker.fullServicePackagePrice,
     worker.packagePrice,
     worker.comboPrice,
     worker.comboPackagePrice,
-    profession.fullServicePackage,
-    profession.fullService,
     worker.fullServicePackage,
     worker.fullService,
-  ]
-  for (const candidate of candidates) {
-    const amount = amountFromValue(candidate)
-    if (amount > 0) return amount
-  }
-  return undefined
+  ) || undefined
 }
 
 function buildProfessionInfoRows(profession = {}, worker = {}, reviewCards = []) {
   profession = profession || {}
   worker = worker || {}
   const experienceYears = getExperienceYears(worker, profession)
+  const serviceCharges = serviceChargeRows(profession).length ? serviceChargeRows(profession) : serviceChargeRows(worker)
   const rows = [
     { label: 'Profession', value: profession.profession },
     { label: 'Availability Start', value: getProfessionField(profession, worker, ['availabilityStart', 'availableFrom', 'startTime', 'workingStart', 'availability.start']) },
@@ -503,6 +600,7 @@ function buildProfessionInfoRows(profession = {}, worker = {}, reviewCards = [])
     { label: 'Minimum Visit Price', value: getProfessionField(profession, worker, ['minimumPrice', 'minimalVisitCharge', 'minimumVisitCharge', 'visitCharge', 'price', 'basePrice']) },
     { label: 'Minimal Visit Includes', value: getProfessionField(profession, worker, ['minimalVisitIncludes', 'minimumVisitIncludes', 'visitIncludes', 'includes']) },
     { label: 'Full Service Package Price', value: resolveFullServicePackagePrice(profession, worker) },
+    { label: 'Service Included Charges', value: serviceCharges.length ? serviceCharges.map((item) => `${item.service}: ${formatCurrency(item.charge)}`).join(', ') : '' },
     { label: 'Brand Certification', value: getProfessionField(profession, worker, ['brandCertification', 'brandCertificate', 'certification', 'brand.certification']) },
   ]
 
@@ -746,7 +844,7 @@ export function ProfessionWorkspace({
 }) {
   const initialUiState = getProfessionUiState(worker?.id, type)
   const [descriptionExpanded, setDescriptionExpanded] = useState(() => Boolean(initialUiState.descriptionExpanded))
-  const [selectedPackage, setSelectedPackage] = useState(() => initialUiState.selectedPackage || 'premium')
+  const [selectedPackage, setSelectedPackage] = useState(() => initialUiState.selectedPackage || '')
   const [previewItem, setPreviewItem] = useState(null)
   const [uploadedGallery, setUploadedGallery] = useState(() => Array.isArray(initialUiState.uploadedGallery) ? initialUiState.uploadedGallery : [])
   const uploadInputRef = useRef(null)
@@ -777,6 +875,13 @@ export function ProfessionWorkspace({
   }, [profession, scopedWorker])
 
   useEffect(() => {
+    if (!packageCards.length) return
+    setSelectedPackage((current) => (
+      packageCards.some((item) => item.id === current) ? current : (packageCards.find((item) => item.recommended)?.id || packageCards[0]?.id || '')
+    ))
+  }, [packageCards])
+
+  useEffect(() => {
     if (!worker?.id || !type) return
 
     patchProfessionUiState(worker.id, type, {
@@ -795,7 +900,7 @@ export function ProfessionWorkspace({
   const planLabel = worker?.planType ? `${worker.planType} Plan` : ''
   const planExpiryLabel = worker?.planExpiry ? formatPlanExpiry(worker.planExpiry) : ''
   const experienceYears = getExperienceYears(worker, profession)
-  const minimumPrice = amountFromValue(firstText(
+  const minimumPrice = firstPositiveAmount(
     profession.minimumPrice,
     profession.minimumVisitPrice,
     profession.minimalVisitCharge,
@@ -822,8 +927,8 @@ export function ProfessionWorkspace({
     scopedWorker?.pricing?.startingPrice,
     scopedWorker?.pricing?.price,
     scopedWorker?.price,
-  ))
-  const fullServicePackagePrice = amountFromValue(firstText(profession.fullServicePackagePrice, profession.fullServicePackage, profession.fullService, profession.packagePrice, profession.comboPrice, profession.comboPackagePrice, profession.combinedPrice, profession.packageComboPrice))
+  )
+  const fullServicePackagePrice = resolveFullServicePackagePrice(profession, scopedWorker) || 0
   const professionDescription = firstText(
     profession.description,
     profession.jobDescription,
@@ -1066,6 +1171,7 @@ export function ProfessionWorkspace({
                     <div className="flex items-center gap-2">
                       <div className="text-base font-black text-[var(--text-main)]">{item.label}</div>
                       {item.recommended && <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-400">Recommended</span>}
+                      {item.kind === 'service-charge' && <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-400">Service Charge</span>}
                     </div>
                     <div className="mt-1 text-sm text-[var(--text-muted)]">{item.description}</div>
                   </div>
@@ -1186,10 +1292,11 @@ export function ProfessionWorkspace({
                     <div>
                       <div className="text-sm font-bold text-[var(--text-main)]">{review.customer}</div>
                       <div className="mt-1 text-xs text-[var(--text-muted)]">{review.title}</div>
+                      {review.date ? <div className="mt-1 text-[11px] text-[var(--text-muted)]">{formatFieldValue(review.date)}</div> : null}
                     </div>
                     <Stars rating={review.rating} />
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-[var(--text-main)]">{review.feedback}</p>
+                  <p className="mt-3 text-sm leading-6 text-[var(--text-main)]">{review.feedback || 'No written feedback provided.'}</p>
                 </div>
                 ))}
               </div>

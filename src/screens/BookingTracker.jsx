@@ -14,6 +14,8 @@ import {
   STATUS_ORDER,
   buildProcessedBookings,
   formatDateTime,
+  resolveBookingCreatedValue,
+  resolveBookingScheduleValue,
   statusColor,
 } from '../utils/bookingTrackerData'
 
@@ -200,6 +202,7 @@ export default function BookingTracker() {
                 }`}
               >
                 {status}
+                {status === 'All' ? ` (${processed.length})` : ` (${stats[status] || 0})`}
               </button>
             ))}
           </div>
@@ -233,7 +236,7 @@ export default function BookingTracker() {
               >
                 <TD>
                   <div className="grid max-w-[220px] gap-1">
-                    <span className="truncate text-sm font-bold text-[var(--text-main)]">{formatDateTime(booking.requestedAt)}</span>
+                    <span className="truncate text-sm font-bold text-[var(--text-main)]">{formatDateTime(resolveBookingCreatedValue(booking))}</span>
                     <span className="text-[11px] font-semibold text-dark-500">#{shortBookingId(booking)} · {booking.area}</span>
                   </div>
                 </TD>
@@ -287,7 +290,7 @@ export default function BookingTracker() {
                 <TD>
                   <Badge label={booking.derivedStatus} color={statusColor(booking.derivedStatus)} size="xs" dot={booking.derivedStatus === 'Pending'} />
                 </TD>
-                <TD className="whitespace-nowrap text-xs font-medium text-dark-500">{formatDateTime(booking.requestedAt)}</TD>
+                <TD className="whitespace-nowrap text-xs font-medium text-dark-500">{formatDateTime(resolveBookingScheduleValue(booking))}</TD>
                 <TD onClick={(event) => event.stopPropagation()}>
                   <BookingActions booking={booking} navigate={navigate} />
                 </TD>

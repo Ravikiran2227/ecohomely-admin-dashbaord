@@ -382,7 +382,7 @@ export function EarningsBreakdown({ total, daily, weekly, monthly }) {
   )
 }
 
-export function SettingsPanel({ worker, suspended, onSuspendToggle, onEditProfile, onEditProfession, onEditSecondaryProfession, onOpenDocuments, onDeleteWorker }) {
+export function SettingsPanel({ worker, suspended, showSecondaryProfession = false, onSuspendToggle, onEditProfile, onEditProfession, onEditSecondaryProfession, onOpenDocuments, onDeleteWorker }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <div className="rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/55 p-4">
@@ -390,7 +390,9 @@ export function SettingsPanel({ worker, suspended, onSuspendToggle, onEditProfil
         <div className="mt-4 space-y-3">
           <SidebarActionButton icon={PencilLine} onClick={onEditProfile}>Edit Worker Profile</SidebarActionButton>
           <SidebarActionButton icon={Users} onClick={onEditProfession}>Edit Primary Profession</SidebarActionButton>
-          <SidebarActionButton icon={Users} onClick={onEditSecondaryProfession}>Edit Secondary Profession</SidebarActionButton>
+          {showSecondaryProfession ? (
+            <SidebarActionButton icon={Users} onClick={onEditSecondaryProfession}>Edit Secondary Profession</SidebarActionButton>
+          ) : null}
           <SidebarActionButton icon={FileText} onClick={onOpenDocuments}>Manage Documents</SidebarActionButton>
           <SidebarActionButton icon={AlertTriangle} tone="destructive" onClick={onSuspendToggle}>{suspended ? 'Reactivate Worker' : 'Suspend Worker'}</SidebarActionButton>
           <SidebarActionButton icon={Trash2} tone="destructive" onClick={onDeleteWorker}>Delete Worker</SidebarActionButton>

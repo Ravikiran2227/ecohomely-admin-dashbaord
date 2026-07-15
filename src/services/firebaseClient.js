@@ -1111,8 +1111,14 @@ function isWorkerCorrectionResubmission(current = {}, payload = {}) {
 }
 
 function normalizeBookingRecord(record = {}, customerById = new Map(), workerById = new Map()) {
-  const customerId = normalizeId(pick(record, ['customerId', 'userId', 'customer_id', 'uid']))
-  const workerId = normalizeId(pick(record, ['workerId', 'servicemanId', 'serviceman_id', 'worker_id']))
+  const explicitCustomerId = normalizeId(pick(record, ['customerId', 'customer_id']))
+  const explicitWorkerId = normalizeId(pick(record, ['workerId', 'servicemanId', 'serviceman_id', 'worker_id', 'providerId', 'serviceManId']))
+  const rawUserId = normalizeId(record.userId)
+  // Legacy serviceman bookings store the assigned worker in userId when workerId is absent.
+  const workerId = explicitWorkerId || (!explicitCustomerId && rawUserId ? rawUserId : '')
+  const customerId = explicitCustomerId
+    || normalizeId(pick(record, ['uid']))
+    || (rawUserId && rawUserId !== workerId ? rawUserId : '')
   const customer = customerById.get(customerId) || {}
   const worker = workerById.get(workerId) || {}
   const bookingDate = pick(record, ['bookingDate', 'BookingDate', 'bookedAt', 'requestedAt', 'scheduledAt', 'createdAt', 'date'])
@@ -1127,9 +1133,13 @@ function normalizeBookingRecord(record = {}, customerById = new Map(), workerByI
     id: record.id,
     bookingId: pick(record, ['bookingId', 'BookingId', 'booking_id', 'orderId', 'requestId'], record.id),
     customerId,
-    userId: customerId || record.userId,
+    userId: customerId || (rawUserId && rawUserId !== workerId ? rawUserId : ''),
     workerId,
     servicemanId: workerId || record.servicemanId,
+    preferredAmount: record.preferredAmount,
+    estimatedPrice: record.estimatedPrice ?? record.preferredAmount,
+    finalPrice: record.finalPrice ?? record.preferredAmount ?? record.estimatedPrice,
+    amount: Number(record.amount || record.amt || record.finalPrice || record.estimatedPrice || record.preferredAmount || 0),
     customerName,
     customer: customerName,
     customerEmail: pick(record, ['customerEmail', 'email'], pick(customer, ['email'], '')),
@@ -1143,6 +1153,8 @@ function normalizeBookingRecord(record = {}, customerById = new Map(), workerByI
     requestedAt: bookingDate,
     bookingDate,
     bookedAt: pick(record, ['bookedAt', 'createdAt'], bookingDate),
+    scheduledDate: record.scheduledDate || record.scheduledAt || record.bookingDate || bookingDate,
+    scheduledAt: record.scheduledAt || record.scheduledDate || record.bookingDate || bookingDate,
     area: pick(record, ['area', 'areaName', 'city'], userLocation.city || userLocation.address || pick(customer, ['area', 'areaName', 'city'], '')),
     address: pick(record, ['address', 'location'], userLocation.address || pick(customer, ['address', 'location'], '')),
     userLocation,

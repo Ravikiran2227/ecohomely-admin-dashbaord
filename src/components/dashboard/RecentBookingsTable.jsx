@@ -39,13 +39,47 @@ function formatBookingTime(value) {
   return date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
-export default function RecentBookingsTable({ bookings, onOpenBooking }) {
+function bookingIdentityKeys(booking = {}) {
+  return [
+    booking.id,
+    booking.bookingId,
+    booking.BookingId,
+    booking.booking_id,
+    booking.orderId,
+    booking.requestId,
+  ].filter(Boolean).map(String)
+}
+
+function complaintsForBooking(booking = {}, complaints = []) {
+  const bookingKeys = new Set(bookingIdentityKeys(booking))
+  if (!bookingKeys.size) return []
+
+  return (Array.isArray(complaints) ? complaints : []).filter((complaint) => {
+    const complaintBookingId = String(complaint.bookingId || complaint.booking || '')
+    return complaintBookingId && bookingKeys.has(complaintBookingId)
+  })
+}
+
+function complaintIssueLabel(complaint = {}) {
+  const text = String(
+    complaint.issue
+    || complaint.reason
+    || complaint.description
+    || complaint.message
+    || complaint.title
+    || 'Customer complaint',
+  ).trim()
+
+  return text.length > 42 ? `${text.slice(0, 39)}...` : text
+}
+
+export default function RecentBookingsTable({ bookings, complaints = [], onOpenBooking }) {
   const rows = bookings || []
 
   return (
     <SectionCard
       title="Recent Bookings"
-      subtitle="Simple operational view with issues highlighted"
+      subtitle="Recent bookings with customer complaints highlighted"
       icon={<Icon name="calendar" size={18} />}
       action={(
         <button
@@ -71,10 +105,11 @@ export default function RecentBookingsTable({ bookings, onOpenBooking }) {
           </thead>
           <tbody className="divide-y divide-[var(--border-main)]">
             {rows.map((booking) => {
-              const issues = []
-              if (!booking.workerId && !booking.worker_id && !booking.servicemanId && !booking.serviceman_id) issues.push({ label: 'Unassigned', color: '#F59E0B' })
-              if (booking.status === 'Pending') issues.push({ label: 'Pending', color: '#F59E0B' })
-              if ((booking.amount || booking.amt) > 0 && !booking.paid) issues.push({ label: 'Payment due', color: '#EF4444' })
+              const bookingComplaints = complaintsForBooking(booking, complaints)
+              const issues = bookingComplaints.map((complaint) => ({
+                label: complaintIssueLabel(complaint),
+                color: '#EF4444',
+              }))
               const bookingDate = booking.bookingDate || booking.BookingDate || booking.bookedAt || booking.requestedAt || booking.createdAt || booking.date || booking.scheduledAt
               const bookingLabel = booking.bookingId || booking.BookingId || booking.orderId || booking.requestId || 'Booking'
               const customerLabel = booking.customerName || booking.customer || booking.userName || booking.customerDetails?.name || '-'
@@ -108,8 +143,8 @@ export default function RecentBookingsTable({ bookings, onOpenBooking }) {
                   <td className="px-4 py-3 align-top">
                     {issues.length ? (
                       <div className="flex flex-wrap gap-2">
-                        {issues.map((issue) => (
-                          <Badge key={issue.label} label={issue.label} color={issue.color} size="xs" />
+                        {issues.map((issue, index) => (
+                          <Badge key={`${issue.label}-${index}`} label={issue.label} color={issue.color} size="xs" />
                         ))}
                       </div>
                     ) : (

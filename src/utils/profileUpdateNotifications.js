@@ -95,7 +95,7 @@ export function correctionSubmittedAt(worker = {}) {
 
   // Pick the MOST RECENT submission signal, not the first non-empty one. A stale
   // correctionSubmittedAt left over from an earlier correction cycle must not shadow a
-  // newer profileUpdatedAt/resubmittedAt - otherwise a genuine resubmission whose fresh
+                                                                                    // newer profileUpdatedAt/resubmittedAt - otherwise a genuine resubmission whose fresh
   // timestamp only landed in profileUpdatedAt looks older than the latest correction
   // request, and the worker is wrongly hidden from the approval queue and profile updates.
   const submissionSignal = [

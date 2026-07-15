@@ -12,7 +12,7 @@ import { CustomerAvatar, CustomerMetricTile, CustomerProfileField } from '../com
 import RelatedRecordsPanel from '../components/RelatedRecordsPanel'
 import { C } from '../theme'
 import { CustomerLocationHeatmap } from '../components/LeafletMap'
-import { buildCustomerActivity, formatTimelineStamp, getSortableDate, toSortedRecords } from '../utils/customerProfileActivity'
+import { buildCustomerActivity, formatBookingScheduleLabel, formatTimelineStamp, getSortableDate, toSortedRecords } from '../utils/customerProfileActivity'
 import { buildPersonTrackingProfile } from '../utils/toLetProfiles'
 import { loadCustomerProfile, loadCustomers, upsertStoredCustomerRecord } from '../utils/customerStorage'
 import customersApi from '../services/customersApi'
@@ -29,6 +29,10 @@ function displayText(value) {
   return String(value)
 }
 
+function readNestedValue(record = {}, path = '') {
+  return String(path).split('.').reduce((current, key) => current?.[key], record)
+}
+
 function displayDate(...values) {
   const value = values.find((item) => item != null && item !== '')
   return value ? formatTimelineStamp(value) : ''
@@ -36,7 +40,7 @@ function displayDate(...values) {
 
 function firstText(record = {}, keys = [], fallback = '') {
   for (const key of keys) {
-    const value = record?.[key]
+    const value = key.includes('.') ? readNestedValue(record, key) : record?.[key]
     if (value !== undefined && value !== null && value !== '') return displayText(value)
   }
   return fallback
@@ -45,6 +49,22 @@ function firstText(record = {}, keys = [], fallback = '') {
 function moneyValue(record = {}, keys = []) {
   const value = keys.map((key) => record?.[key]).find((item) => item !== undefined && item !== null && item !== '' && !Number.isNaN(Number(item)))
   return value ? `Rs ${Number(value).toLocaleString('en-IN')}` : ''
+}
+
+function bookingServiceName(booking = {}) {
+  return firstText(booking, ['service', 'profession', 'category', 'serviceName', 'serviceType'], 'Service not recorded')
+}
+
+function bookingServicemanName(booking = {}) {
+  return firstText(
+    booking,
+    ['workerName', 'servicemanName', 'worker', 'providerName', 'partnerName', 'workerDetails.name'],
+    '',
+  ) || (booking.servicemanId || booking.workerId ? `Serviceman ${String(booking.servicemanId || booking.workerId).slice(-8)}` : '')
+}
+
+function bookingScheduleLabel(booking = {}) {
+  return formatBookingScheduleLabel(booking)
 }
 
 function statusLabel(value, fallback = 'Not recorded') {
@@ -86,7 +106,10 @@ export default function CustomerProfile() {
   const [searchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
   const editRequested = searchParams.get('edit') === 'true'
-  const [tab, setTab] = useState(requestedTab === 'complaints' ? 'overview' : (requestedTab || 'overview'))
+  const [tab, setTab] = useState(() => {
+    if (requestedTab === 'complaints' || requestedTab === 'payments') return 'overview'
+    return requestedTab || 'overview'
+  })
   const [editMode, setEditMode] = useState(editRequested)
   const [form, setForm] = useState(null)
   const [customerRecords, setCustomerRecords] = useState([])
@@ -455,7 +478,6 @@ export default function CustomerProfile() {
           { id: 'overview',   label: 'Overview'                                    },
           { id: 'activity',   label: 'Activity',   badge: recentActivity.length    },
           { id: 'tolet',      label: 'ToLet',      badge: customerToLetProfile.ownedListings.length + customerToLetProfile.enquiryRecords.length + customerToLetProfile.receivedEnquiries.length },
-          { id: 'payments',   label: 'Payments',   badge: customerPayments.length   },
           { id: 'location',   label: 'Location'                                    },
           { id: 'bookings',   label: 'Bookings',   badge: customerBookings.length   },
         ]}
@@ -649,25 +671,45 @@ export default function CustomerProfile() {
         </div>
       )}
 
-      {tab === 'payments' && (
-        <SectionCard title="Payments" subtitle="Backend payment records connected to this customer" action={<Badge label={`${customerPayments.length} total`} color={customerPayments.length > 0 ? C.success : C.muted} size="xs" />}>
-          {customerPayments.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[var(--border-main)] px-6 py-12 text-center text-[14px] text-[var(--text-muted)]">No payments are connected to this customer yet.</div>
+      {/* BOOKINGS TAB */}
+      {tab === 'bookings' && (
+        <SectionCard title="Booking History" subtitle="Service requests, assigned servicemen, and scheduled visit times" action={<Badge label={`${customerBookings.length} total`} color={C.primary} size="xs" />}>
+          {customerBookings.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[var(--border-main)] px-6 py-12 text-center text-[14px] text-[var(--text-muted)]">No bookings yet.</div>
           ) : (
             <div className="grid gap-4">
-              {customerPayments.map((payment) => (
-                <div key={payment.id} className="grid gap-4 rounded-2xl border border-[var(--border-main)] p-4 md:grid-cols-[96px_minmax(0,1fr)_140px_auto] md:items-center">
-                  <div className="text-[12px] font-bold uppercase tracking-[0.08em] text-emerald-600">{payment.id}</div>
-                  <div className="min-w-0">
-                    <div className="text-[15px] font-semibold text-[var(--text-main)] break-words">{payment.bookingId || payment.booking || ''}</div>
-                    {(payment.method || payment.mode) && <div className="mt-1 text-[13px] text-[var(--text-muted)] break-words">{payment.method || payment.mode}</div>}
-                  </div>
-                  <div className="text-[13px] font-medium text-[var(--text-muted)]">{displayDate(payment.paidAt, payment.createdAt, payment.date)}</div>
-                  <div className="flex items-center gap-3">
-                    {payment.status && <Badge label={payment.status} color={PAYMENT_STATUS_COLOR[payment.status] || C.muted} />}
-                    <div className="text-[15px] font-bold" style={{ color: PAYMENT_STATUS_COLOR[payment.status] || C.success }}>
-                      Rs {Number(payment.amount || payment.total || 0).toLocaleString('en-IN')}
+              {customerBookings.map((b) => (
+                <div key={b.id} className="rounded-3xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-main)] pb-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] text-emerald-600">
+                        <Icon n="calendar" sz={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="break-words text-[16px] font-bold text-[var(--text-main)]">
+                          {bookingServiceName(b)}
+                        </div>
+                        <div className="mt-1 break-words text-[12px] font-bold uppercase tracking-[0.08em] text-emerald-600">
+                          {firstText(b, ['bookingId', 'id', 'orderId', 'requestId'], 'Booking')}
+                        </div>
+                      </div>
                     </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="text-right text-[12px] font-semibold text-[var(--text-main)]">
+                        {bookingServicemanName(b) || 'No serviceman assigned'}
+                      </div>
+                      <Badge label={statusLabel(b.status)} color={BOOKING_STATUS_COLOR[statusLabel(b.status)] || C.muted} />
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <DetailCell label="Service" value={bookingServiceName(b)} />
+                    <DetailCell label="Serviceman" value={bookingServicemanName(b)} />
+                    <DetailCell label="Area" value={firstText(b, ['area', 'city', 'cityName', 'userLocation.city', 'customerLocation.city'])} />
+                    <DetailCell label="Address" value={firstText(b, ['address', 'customerAddress', 'location', 'userLocation.address', 'customerLocation.address'])} />
+                    <DetailCell label="Scheduled" value={bookingScheduleLabel(b)} />
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <Btn size="sm" v="outline" onClick={() => navigate(`/bookings/${b.id}`)}>Open Booking</Btn>
                   </div>
                 </div>
               ))}
@@ -675,8 +717,6 @@ export default function CustomerProfile() {
           )}
         </SectionCard>
       )}
-
-      {/* LOCATION TAB */}
       {tab === 'location' && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
           <Card className="min-h-[420px] overflow-hidden p-4">
@@ -709,52 +749,7 @@ export default function CustomerProfile() {
         </div>
       )}
 
-      {/* BOOKINGS TAB */}
-      {tab === 'bookings' && (
-        <SectionCard title="Booking History" subtitle="Service requests, assignment status, and collected revenue" action={<Badge label={`${customerBookings.length} total`} color={C.primary} size="xs" />}>
-          {customerBookings.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[var(--border-main)] px-6 py-12 text-center text-[14px] text-[var(--text-muted)]">No bookings yet.</div>
-          ) : (
-            <div className="grid gap-4">
-              {customerBookings.map((b) => (
-                <div key={b.id} className="rounded-3xl border border-[var(--border-main)] bg-[var(--bg-main)] p-4 shadow-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-main)] pb-4">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] text-emerald-600">
-                        <Icon n="calendar" sz={18} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="break-words text-[16px] font-bold text-[var(--text-main)]">
-                          {firstText(b, ['service', 'profession', 'category', 'serviceName'], 'Service not recorded')}
-                        </div>
-                        <div className="mt-1 break-words text-[12px] font-bold uppercase tracking-[0.08em] text-emerald-600">
-                          {firstText(b, ['bookingId', 'id', 'orderId', 'requestId'], 'Booking')}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-[12px] font-medium text-[var(--text-muted)]">
-                        {displayDate(b.requestedAt, b.bookingDate, b.bookedAt, b.scheduledDate, b.createdAt) || 'Not recorded'}
-                      </div>
-                      <Badge label={statusLabel(b.status)} color={BOOKING_STATUS_COLOR[statusLabel(b.status)] || C.muted} />
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <DetailCell label="Worker" value={firstText(b, ['worker', 'workerName', 'servicemanName'])} />
-                    <DetailCell label="Area" value={firstText(b, ['area', 'city', 'cityName'])} />
-                    <DetailCell label="Address" value={firstText(b, ['address', 'customerAddress', 'location'])} />
-                    <DetailCell label="Payment" value={firstText(b, ['paymentStatus', 'paymentState', 'paymentMode', 'payment'], b.paid ? 'Paid' : '')} />
-                    <DetailCell label="Scheduled" value={displayDate(b.scheduledDate, b.bookingDate)} />
-                  </div>
-                  <div className="mt-4 flex justify-end">
-                    <Btn size="sm" v="outline" onClick={() => navigate(`/bookings/${b.id}`)}>Open Booking</Btn>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-      )}
+      {/* LOCATION TAB */}
     </div>
   )
 }

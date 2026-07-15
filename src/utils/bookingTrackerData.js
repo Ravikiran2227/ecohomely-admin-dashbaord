@@ -13,8 +13,10 @@ export const SUMMARY_CARDS = [
   { key: 'Accepted', label: 'Accepted', color: TRACKER.info, icon: 'check' },
   { key: 'In Progress', label: 'Active', color: '#F97316', icon: 'activity' },
   { key: 'Completed', label: 'Done', color: TRACKER.success, icon: 'check-circle' },
-  { key: 'Cancelled', label: 'Cancelled', color: TRACKER.danger, icon: 'close-circle' },
+  { key: 'Rejected', label: 'Rejected', color: TRACKER.danger, icon: 'close-circle' },
 ]
+
+const IST_TIME_ZONE = 'Asia/Kolkata'
 
 export function parseDateTime(value) {
   if (!value) return null
@@ -31,15 +33,60 @@ export function parseDateTime(value) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-export function formatDateTime(value) {
-  const date = parseDateTime(value)
-  if (!date) return ''
-  return date.toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
+function isDateOnlyInstant(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return false
+
+  const parts = new Intl.DateTimeFormat('en-IN', {
+    timeZone: IST_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
-  })
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date)
+
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0)
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0)
+  const second = Number(parts.find((part) => part.type === 'second')?.value || 0)
+  return hour === 0 && minute === 0 && second === 0
+}
+
+export function formatDateTime(value) {
+  const date = parseDateTime(value)
+  if (!date) return 'Not recorded'
+
+  if (isDateOnlyInstant(date)) {
+    return new Intl.DateTimeFormat('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      timeZone: IST_TIME_ZONE,
+    }).format(date)
+  }
+
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: IST_TIME_ZONE,
+  }).format(date)
+}
+
+export function resolveBookingCreatedValue(booking = {}) {
+  return booking.bookedAt || booking.createdAt || booking.requestedAt || booking.assignedAt || null
+}
+
+export function resolveBookingScheduleValue(booking = {}) {
+  return booking.scheduledDate
+    || booking.scheduledAt
+    || booking.scheduleTime
+    || booking.scheduledTime
+    || booking.bookingDate
+    || booking.BookingDate
+    || booking.requestedAt
+    || null
 }
 
 export function diffMinutes(from, to) {
@@ -131,8 +178,12 @@ export function buildIssueList(booking, now) {
 
   if (!booking.workerId) issues.push('No worker assigned')
   if (booking.derivedStatus === 'No Response') issues.push(`Worker not responding for ${pendingAge} mins`)
-  if (booking.derivedStatus === 'Accepted' && !booking.startedAt && acceptedAge > 20) issues.push(`Start delayed by ${acceptedAge} mins`)
-  if (booking.derivedStatus === 'In Progress' && booking.startedAt && startedAge > 90) issues.push(`Completion delayed by ${startedAge} mins`)
+  if (booking.derivedStatus === 'Accepted' && !booking.startedAt && acceptedAge > 20 && acceptedAge <= 1440) {
+    issues.push(`Start delayed by ${acceptedAge} mins`)
+  }
+  if (booking.derivedStatus === 'In Progress' && booking.startedAt && startedAge > 90 && startedAge <= 1440) {
+    issues.push(`Completion delayed by ${startedAge} mins`)
+  }
 
   return issues
 }
@@ -143,10 +194,12 @@ export function deriveBookingStatus(booking, now) {
   if (value === 'completed' || value === 'complete' || value === 'done' || value === 'paid') return 'Completed'
   if (value === 'cancelled' || value === 'canceled' || value === 'rejected' || value === 'declined' || value === 'denied') return 'Rejected'
   if (booking.rejectedAt || booking.cancelledAt) return 'Rejected'
+  if (value === 'no response' || value === 'no-response' || value === 'noresponse') return 'No Response'
+  if (value === 'pending' || value === 'booked' || value === 'created' || value === 'new') return 'Pending'
   if (value === 'accepted' || value === 'approved' || value === 'confirmed') return 'Accepted'
   if (booking.acceptedAt) return 'Accepted'
   if (value === 'assigned') return 'Assigned'
-  if (booking.assignedAt) return 'Assigned'
+  if (booking.assignedAt && value !== 'pending') return 'Assigned'
   if (value.includes('progress') || value === 'started' || value === 'active') return 'In Progress'
   if (booking.startedAt) return 'In Progress'
   return 'Pending'

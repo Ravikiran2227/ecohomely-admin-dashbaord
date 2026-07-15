@@ -32,7 +32,7 @@ import bookingsApi from '../services/bookingsApi'
 import customersApi from '../services/customersApi'
 import reviewsApi from '../services/reviewsApi'
 import { deleteStorageAsset, resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerMediaFiles, resolveWorkerStorageFiles } from '../services/firebaseClient'
-import { buildBookings, buildLeadRows, buildReviewRows, formatCurrency, formatDate, getLeadBadge } from '../utils/workerProfileDetail'
+import { buildBookings, buildLeadRows, buildReviewRows, computeEarningsBreakdown, formatCurrency, formatDate, getLeadBadge, resolveWorkerEarnings, resolveWorkerRating } from '../utils/workerProfileDetail'
 import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
 import { buildWorkerMediaDeletePayload } from '../utils/workerMedia'
 
@@ -1136,8 +1136,14 @@ function WorkerProfileDetailViewContent({ workerId }) {
         reviewsApi.listReviews().catch(() => []),
       ])
       setWorker(data)
-      setWorkerBookings([])
-      setWorkerReviews(Array.isArray(reviews) ? reviews : Array.isArray(reviews?.reviews) ? reviews.reviews : [])
+      const reviewRows = Array.isArray(reviews)
+        ? reviews
+        : Array.isArray(reviews?.reviews)
+          ? reviews.reviews
+          : Array.isArray(reviews?.data)
+            ? reviews.data
+            : []
+      setWorkerReviews(reviewRows)
       setIsSuspended(data.status === 'Suspended')
       setWorkingDays(Array.isArray(data.workingDays) ? data.workingDays : [])
       setWorkingSlots(Array.isArray(data.workingSlots) ? data.workingSlots : [])
@@ -1278,8 +1284,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const documentCards = withRequiredDocumentCards(worker.documents || [], worker)
   const bookingCards = buildBookings(worker, primaryProfession, workerBookings)
   const leadRows = buildLeadRows(worker, primaryProfession, workerBookings)
-  const reviewCards = buildReviewRows(worker, primaryProfession, workerReviews)
+  const reviewCards = buildReviewRows(worker, primaryProfession, workerReviews, workerBookings)
   const totalReviews = reviewCards.length
+  const totalEarnings = resolveWorkerEarnings(worker, bookingCards)
+  const earningsBreakdown = computeEarningsBreakdown(bookingCards, totalEarnings)
+  const completedJobs = bookingCards.filter((booking) => String(booking.status || '').toLowerCase() === 'completed').length || worker.performance?.completedJobs || 0
+  const ratingValue = resolveWorkerRating(worker, reviewCards)
   const aadhaarDocument = documentCards.find((document) => canonicalDocumentKind(document) === 'aadhaar')
   const hiddenDocumentCards = documentCards.filter(documentLooksHidden)
   const visibleDocumentCards = documentCards.filter((document) => !documentLooksHidden(document))
@@ -1291,11 +1301,6 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const planValue = rawPlanValue === '' || rawPlanValue === null || rawPlanValue === undefined ? null : Number(rawPlanValue)
   const planExpiryDays = worker.planExpiry ? Math.ceil((new Date(worker.planExpiry).getTime() - TODAY_MS) / (1000 * 60 * 60 * 24)) : null
   const planHealth = planExpiryDays == null ? '' : planExpiryDays < 0 ? 'Expired' : planExpiryDays <= 7 ? `${planExpiryDays} days left` : `Valid for ${planExpiryDays} days`
-  const totalEarnings = bookingCards.reduce((sum, booking) => sum + Number(booking.earnings || 0), 0) || worker.performance?.earnings || 0
-  const completedJobs = bookingCards.filter((booking) => String(booking.status || '').toLowerCase() === 'completed').length || worker.performance?.completedJobs || 0
-  const ratingValue = reviewCards.length > 0
-    ? reviewCards.reduce((sum, review) => sum + Number(review.rating || 0), 0) / reviewCards.length
-    : Number(worker.performance?.rating || worker.rating || 0)
   const profileOverviewDescription = worker.about || primaryProfession?.description || ''
   const profileLanguages = normalizeProfileLanguages(worker)
   const experienceYears = extractExperienceYears(primaryProfession, worker) || getExperienceYears(worker, primaryProfession)
@@ -1928,12 +1933,24 @@ function WorkerProfileDetailViewContent({ workerId }) {
 
           {effectiveActiveTab === 'earnings' && (
             <WorkerDetailSection title="Earnings / Revenue" subtitle="Clear income visibility with simple daily, weekly, and monthly breakdowns">
-              <EarningsBreakdown total={totalEarnings} />
+              <EarningsBreakdown
+                total={earningsBreakdown.total}
+                daily={earningsBreakdown.daily}
+                weekly={earningsBreakdown.weekly}
+                monthly={earningsBreakdown.monthly}
+              />
             </WorkerDetailSection>
           )}
 
           {effectiveActiveTab === 'reviews' && (
             <WorkerDetailSection title="Reviews & Ratings" subtitle="Customer feedback collected from completed bookings">
+              {(reviewCards.length > 0 || ratingValue > 0) && (
+                <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]/55 px-4 py-3">
+                  <Stars rating={ratingValue} />
+                  <span className="text-lg font-black text-[var(--text-main)]">{ratingValue > 0 ? ratingValue.toFixed(1) : '0.0'}</span>
+                  <span className="text-sm font-semibold text-[var(--text-muted)]">{totalReviews} review{totalReviews === 1 ? '' : 's'}</span>
+                </div>
+              )}
               {reviewCards.length > 0 ? (
                 <div className="grid gap-4 lg:grid-cols-2">
                   {reviewCards.map((review) => (
@@ -1944,6 +1961,11 @@ function WorkerProfileDetailViewContent({ workerId }) {
                       onOpenBooking={() => review.bookingId && navigate(`/bookings/${review.bookingId}`)}
                     />
                   ))}
+                </div>
+              ) : ratingValue > 0 ? (
+                <div className="rounded-2xl border border-dashed border-[var(--border-main)] px-6 py-10 text-center text-[var(--text-muted)]">
+                  <Stars rating={ratingValue} />
+                  <div className="mt-3 text-sm font-medium">Average rating is synced from Firebase, but individual review records are not available yet.</div>
                 </div>
               ) : (
                 <EmptyState title="No reviews yet" description="Customer feedback will be displayed here once completed jobs are rated." />
@@ -1974,6 +1996,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
               <SettingsPanel
                 worker={worker}
                 suspended={isSuspended}
+                showSecondaryProfession={hasSecondaryProfession}
                 onSuspendToggle={handleSuspendToggle}
                 onEditProfile={() => setIsProfileEditing(true)}
                 onEditProfession={() => setEditTarget('primary')}

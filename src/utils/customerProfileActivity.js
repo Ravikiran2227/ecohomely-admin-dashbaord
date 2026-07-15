@@ -3,17 +3,98 @@ import { C } from '../theme'
 function parseDateValue(value, fallbackHour = 12) {
   if (!value) return null
   if (value instanceof Date) return value
+  if (typeof value?.toDate === 'function') return value.toDate()
+  if (typeof value?.toMillis === 'function') return new Date(value.toMillis())
+  if (typeof value?.seconds === 'number') return new Date(value.seconds * 1000)
+  if (typeof value?._seconds === 'number') return new Date(value._seconds * 1000)
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return new Date(`${value}T${String(fallbackHour).padStart(2, '0')}:00:00`)
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return new Date(`${value}T${String(fallbackHour).padStart(2, '0')}:00:00`)
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$/.test(value)) {
+      return new Date(value.replace(' ', 'T'))
+    }
+
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
   }
 
-  if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$/.test(value)) {
-    return new Date(value.replace(' ', 'T'))
+  return null
+}
+
+const IST_TIME_ZONE = 'Asia/Kolkata'
+
+function isDateOnlySchedule(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return false
+
+  const parts = new Intl.DateTimeFormat('en-IN', {
+    timeZone: IST_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date)
+
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0)
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0)
+  const second = Number(parts.find((part) => part.type === 'second')?.value || 0)
+  return hour === 0 && minute === 0 && second === 0
+}
+
+export function formatScheduleStamp(value) {
+  const date = parseDateValue(value)
+  if (!date) return 'Not recorded'
+
+  if (isDateOnlySchedule(date)) {
+    return new Intl.DateTimeFormat('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      timeZone: IST_TIME_ZONE,
+    }).format(date)
   }
 
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: IST_TIME_ZONE,
+  }).format(date)
+}
+
+export function resolveBookingScheduleValue(booking = {}) {
+  const scheduleFields = [
+    booking.scheduledDate,
+    booking.scheduledAt,
+    booking.scheduleTime,
+    booking.scheduledTime,
+    booking.timeSlot,
+    booking.preferredTime,
+    booking.appointmentTime,
+    booking.visitTime,
+    booking.serviceTime,
+    booking.bookingDate,
+    booking.BookingDate,
+  ]
+
+  return scheduleFields.find((value) => value !== undefined && value !== null && value !== '') || null
+}
+
+export function formatBookingScheduleLabel(booking = {}) {
+  const value = resolveBookingScheduleValue(booking)
+  if (!value) return 'Not recorded'
+
+  if (typeof value === 'string' && /^\d{1,2}:\d{2}/.test(value.trim())) {
+    const dateLabel = formatScheduleStamp(booking.scheduledDate || booking.bookingDate)
+    return dateLabel !== 'Not recorded' ? `${dateLabel}, ${value.trim()}` : value.trim()
+  }
+
+  return formatScheduleStamp(value)
 }
 
 export function formatTimelineStamp(value) {

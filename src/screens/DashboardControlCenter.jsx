@@ -648,6 +648,7 @@ export default function DashboardControlCenter() {
 
           <RecentBookingsTable
             bookings={recentBookings}
+            complaints={records.complaints}
             onOpenBooking={(bookingId) => navigate(bookingId ? `/bookings/${bookingId}` : '/bookings')}
           />
         </div>

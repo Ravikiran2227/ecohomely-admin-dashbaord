@@ -175,13 +175,34 @@ function professionPriceFrom(profession = {}, worker = {}) {
   )
 }
 
+function priceFromPackageValue(value) {
+  if (value === undefined || value === null || value === '') return 0
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (Array.isArray(value)) {
+    return value.map(priceFromPackageValue).find((amount) => amount > 0) || 0
+  }
+  if (typeof value === 'object') {
+    return numberFromCandidates(
+      value.price,
+      value.amount,
+      value.packagePrice,
+      value.fullServicePackagePrice,
+      value.value,
+      value.total,
+      value.charge,
+      value.cost,
+    )
+  }
+  return numberFromValue(value)
+}
+
 function fullPackagePriceFrom(profession = {}, worker = {}) {
-  return firstNumberIncludingZero(
+  return numberFromCandidates(
     profession.fullServicePackagePrice,
     profession.fullServicePrice,
     profession.fullPackagePrice,
-    profession.fullServicePackage,
-    profession.fullService,
+    priceFromPackageValue(profession.fullServicePackage),
+    priceFromPackageValue(profession.fullService),
     profession.packagePrice,
     profession.comboPrice,
     profession.comboPackagePrice,
@@ -192,6 +213,8 @@ function fullPackagePriceFrom(profession = {}, worker = {}) {
     worker.fullServicePackagePrice,
     worker.fullServicePrice,
     worker.fullPackagePrice,
+    priceFromPackageValue(worker.fullServicePackage),
+    priceFromPackageValue(worker.fullService),
     worker.packagePrice,
     worker.comboPrice,
     worker.pricing?.packagePricing?.amount,
@@ -536,6 +559,12 @@ function normalizeProfessionList(worker = {}) {
         packagePrice: fullServicePackagePrice,
         packages,
         pricingPackages: packages,
+        minimalVisitCharge: firstNumberIncludingZero(profession?.minimalVisitCharge, profession?.minimumVisitCharge, profession?.minimumVisitPrice, profession?.minimumPrice, !isSecondary ? worker.minimalVisitCharge : undefined),
+        minimalVisitIncludes: profession?.minimalVisitIncludes || profession?.minimumVisitIncludes || profession?.visitIncludes || profession?.includes || (!isSecondary ? worker.minimalVisitIncludes : undefined) || [],
+        fullServicePackage: profession?.fullServicePackage || (!isSecondary ? worker.fullServicePackage : undefined) || null,
+        fullServiceIncludes: profession?.fullServiceIncludes || profession?.packageIncludes || profession?.fullServiceItems || (!isSecondary && worker.fullServicePackage?.includes ? worker.fullServicePackage.includes : undefined) || [],
+        serviceCharges: Array.isArray(profession?.serviceCharges) ? profession.serviceCharges : (!isSecondary && Array.isArray(worker.serviceCharges) ? worker.serviceCharges : []),
+        additionalFullServicePackages: Array.isArray(profession?.additionalFullServicePackages) ? profession.additionalFullServicePackages : (!isSecondary && Array.isArray(worker.additionalFullServicePackages) ? worker.additionalFullServicePackages : []),
         experienceYears: numberFromCandidates(
           profession?.experienceYears,
           profession?.experienceRange,
@@ -619,6 +648,12 @@ function normalizeProfessionList(worker = {}) {
     packagePrice: fullPackagePriceFrom({}, worker),
     packages: pricingPackagesFrom(worker),
     pricingPackages: pricingPackagesFrom(worker),
+    minimalVisitCharge: firstNumberIncludingZero(worker.minimalVisitCharge, worker.minimumVisitCharge, worker.minimumVisitPrice, worker.minimumPrice),
+    minimalVisitIncludes: worker.minimalVisitIncludes || worker.minimumVisitIncludes || worker.visitIncludes || [],
+    fullServicePackage: worker.fullServicePackage || null,
+    fullServiceIncludes: worker.fullServiceIncludes || worker.packageIncludes || worker.fullServicePackage?.includes || [],
+    serviceCharges: Array.isArray(worker.serviceCharges) ? worker.serviceCharges : [],
+    additionalFullServicePackages: Array.isArray(worker.additionalFullServicePackages) ? worker.additionalFullServicePackages : [],
     experienceYears: getWorkerExperienceYears(worker),
   }] : []
 }

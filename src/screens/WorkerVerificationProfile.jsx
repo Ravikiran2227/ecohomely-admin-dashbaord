@@ -19,7 +19,7 @@ import { C } from '../theme'
 import { getPrimaryProfession, getLocationLabel } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
 import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
-import { resolveStorageAssetUrl, resolveWorkerStorageFiles } from '../services/firebaseClient'
+import { resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerStorageFiles } from '../services/firebaseClient'
 
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
@@ -207,8 +207,15 @@ function documentText(document = {}) {
   return `${document.key || ''} ${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`.toLowerCase()
 }
 
-function isUploadedStatus(status = '') {
-  return ['uploaded', 'verified', 'added', 'approved'].includes(String(status || '').toLowerCase())
+function documentHasAsset(document = {}) {
+  return Boolean(
+    document.url
+    || document.src
+    || document.path
+    || document.filePath
+    || document.storagePath
+    || document.fileName,
+  )
 }
 
 function proofDocumentName(document = {}) {
@@ -273,7 +280,15 @@ function normalizeProofDocuments(documents = []) {
 }
 
 function hasProofDocument(documents = [], pattern) {
-  return documents.some((document) => pattern.test(documentText(document)) && (document.url || isUploadedStatus(document.status)))
+  return documents.some((document) => pattern.test(documentText(document)) && documentHasAsset(document))
+}
+
+function proofDocumentByKey(documents = [], key = '') {
+  if (!key) return {}
+  const normalized = documents.some((document) => document.key === key && document.name)
+    ? documents
+    : normalizeProofDocuments(documents)
+  return normalized.find((document) => document.key === key) || {}
 }
 
 function getNumberField(...values) {
@@ -341,18 +356,40 @@ function resolveWorkerCoordinates(worker = {}, area = '') {
 function buildVerificationChecklist(worker = {}, profile = {}) {
   const primary = getPrimaryProfession(worker) || {}
   const documents = profile.documents || worker.documents || []
-  const aadhaarOk = hasProofDocument(documents, /aadhaar|aadhar|adhaar|adhar/)
-  const photoOk = !!firstText(worker.profilePhoto, worker.profilePhotoUrl, worker.profilePhotoURL, worker.photoUrl, worker.imageUrl, worker.image) || hasProofDocument(documents, /profile|photo|avatar|image/)
+  const aadhaarDoc = proofDocumentByKey(documents, 'aadhaar')
+  const aadhaarUrl = firstText(
+    aadhaarDoc.url,
+    worker.aadhaarUrl,
+    worker.aadhaarURL,
+    worker.aadhaarImage,
+    worker.aadhaarImageUrl,
+    worker.aadhaarPhoto,
+    worker.aadhaarFile,
+    worker.aadharUrl,
+    worker.aadharImage,
+  )
+  const aadhaarOk = Boolean(aadhaarUrl) || documentHasAsset(aadhaarDoc)
+  const photoDoc = proofDocumentByKey(documents, 'profilePhoto')
+  const photoOk = Boolean(firstText(
+    worker.profilePhoto,
+    worker.profilePhotoUrl,
+    worker.profilePhotoURL,
+    worker.photoUrl,
+    worker.imageUrl,
+    worker.image,
+    photoDoc.url,
+  )) || documentHasAsset(photoDoc) || hasProofDocument(documents, /profile|photo|avatar|image/)
   const pricingOk = Number(firstText(primary.price, worker.price, worker.basePrice, worker.servicePrice)) > 0 || !!profile.pricing?.minimalCharge
   const servicesOk = (primary.services || profile.services || worker.services || []).length > 0 || !!firstText(primary.profession, worker.profession, profile.profession)
-  const mediaOk = (worker.professionMedia || worker.workPhotos || []).length > 0
+  const mediaOk = (worker.professionMedia || worker.workPhotos || []).some((item) => documentHasAsset(item) || Boolean(item?.src || item?.url))
+  const uploadedProofCount = documents.filter((document) => documentHasAsset(document)).length
   const baseItems = [
-    { label: 'Aadhaar', done: aadhaarOk },
-    { label: 'Profile Photo', done: photoOk },
-    { label: 'Pricing', done: pricingOk },
-    { label: 'Services', done: servicesOk },
-    { label: 'Document Proofs', done: documents.length > 0, optional: true },
-    { label: 'Profession Media', done: mediaOk, optional: true },
+    { label: 'Aadhaar', done: aadhaarOk, detail: aadhaarOk ? 'Uploaded' : 'Not uploaded' },
+    { label: 'Profile Photo', done: photoOk, detail: photoOk ? 'Uploaded' : 'Not uploaded' },
+    { label: 'Pricing', done: pricingOk, detail: pricingOk ? 'Added' : 'Not added' },
+    { label: 'Services', done: servicesOk, detail: servicesOk ? 'Added' : 'Not added' },
+    { label: 'Document Proofs', done: uploadedProofCount > 0, optional: true, detail: uploadedProofCount > 0 ? `${uploadedProofCount} uploaded` : 'None uploaded' },
+    { label: 'Profession Media', done: mediaOk, optional: true, detail: mediaOk ? 'Uploaded' : 'Not uploaded' },
   ]
   const extraItems = (worker.verificationChecklist || []).filter((item) => !baseItems.some((base) => base.label === item.label))
   return [...baseItems, ...extraItems.map((item) => ({ label: item.label, done: item.done, optional: item.optional }))]
@@ -387,7 +424,10 @@ export default function WorkerVerificationProfile() {
     setError('')
     try {
       const data = await workersApi.getWorker(id)
-      const storageFiles = await resolveWorkerStorageFiles(data)
+      const [storageFiles, aadhaarDocumentUrl] = await Promise.all([
+        resolveWorkerStorageFiles(data),
+        resolveWorkerAssetUrl(data, 'aadhaar'),
+      ])
       const documents = await Promise.all((data.documents || []).map(async (document) => {
         const url = document.url || document.downloadUrl || document.downloadURL || document.fileUrl || document.path || document.filePath || ''
         const resolvedUrl = url ? await resolveStorageAssetUrl(url) : ''
@@ -408,9 +448,23 @@ export default function WorkerVerificationProfile() {
           ? { ...document, key: 'license', name: 'Driving License' }
           : document
       ))
+      const normalizedDocuments = normalizeProofDocuments(cleanDocuments)
+      if (aadhaarDocumentUrl) {
+        const aadhaarIndex = normalizedDocuments.findIndex((document) => document.key === 'aadhaar')
+        if (aadhaarIndex >= 0) {
+          normalizedDocuments[aadhaarIndex] = {
+            ...normalizedDocuments[aadhaarIndex],
+            url: aadhaarDocumentUrl,
+            status: 'Uploaded',
+            isImage: /\.(png|jpe?g|webp|gif|heic)(\?|#|$)/i.test(aadhaarDocumentUrl),
+            description: '',
+          }
+        }
+      }
       setWorker({
         ...data,
-        documents: cleanDocuments,
+        aadhaarUrl: aadhaarDocumentUrl || data.aadhaarUrl,
+        documents: normalizedDocuments,
         professionMedia: [...(data.professionMedia || []), ...(storageFiles.media || [])],
         workPhotos: [...(data.workPhotos || []), ...(storageFiles.media || [])],
       })

@@ -47,6 +47,47 @@ function formatTimestamp(value) {
   return `${yyyy}-${mm}-${dd} ${hh}:${min}`
 }
 
+function toSessionDate(value) {
+  if (!value) return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+  if (typeof value?.toDate === 'function') {
+    const date = value.toDate()
+    return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null
+  }
+  if (typeof value?.toMillis === 'function') {
+    const date = new Date(value.toMillis())
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  if (typeof value?._seconds === 'number') {
+    const date = new Date(value._seconds * 1000)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  if (typeof value?.seconds === 'number') {
+    const date = new Date(value.seconds * 1000)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  const date = new Date(String(value).replace(' ', 'T'))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function isSameCalendarDay(value, reference = new Date()) {
+  const date = toSessionDate(value)
+  if (!date) return false
+  return date.getFullYear() === reference.getFullYear()
+    && date.getMonth() === reference.getMonth()
+    && date.getDate() === reference.getDate()
+}
+
+function sessionCompletedAt(session = {}) {
+  const record = session.raw || {}
+  return record.completedAt
+    || record.completed_at
+    || record.solvedAt
+    || (String(session.status || record.status || '').toLowerCase() === 'completed'
+      ? (record.updatedAt || record.time || record.date || record.createdAt || session.createdAt)
+      : null)
+}
+
 function normaliseLocation(location = {}) {
   const latitude = Number(location.latitude ?? location.lat)
   const longitude = Number(location.longitude ?? location.lng)
@@ -588,6 +629,12 @@ export default function AssistancePanel() {
 
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) || null
   const activeCount = sessions.filter((session) => session.status === 'Active').length
+  const completedTodayCount = useMemo(
+    () => sessions.filter((session) => (
+      session.status === 'Completed' && isSameCalendarDay(sessionCompletedAt(session))
+    )).length,
+    [sessions],
+  )
   const sanitisedPhone = phoneDigits(form.phone)
   const hasSearchLocation = Boolean(form.area || form.customerLocation)
   const canSearch = Boolean(form.service) && hasSearchLocation
@@ -931,6 +978,7 @@ export default function AssistancePanel() {
   }
 
   function handleComplete(sessionId) {
+    const completedAt = formatNow()
     setSessions((current) => current.map((session) => (
       session.id !== sessionId
         ? session
@@ -938,9 +986,10 @@ export default function AssistancePanel() {
             ...session,
             status: 'Completed',
             timeline: session.timeline,
+            raw: { ...session.raw, completedAt, status: 'Completed', solved: true },
           }
     )))
-    assistanceApi.updateAssistance(sessionId, { status: 'Completed', solved: true }).catch(() => {})
+    assistanceApi.updateAssistance(sessionId, { status: 'Completed', solved: true, completedAt }).catch(() => {})
     pushNotification(`Session ${sessionId} marked completed`, '#16A34A')
   }
 
@@ -962,7 +1011,7 @@ export default function AssistancePanel() {
   const summaryCards = [
     { label: 'Active Sessions', value: activeCount, color: '#0F5C37' },
     { label: 'No Response', value: sessions.filter((session) => session.status === 'No Response').length, color: '#F59E0B' },
-    { label: 'Completed Today', value: sessions.filter((session) => session.status === 'Completed').length, color: '#16A34A' },
+    { label: 'Completed Today', value: completedTodayCount, color: '#16A34A' },
     { label: 'Workers Ready', value: workers.filter((worker) => worker.approved && worker.status === 'Active').length, color: '#2563EB' },
   ]
 

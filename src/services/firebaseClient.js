@@ -1735,13 +1735,14 @@ async function createActivityLog(payload = {}) {
 }
 
 async function dashboardOverview() {
-  const [bookings, complaints, customers, payments, toLetListings, workers] = await Promise.all([
+  const [bookings, complaints, customers, payments, toLetListings, workers, referrals] = await Promise.all([
     listCollection('bookings'),
     listCollection('complaints'),
     listCollection('customers'),
     listCollection('payments'),
     listCollection('toletListings'),
     listCollection('workers'),
+    listCollection('referrals'),
   ])
 
   return {
@@ -1751,7 +1752,8 @@ async function dashboardOverview() {
     payments,
     toLetListings,
     workers,
-    records: { bookings, complaints, customers, payments, toLetListings, workers },
+    referrals,
+    records: { bookings, complaints, customers, payments, toLetListings, workers, referrals },
   }
 }
 

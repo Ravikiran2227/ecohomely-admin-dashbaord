@@ -1,11 +1,11 @@
 import dashboardApi from './dashboardApi'
 
 export const DASHBOARD_GRAPH_TABS = [
-  { id: 'bookings', label: 'Bookings' },
-  { id: 'workers', label: 'Workers' },
   { id: 'customers', label: 'Customers' },
-  { id: 'tolet', label: 'ToLet' },
-  { id: 'revenue', label: 'Revenue' },
+  { id: 'servicemen', label: 'Servicemen' },
+  { id: 'bookings', label: 'Bookings' },
+  { id: 'referrals', label: 'Referrals' },
+  { id: 'flagged', label: 'Flagged' },
 ]
 
 export const DASHBOARD_RANGE_OPTIONS = [
@@ -19,8 +19,58 @@ const EMPTY_DASHBOARD_DATA = {
   complaints: [],
   customers: [],
   payments: [],
+  referrals: [],
   toLetListings: [],
   workers: [],
+}
+
+function workerHasFlag(record = {}) {
+  const status = String(record.moderationStatus || record.flagStatus || record.status || '').toLowerCase()
+  return Boolean(
+    record.flagged === true
+    || record.isFlagged === true
+    || record.isFlaged === true
+    || record.flag === true
+    || status === 'flagged'
+    || status === 'under review'
+  )
+}
+
+function isResolvedFlag(record = {}) {
+  return ['resolved', 'removed', 'closed', 'completed'].includes(
+    String(record.moderationStatus || record.flagStatus || record.status || '').toLowerCase(),
+  )
+}
+
+function isApprovedWorker(worker = {}) {
+  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
+  return status === 'approved' || worker.approved === true || worker.isApproved === true || worker.adminApproved === true
+}
+
+function isRejectedWorker(worker = {}) {
+  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
+  return status === 'rejected' || status.includes('reject') || worker.rejected === true
+}
+
+function getFlaggedWorkers(workers = []) {
+  return workers.filter((worker) => workerHasFlag(worker) && !isResolvedFlag(worker))
+}
+
+function getAllFlaggedWorkers(workers = []) {
+  return workers.filter((worker) => workerHasFlag(worker))
+}
+
+function getReferralDate(referral = {}) {
+  return referral?.referralDate
+    || referral?.createdAt
+    || referral?.created_at
+    || referral?.referredAt
+    || referral?.date
+    || referral?.timestamp
+}
+
+function getFlaggedDate(record = {}) {
+  return record?.flaggedAt || record?.updatedAt || record?.createdAt || record?.dateJoined || record?.created_at
 }
 
 function parseDateTime(value) {
@@ -208,6 +258,7 @@ export function getDashboardRecords(source = {}) {
     complaints: source.complaints || source.records?.complaints || EMPTY_DASHBOARD_DATA.complaints,
     customers: source.customers || source.records?.customers || EMPTY_DASHBOARD_DATA.customers,
     payments: source.payments || source.records?.payments || EMPTY_DASHBOARD_DATA.payments,
+    referrals: source.referrals || source.records?.referrals || EMPTY_DASHBOARD_DATA.referrals,
     toLetListings: source.toLetListings || source.records?.toLetListings || EMPTY_DASHBOARD_DATA.toLetListings,
     workers: source.workers || source.records?.workers || EMPTY_DASHBOARD_DATA.workers,
   }
@@ -222,6 +273,7 @@ export function getLatestTrackedDate(source = {}) {
     ...records.payments.map((item) => extractDate(getPaymentDate(item))),
     ...records.toLetListings.map((item) => extractDate(getToLetDate(item))),
     ...records.workers.map((item) => extractDate(getWorkerDate(item))),
+    ...records.referrals.map((item) => extractDate(getReferralDate(item))),
   ].filter(Boolean)
 
   return values.sort().at(-1) || new Date().toISOString().slice(0, 10)
@@ -248,12 +300,172 @@ export function getCompletedInRange(source = {}, selectedDate, activeRange) {
   }).length
 }
 
+function getBookingStatusGroup(booking = {}) {
+  if (booking.invoiceGenerated || booking.invoiceId || booking.invoiceNumber || booking.completedAt) return 'completed'
+  const status = String(booking.status || booking.bookingStatus || '').trim().toLowerCase()
+  if (['completed', 'complete', 'paid'].includes(status)) return 'completed'
+  if (['cancelled', 'canceled', 'rejected'].includes(status)) return 'cancelled'
+  return 'pending'
+}
+
+function getRangeBounds(selectedDate, activeRange) {
+  const selected = parseDateTime(`${selectedDate}T00:00:00`) || new Date()
+  const todayStart = startOfDay(selected)
+  const todayEnd = addDays(todayStart, 1)
+  if (activeRange === 'today') return { start: todayStart, end: todayEnd }
+  if (activeRange === 'week') return { start: startOfWeek(selected), end: addDays(selected, 1) }
+  return { start: startOfMonth(selected), end: addDays(selected, 1) }
+}
+
+function rangeLabel(activeRange) {
+  if (activeRange === 'today') return 'Today'
+  if (activeRange === 'week') return 'This Week'
+  return 'This Month'
+}
+
+function countForDay(rows, getDate, selectedDate) {
+  const dayStart = startOfDay(parseDateTime(`${selectedDate}T00:00:00`) || new Date())
+  return countInDateRange(rows, getDate, dayStart, addDays(dayStart, 1))
+}
+
+function countForWeek(rows, getDate, selectedDate) {
+  const selected = parseDateTime(`${selectedDate}T00:00:00`) || new Date()
+  return countInDateRange(rows, getDate, startOfWeek(selected), addDays(selected, 1))
+}
+
+function countForMonth(rows, getDate, selectedDate) {
+  const selected = parseDateTime(`${selectedDate}T00:00:00`) || new Date()
+  return countInDateRange(rows, getDate, startOfMonth(selected), addDays(selected, 1))
+}
+
+function getWorkerEditedDate(worker = {}) {
+  return worker.updatedAt
+    || worker.profileUpdatedAt
+    || worker.lastEditedAt
+    || worker.correctionSubmittedAt
+    || worker.resubmittedAt
+}
+
+function countEditedAccountsToday(workers = [], selectedDate) {
+  const dayStart = startOfDay(parseDateTime(`${selectedDate}T00:00:00`) || new Date())
+  const dayEnd = addDays(dayStart, 1)
+  return workers.filter((worker) => {
+    const created = parseDateTime(getWorkerDate(worker))
+    const updated = parseDateTime(getWorkerEditedDate(worker))
+    return updated && updated >= dayStart && updated < dayEnd && (!created || updated > created)
+  }).length
+}
+
+export function buildDashboardTabSummary(source = {}, activeTab, activeDate) {
+  const records = getDashboardRecords(source)
+  const focusDateLabel = formatDashboardDate(activeDate, { day: 'numeric', month: 'short', year: 'numeric' })
+
+  if (activeTab === 'customers') {
+    return [
+      { label: 'Customers Today', value: countForDay(records.customers, getCustomerDate, activeDate), sub: focusDateLabel, color: '#2563EB', icon: 'users', onClickPath: '/customers' },
+      { label: 'Customers This Week', value: countForWeek(records.customers, getCustomerDate, activeDate), sub: 'Joined this week', color: '#7C3AED', icon: 'calendar', onClickPath: '/customers' },
+      { label: 'Customers This Month', value: countForMonth(records.customers, getCustomerDate, activeDate), sub: 'Joined this month', color: '#10B981', icon: 'users', onClickPath: '/customers' },
+      { label: 'Total Customers', value: records.customers.length, sub: 'All registered customers', color: '#0EA5E9', icon: 'users', onClickPath: '/customers' },
+    ]
+  }
+
+  if (activeTab === 'servicemen') {
+    const approved = records.workers.filter((worker) => isApprovedWorker(worker)).length
+    const rejected = records.workers.filter((worker) => isRejectedWorker(worker)).length
+    return [
+      { label: 'Accounts Edited', value: countEditedAccountsToday(records.workers, activeDate), sub: focusDateLabel, color: '#F59E0B', icon: 'edit', onClickPath: '/workers' },
+      { label: 'Today Servicemen', value: countForDay(records.workers, getWorkerDate, activeDate), sub: 'Joined today', color: '#2563EB', icon: 'clock', onClickPath: '/workers' },
+      { label: 'Total Servicemen', value: records.workers.length, sub: 'All worker profiles', color: '#7C3AED', icon: 'worker', onClickPath: '/workers' },
+      { label: 'Approved Servicemen', value: approved, sub: 'Approved profiles', color: '#10B981', icon: 'check', onClickPath: '/workers/approval' },
+      { label: 'Rejected Servicemen', value: rejected, sub: 'Rejected profiles', color: '#EF4444', icon: 'close', onClickPath: '/workers' },
+    ]
+  }
+
+  if (activeTab === 'referrals') {
+    return [
+      { label: 'Referrals Today', value: countForDay(records.referrals, getReferralDate, activeDate), sub: focusDateLabel, color: '#0EA5E9', icon: 'calendar', onClickPath: '/referrals' },
+      { label: 'Referrals This Week', value: countForWeek(records.referrals, getReferralDate, activeDate), sub: 'Created this week', color: '#7C3AED', icon: 'refresh', onClickPath: '/referrals' },
+      { label: 'Referrals This Month', value: countForMonth(records.referrals, getReferralDate, activeDate), sub: 'Created this month', color: '#10B981', icon: 'calendar', onClickPath: '/referrals' },
+      { label: 'Total Referrals', value: records.referrals.length, sub: 'All referral records', color: '#2563EB', icon: 'users', onClickPath: '/referrals' },
+    ]
+  }
+
+  if (activeTab === 'flagged') {
+    const flaggedWorkers = getAllFlaggedWorkers(records.workers)
+    return [
+      { label: 'Flagged Servicemen', value: flaggedWorkers.length, sub: 'Workers flagged for review', color: '#F59E0B', icon: 'flag', onClickPath: '/flagged' },
+    ]
+  }
+
+  return [
+    { label: 'Bookings Today', value: countForDay(records.bookings, getBookingDate, activeDate), sub: focusDateLabel, color: '#0F766E', icon: 'calendar', onClickPath: '/bookings' },
+    { label: 'Bookings This Week', value: countForWeek(records.bookings, getBookingDate, activeDate), sub: 'Created this week', color: '#2563EB', icon: 'activity', onClickPath: '/bookings' },
+    { label: 'Bookings This Month', value: countForMonth(records.bookings, getBookingDate, activeDate), sub: 'Created this month', color: '#10B981', icon: 'check', onClickPath: '/bookings' },
+    { label: 'Total Bookings', value: records.bookings.length, sub: 'All booking records', color: '#7C3AED', icon: 'calendar', onClickPath: '/bookings' },
+  ]
+}
+
+export function buildDashboardTabStatus(source = {}, activeTab, activeDate, activeRange) {
+  const records = getDashboardRecords(source)
+  const { start, end } = getRangeBounds(activeDate, activeRange)
+  const inRange = (rows, getDate) => rows.filter((row) => {
+    const date = parseDateTime(getDate(row))
+    return date && date >= start && date < end
+  })
+
+  if (activeTab === 'customers') {
+    const rows = inRange(records.customers, getCustomerDate)
+    const active = records.customers.filter((customer) => isStatus(customer, ['Active'])).length
+    const repeat = records.customers.filter((customer) => Number(customer.bookings || customer.bookingCount || 0) > 1).length
+    return [
+      { label: 'New', value: rows.length, color: '#2563EB' },
+      { label: 'Active', value: active, color: '#10B981' },
+      { label: 'Repeat', value: repeat, color: '#7C3AED' },
+    ]
+  }
+
+  if (activeTab === 'servicemen') {
+    return [
+      { label: 'Approved', value: records.workers.filter((worker) => isApprovedWorker(worker)).length, color: '#10B981' },
+      { label: 'Rejected', value: records.workers.filter((worker) => isRejectedWorker(worker)).length, color: '#EF4444' },
+      { label: 'New', value: inRange(records.workers, getWorkerDate).length, color: '#2563EB' },
+    ]
+  }
+
+  if (activeTab === 'referrals') {
+    const approved = records.referrals.filter((referral) => isStatus(referral, ['Approved', 'Rewarded', 'Completed'])).length
+    const pending = records.referrals.filter((referral) => isStatus(referral, ['Pending', 'Open', 'Submitted'])).length
+    return [
+      { label: 'New', value: inRange(records.referrals, getReferralDate).length, color: '#0EA5E9' },
+      { label: 'Approved', value: approved, color: '#10B981' },
+      { label: 'Pending', value: pending, color: '#F59E0B' },
+    ]
+  }
+
+  if (activeTab === 'flagged') {
+    const flaggedWorkers = getAllFlaggedWorkers(records.workers)
+    const activeFlagged = getFlaggedWorkers(records.workers)
+    return [
+      { label: 'Servicemen', value: flaggedWorkers.length, color: '#F59E0B' },
+      { label: 'Under Review', value: activeFlagged.length, color: '#EF4444' },
+      { label: 'Resolved', value: records.workers.filter((worker) => workerHasFlag(worker) && isResolvedFlag(worker)).length, color: '#10B981' },
+    ]
+  }
+
+  const bookingsInRange = inRange(records.bookings, getBookingDate)
+  return [
+    { label: 'Completed', value: bookingsInRange.filter((booking) => getBookingStatusGroup(booking) === 'completed').length, color: '#10B981' },
+    { label: 'Pending', value: bookingsInRange.filter((booking) => getBookingStatusGroup(booking) === 'pending').length, color: '#F59E0B' },
+    { label: 'Cancelled', value: bookingsInRange.filter((booking) => getBookingStatusGroup(booking) === 'cancelled').length, color: '#EF4444' },
+  ]
+}
+
 export function buildChartConfig(source = {}, activeTab, activeRange, selectedDate) {
   const records = getDashboardRecords(source)
   const selected = parseDateTime(`${selectedDate}T00:00:00`) || new Date()
   const selectedDayStart = startOfDay(selected)
   const selectedDayEnd = addDays(selectedDayStart, 1)
-  const verifiedPayments = records.payments.filter((payment) => isStatus(payment, ['Verified', 'Paid', 'Success', 'Successful']))
+  const flaggedWorkers = getAllFlaggedWorkers(records.workers)
   const datasets = {
     bookings: {
       color: '#0F766E',
@@ -264,10 +476,10 @@ export function buildChartConfig(source = {}, activeTab, activeRange, selectedDa
       getHour: (row) => parseDateTime(getBookingDate(row))?.getHours() || 12,
       getValue: () => 1,
     },
-    workers: {
+    servicemen: {
       color: '#2563EB',
-      title: 'Workers',
-      subtitle: 'New worker onboarding',
+      title: 'Servicemen',
+      subtitle: 'Serviceman registrations',
       rows: records.workers,
       getDate: (row) => extractDate(getWorkerDate(row)),
       getHour: () => 12,
@@ -276,29 +488,29 @@ export function buildChartConfig(source = {}, activeTab, activeRange, selectedDa
     customers: {
       color: '#7C3AED',
       title: 'Customers',
-      subtitle: 'New customer additions',
+      subtitle: 'Customer registrations',
       rows: records.customers,
       getDate: (row) => extractDate(getCustomerDate(row)),
       getHour: () => 12,
       getValue: () => 1,
     },
-    tolet: {
-      color: '#F59E0B',
-      title: 'ToLet',
-      subtitle: 'Listing movement',
-      rows: records.toLetListings,
-      getDate: (row) => extractDate(getToLetDate(row)),
+    referrals: {
+      color: '#0EA5E9',
+      title: 'Referrals',
+      subtitle: 'Referral activity',
+      rows: records.referrals,
+      getDate: (row) => extractDate(getReferralDate(row)),
       getHour: () => 12,
       getValue: () => 1,
     },
-    revenue: {
-      color: '#059669',
-      title: 'Revenue',
-      subtitle: 'Verified collections',
-      rows: verifiedPayments,
-      getDate: (row) => extractDate(getPaymentDate(row)),
+    flagged: {
+      color: '#F59E0B',
+      title: 'Flagged',
+      subtitle: 'Flagged servicemen under review',
+      rows: flaggedWorkers,
+      getDate: (row) => extractDate(getFlaggedDate(row)),
       getHour: () => 12,
-      getValue: getAmount,
+      getValue: () => 1,
     },
   }
 

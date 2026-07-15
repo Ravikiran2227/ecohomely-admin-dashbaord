@@ -15,6 +15,10 @@ import {
   hasPendingProfileUpdate,
   hasWorkerResubmittedCorrection,
 } from '../utils/profileUpdateNotifications'
+import {
+  ADMIN_NOTIFICATIONS_CHANGED_EVENT,
+  countUnreadAdminNotifications,
+} from '../utils/adminNotifications'
 
 function toBoolean(value) {
   if (typeof value === 'boolean') return value
@@ -113,7 +117,7 @@ export default function Sidebar({ collapsed, onCollapse }) {
       setBadgeCounts({
         approvalQueue: workers.filter(needsApproval).length,
         profileUpdates: countPendingProfileUpdates(workers),
-        adminNotifications: bookings.length + countPendingProfileUpdates(workers) + deletions.length,
+        adminNotifications: countUnreadAdminNotifications(bookings, workers, deletions),
         complaints: complaints.filter(isOpenComplaint).length,
         flagged: [
           ...complaints.filter(complaintNeedsReview),
@@ -126,12 +130,15 @@ export default function Sidebar({ collapsed, onCollapse }) {
     loadBadgeCounts()
     const timer = window.setInterval(loadBadgeCounts, 60000)
     const onProfileUpdatesChanged = () => loadBadgeCounts()
+    const onAdminNotificationsChanged = () => loadBadgeCounts()
     window.addEventListener(PROFILE_UPDATES_CHANGED_EVENT, onProfileUpdatesChanged)
+    window.addEventListener(ADMIN_NOTIFICATIONS_CHANGED_EVENT, onAdminNotificationsChanged)
 
     return () => {
       cancelled = true
       window.clearInterval(timer)
       window.removeEventListener(PROFILE_UPDATES_CHANGED_EVENT, onProfileUpdatesChanged)
+      window.removeEventListener(ADMIN_NOTIFICATIONS_CHANGED_EVENT, onAdminNotificationsChanged)
     }
   }, [])
 

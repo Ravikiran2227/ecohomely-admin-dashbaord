@@ -9,7 +9,10 @@ import EmptyState from '../components/EmptyState'
 import bookingsApi from '../services/bookingsApi'
 import workersApi from '../services/workersApi'
 import accountDeletionsApi from '../services/accountDeletionsApi'
+import { acknowledgeAdminNotificationsInbox } from '../utils/adminNotifications'
 import { correctionSubmittedAt, hasPendingProfileUpdate, profileUpdatedAt, toMillis, workerIdentity } from '../utils/profileUpdateNotifications'
+
+const PAGE_SIZE = 15
 
 function dateValue(value) {
   if (!value) return 0
@@ -101,6 +104,7 @@ export default function AdminNotifications() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('all')
+  const [page, setPage] = useState(1)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -125,7 +129,14 @@ export default function AdminNotifications() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    acknowledgeAdminNotificationsInbox()
+    load()
+  }, [load])
+
+  useEffect(() => {
+    setPage(1)
+  }, [filter])
 
   const counts = useMemo(() => ({
     all: rows.length,
@@ -134,6 +145,16 @@ export default function AdminNotifications() {
     deletion: rows.filter((item) => item.type === 'deletion').length,
   }), [rows])
   const filtered = filter === 'all' ? rows : rows.filter((item) => item.type === filter)
+  const pageCount = Math.max(Math.ceil(filtered.length / PAGE_SIZE), 1)
+  const safePage = Math.min(page, pageCount)
+  const pagedRows = useMemo(
+    () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filtered, safePage],
+  )
+  const pageNumbers = useMemo(() => {
+    const start = Math.max(Math.min(safePage - 2, pageCount - 4), 1)
+    return Array.from({ length: Math.min(pageCount, 5) }, (_, index) => start + index).filter((pageNumber) => pageNumber <= pageCount)
+  }, [safePage, pageCount])
 
   return (
     <div className="grid gap-5">
@@ -154,8 +175,9 @@ export default function AdminNotifications() {
       </div>
       <Card className="overflow-hidden">
         {loading ? <EmptyState title="Loading notifications" description="Fetching admin notification records." /> : filtered.length ? (
+          <>
           <div className="divide-y divide-[var(--border-main)]">
-            {filtered.map((item) => {
+            {pagedRows.map((item) => {
               const ItemIcon = item.Icon || BellRing
               return (
                 <button key={item.id} type="button" onClick={() => navigate(item.path)} className="flex w-full gap-4 p-4 text-left transition hover:bg-[color-mix(in_srgb,var(--brand-500)_8%,transparent)]">
@@ -175,6 +197,41 @@ export default function AdminNotifications() {
               )
             })}
           </div>
+          {pageCount > 1 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-main)] p-3">
+              <div className="text-xs font-bold text-[var(--text-muted)]">
+                Page {safePage} of {pageCount} · Showing {pagedRows.length} records
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Btn v="outline" size="sm" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(current - 1, 1))}>Previous</Btn>
+                {pageNumbers[0] > 1 && (
+                  <>
+                    <Btn v="outline" size="sm" onClick={() => setPage(1)}>1</Btn>
+                    {pageNumbers[0] > 2 && <span className="px-1 text-xs font-bold text-[var(--text-muted)]">...</span>}
+                  </>
+                )}
+                {pageNumbers.map((pageNumber) => (
+                  <Btn
+                    key={pageNumber}
+                    v={pageNumber === safePage ? 'primary' : 'outline'}
+                    size="sm"
+                    onClick={() => setPage(pageNumber)}
+                    className="min-w-9 px-3"
+                  >
+                    {pageNumber}
+                  </Btn>
+                ))}
+                {pageNumbers[pageNumbers.length - 1] < pageCount && (
+                  <>
+                    {pageNumbers[pageNumbers.length - 1] < pageCount - 1 && <span className="px-1 text-xs font-bold text-[var(--text-muted)]">...</span>}
+                    <Btn v="outline" size="sm" onClick={() => setPage(pageCount)}>{pageCount}</Btn>
+                  </>
+                )}
+                <Btn v="outline" size="sm" disabled={safePage === pageCount} onClick={() => setPage((current) => Math.min(current + 1, pageCount))}>Next</Btn>
+              </div>
+            </div>
+          ) : null}
+          </>
         ) : <EmptyState title="No notifications" description="New booking, profile update, and deletion request notifications will appear here." />}
       </Card>
     </div>

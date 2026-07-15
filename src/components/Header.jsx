@@ -8,11 +8,14 @@ import { BREADCRUMBS, HEADER_ALERTS, ROUTE_ITEMS, ROUTE_LABELS } from '../config
 import { useAuth } from '../context/authContextValue'
 import { ROLES } from '../config/rbac'
 import adminApi from '../services/adminApi'
-import notificationsApi from '../services/notificationsApi'
 import bookingsApi from '../services/bookingsApi'
 import workersApi from '../services/workersApi'
 import accountDeletionsApi from '../services/accountDeletionsApi'
-import { countPendingProfileUpdates } from '../utils/profileUpdateNotifications'
+import {
+  ADMIN_NOTIFICATIONS_CHANGED_EVENT,
+  acknowledgeAdminNotificationsInbox,
+  countUnreadAdminNotifications,
+} from '../utils/adminNotifications'
 
 function getInitials(name = '') {
   const letters = String(name || 'Admin')
@@ -63,24 +66,31 @@ export default function Header() {
   useEffect(() => {
     let cancelled = false
     async function loadNotifications() {
-      const [rows, bookings, workers, deletions] = await Promise.all([
-        notificationsApi.listNotifications().catch(() => []),
+      const [bookings, workers, deletions] = await Promise.all([
         bookingsApi.listBookings().catch(() => []),
         workersApi.listWorkers().catch(() => []),
         accountDeletionsApi.listRequests().catch(() => []),
       ])
       if (cancelled) return
-      const profileNotificationCount = (Array.isArray(rows) ? rows : []).filter((item) => !item.read && (item.workerId || item.type === 'worker_profile_update')).length
-      const profileUpdates = countPendingProfileUpdates(Array.isArray(workers) ? workers : [])
-      setNotificationCount((Array.isArray(bookings) ? bookings : []).length + profileUpdates + profileNotificationCount + (Array.isArray(deletions) ? deletions : []).length)
+      setNotificationCount(countUnreadAdminNotifications(bookings, workers, deletions))
     }
     loadNotifications()
     const timer = window.setInterval(loadNotifications, 60000)
+    const onAdminNotificationsChanged = () => loadNotifications()
+    window.addEventListener(ADMIN_NOTIFICATIONS_CHANGED_EVENT, onAdminNotificationsChanged)
     return () => {
       cancelled = true
       window.clearInterval(timer)
+      window.removeEventListener(ADMIN_NOTIFICATIONS_CHANGED_EVENT, onAdminNotificationsChanged)
     }
   }, [])
+
+  useEffect(() => {
+    if (location.pathname === '/notifications' || location.pathname.startsWith('/notifications/')) {
+      acknowledgeAdminNotificationsInbox()
+      setNotificationCount(0)
+    }
+  }, [location.pathname])
 
   const changePassword = async () => {
     setPasswordError('')
@@ -188,7 +198,11 @@ export default function Header() {
         {/* Notifications */}
         <button
           type="button"
-          onClick={() => navigate('/notifications')}
+          onClick={() => {
+            acknowledgeAdminNotificationsInbox()
+            setNotificationCount(0)
+            navigate('/notifications')
+          }}
           aria-label="Open notifications"
           className={`relative w-10 h-10 flex items-center justify-center rounded-2xl border border-[var(--border-main)] hover:bg-dark-50 dark:hover:bg-dark-900 transition-colors group ${notificationCount > 0 ? 'admin-bell-ring' : ''}`}
         >
@@ -197,9 +211,7 @@ export default function Header() {
             <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-black leading-none text-white shadow-lg">
               {notificationCount > 99 ? '99+' : notificationCount}
             </span>
-          ) : (
-            <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-red-500 border-2 border-[var(--card-bg)]" />
-          )}
+          ) : null}
         </button>
 
         {/* User Profile */}

@@ -1,5 +1,6 @@
 import apiClient from './apiClient'
 import { purgeRecordStorageAssets } from './firebaseClient'
+import { isCurrentlySuspended, isRejoinedAfterSuspend } from '../utils/workerSuspendRejoin'
 
 const WORKERS_PATH = '/workers'
 
@@ -311,6 +312,13 @@ function getWorkerExperienceYears(worker = {}) {
 }
 
 function normalizeApprovalStatus(worker = {}) {
+  const operationalStatus = String(worker.status || '').toLowerCase()
+  // Operational suspension/block must win over leftover Approved flags from before suspend.
+  if (['rejected', 'blocked', 'suspended'].includes(operationalStatus)) return 'Rejected'
+
+  // After suspend + rejoin, force Pending until admin re-approves (clears wasSuspended flags).
+  if (isRejoinedAfterSuspend(worker)) return 'Pending'
+
   const explicitStatus = firstValue(worker.approvalStatus, worker.approval_status, worker.approvalState, worker.reviewStatus)
   if (explicitStatus) {
     const normalized = String(explicitStatus).toLowerCase()
@@ -325,8 +333,6 @@ function normalizeApprovalStatus(worker = {}) {
   if (hasValue(worker.isApproved)) return toBoolean(worker.isApproved) ? 'Approved' : 'Pending'
   if (hasValue(worker.adminApproved)) return toBoolean(worker.adminApproved) ? 'Approved' : 'Pending'
 
-  const operationalStatus = String(worker.status || '').toLowerCase()
-  if (['rejected', 'blocked', 'suspended'].includes(operationalStatus)) return 'Rejected'
   if (operationalStatus.includes('correction')) return 'Correction Required'
   if (operationalStatus.includes('pending') || operationalStatus.includes('review')) return 'Pending'
   if (operationalStatus === 'approved') return 'Approved'
@@ -662,6 +668,7 @@ export function normalizeWorker(worker = {}) {
   const professions = normalizeProfessionList(worker)
   const documents = normalizeDocuments(worker)
   const approvalStatus = normalizeApprovalStatus(worker)
+  const rejoinedAfterSuspend = isRejoinedAfterSuspend(worker)
   const availability = firstValue(worker.availability, toBoolean(worker.isOnline) || worker.active === true ? 'Available' : '')
     || (worker.active === false || worker.isOnline === false ? 'Offline' : 'Offline')
   const verificationVersions = normalizeVerificationVersions(worker, approvalStatus)
@@ -675,6 +682,14 @@ export function normalizeWorker(worker = {}) {
     status: worker.status || (approvalStatus === 'Approved' ? (worker.active === false ? 'Inactive' : 'Active') : 'Pending'),
     approvalStatus,
     rawApprovalStatus: approvalStatus,
+    // Keep suspend-rejoin markers for UI (Approval Queue badge + Not Verified).
+    wasSuspended: worker.wasSuspended === true || rejoinedAfterSuspend,
+    rejoinedAfterSuspend,
+    suspendedAt: worker.suspendedAt || null,
+    approved: (approvalStatus !== 'Approved' || rejoinedAfterSuspend) ? false : worker.approved,
+    isApproved: (approvalStatus !== 'Approved' || rejoinedAfterSuspend) ? false : worker.isApproved,
+    adminApproved: (approvalStatus !== 'Approved' || rejoinedAfterSuspend) ? false : worker.adminApproved,
+    Approved: (approvalStatus !== 'Approved' || rejoinedAfterSuspend) ? false : worker.Approved,
     availability,
     planType: worker.planType || 'Free',
     membership: normalizeMembership(worker.membership),
@@ -773,7 +788,25 @@ async function updateProfession(workerId, type, payload, options = {}) {
 
 export const workersApi = {
   listWorkers: async (filters = {}, options = {}) => normalizeWorkerList(await apiClient.get(WORKERS_PATH, { ...options, query: filters })),
-  getWorker: async (workerId, options = {}) => normalizeWorker(await apiClient.get(`${WORKERS_PATH}/${workerId}`, options)),
+  getWorker: async (workerId, options = {}) => {
+    const worker = normalizeWorker(await apiClient.get(`${WORKERS_PATH}/${workerId}`, options))
+    // Backfill suspend markers for accounts suspended before this fix.
+    if (isCurrentlySuspended(worker) && worker.wasSuspended !== true) {
+      return workersApi.updateWorker(workerId, {
+        wasSuspended: true,
+        rejoinedAfterSuspend: false,
+        suspendedAt: worker.suspendedAt || new Date().toISOString(),
+        approvalStatus: 'Pending',
+        approval_status: 'Pending',
+        reviewStatus: 'Pending',
+        approved: false,
+        isApproved: false,
+        adminApproved: false,
+        Approved: false,
+      }, options)
+    }
+    return worker
+  },
   createWorker: async (payload, options = {}) => normalizeWorker(await apiClient.post(WORKERS_PATH, normalizeOnboardingPayload(payload), options)),
   updateWorker: async (workerId, payload, options = {}) => normalizeWorker(await apiClient.patch(`${WORKERS_PATH}/${workerId}`, payload, options)),
   deleteWorker: async (workerId, options = {}) => {
@@ -798,6 +831,16 @@ export const workersApi = {
       // Nothing else ever resets it, so it must be re-aligned to the decision on approve/reject -
       // otherwise a corrected-then-approved worker stays "under review" in the app forever.
       reviewStatus: 'Approved',
+      approvalStatus: 'Approved',
+      approval_status: 'Approved',
+      approved: true,
+      isApproved: true,
+      adminApproved: true,
+      Approved: true,
+      // Clear suspend-rejoin markers so the profile can show Verified again.
+      wasSuspended: false,
+      rejoinedAfterSuspend: false,
+      suspendedAt: null,
       correctionRequestedAt: null,
       correctionSubmittedAt: null,
     }, options).catch(() => reviewed)
@@ -815,6 +858,12 @@ export const workersApi = {
       // Keep reviewStatus aligned to the decision (see approveWorker) so a rejected worker does not
       // stay stuck showing "profile under review" in the partner app.
       reviewStatus: 'Rejected',
+      approvalStatus: 'Rejected',
+      approval_status: 'Rejected',
+      approved: false,
+      isApproved: false,
+      adminApproved: false,
+      Approved: false,
       correctionRequestedAt: null,
       correctionSubmittedAt: null,
     }, options).catch(() => reviewed)
@@ -823,17 +872,54 @@ export const workersApi = {
     const reviewed = await workersApi.reviewWorker(workerId, { ...payload, action: 'correction' }, options)
     return workersApi.updateWorker(workerId, {
       approvalStatus: 'Correction Required',
+      approval_status: 'Correction Required',
       reviewStatus: 'Correction Required',
+      // Mark as not verified until the worker resubmits and admin re-approves.
+      approved: false,
+      isApproved: false,
+      adminApproved: false,
+      Approved: false,
       correctionRequired: true,
       requiresCorrection: true,
       needsCorrection: true,
       correctionRequested: true,
       correctionStatus: 'Pending',
       correctionSubmittedAt: null,
+      correctionRequestedAt: new Date().toISOString(),
     }, options).catch(() => reviewed)
   },
-  suspendWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, { ...payload, status: 'Suspended', availability: 'Offline' }, options),
-  reactivateWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, { ...payload, status: 'Active', availability: payload.availability || 'Available' }, options),
+  suspendWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, {
+    ...payload,
+    status: 'Suspended',
+    availability: 'Offline',
+    // Clear approval so a later re-registration cannot keep the old Approved state.
+    approvalStatus: 'Pending',
+    approval_status: 'Pending',
+    reviewStatus: 'Pending',
+    approved: false,
+    isApproved: false,
+    adminApproved: false,
+    Approved: false,
+    wasSuspended: true,
+    rejoinedAfterSuspend: false,
+    suspendedAt: new Date().toISOString(),
+  }, options),
+  reactivateWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, {
+    ...payload,
+    status: 'Active',
+    availability: payload.availability || 'Available',
+    // Admin reactivate restores a previously approved worker without re-queueing.
+    approvalStatus: payload.approvalStatus || 'Approved',
+    approval_status: payload.approval_status || payload.approvalStatus || 'Approved',
+    reviewStatus: payload.reviewStatus || 'Approved',
+    approved: payload.approved !== undefined ? payload.approved : true,
+    isApproved: payload.isApproved !== undefined ? payload.isApproved : true,
+    adminApproved: payload.adminApproved !== undefined ? payload.adminApproved : true,
+    Approved: payload.Approved !== undefined ? payload.Approved : true,
+    wasSuspended: false,
+    rejoinedAfterSuspend: false,
+    suspendedAt: null,
+  }, options),
   updateProfession,
   getWorkerDashboard: (params = {}, options = {}) => apiClient.get(`${WORKERS_PATH}/dashboard`, { ...options, query: params }),
   getRankedWorkers: (params = {}, options = {}) => apiClient.get(`${WORKERS_PATH}/ranked`, { ...options, query: params }),

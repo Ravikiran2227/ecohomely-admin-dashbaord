@@ -35,6 +35,7 @@ import { deleteStorageAsset, resolveStorageAssetUrl, resolveWorkerAssetUrl, reso
 import { buildBookings, buildLeadRows, buildReviewRows, computeEarningsBreakdown, formatCurrency, formatDate, getLeadBadge, resolveWorkerEarnings, resolveWorkerRating } from '../utils/workerProfileDetail'
 import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
 import { buildWorkerMediaDeletePayload } from '../utils/workerMedia'
+import { isWorkerVerified } from '../utils/workerSuspendRejoin'
 
 const TAB_ITEMS = [
   { id: 'overview', label: 'Profile Overview' },
@@ -556,19 +557,7 @@ function formatProfileFieldValue(value) {
 }
 
 function isAdminApprovedWorker(worker = {}) {
-  const approvalValues = [
-    worker.Approved,
-    worker.approved,
-    worker.isApproved,
-    worker.adminApproved,
-  ]
-  if (approvalValues.some((value) => value === true || ['true', 'yes', 'approved'].includes(String(value || '').toLowerCase()))) {
-    return true
-  }
-  if (approvalValues.some((value) => value === false || ['false', 'no', 'pending', 'rejected'].includes(String(value || '').toLowerCase()))) {
-    return false
-  }
-  return worker.approvalStatus === 'Approved'
+  return isWorkerVerified(worker)
 }
 
 function buildProfileRows(source = {}, definitions = []) {

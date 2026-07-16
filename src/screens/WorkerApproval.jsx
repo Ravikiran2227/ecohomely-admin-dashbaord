@@ -11,6 +11,11 @@ import { getLocationLabel, getPrimaryProfession } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
 import commercialApi from '../services/commercialApi'
 import { dispatchProfileUpdatesChanged, hasPendingProfileUpdate, hasWorkerResubmittedCorrection } from '../utils/profileUpdateNotifications'
+import {
+  collectSuspendedPhones,
+  isRejoinedAfterSuspend,
+  REJOINED_AFTER_SUSPEND_LABEL,
+} from '../utils/workerSuspendRejoin'
 
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
@@ -287,11 +292,26 @@ function buildChecklist(worker = {}, subscription = null, plansById = new Map())
 }
 
 function shouldShowInApprovalQueue(worker = {}) {
-  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
+  const operationalStatus = String(worker.status || '').toLowerCase()
+  // Suspended/blocked workers stay out of the waiting queue until they re-register.
+  if (['suspended', 'blocked'].includes(operationalStatus)) return false
+
+  // Suspended account that rejoined must always appear in the approval queue.
+  if (isRejoinedAfterSuspend(worker)) return true
+
+  // Re-registration after suspend usually lands as Pending — always queue those,
+  // even if old Approved flags were left on the Firebase document.
+  if (operationalStatus.includes('pending') || operationalStatus.includes('review')) return true
+
+  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || '').toLowerCase()
   if (hasPendingProfileUpdate(worker)) return true
   if (status === 'approved') return false
   if (status.includes('correction') && !hasWorkerResubmittedCorrection(worker)) return false
-  return true
+  if (status) return true
+
+  // No explicit approval status: treat Active/Verified as already approved, otherwise queue.
+  if (['approved', 'active', 'verified'].includes(operationalStatus)) return false
+  return worker.approved === false || worker.isApproved === false || worker.adminApproved === false || worker.Approved === false
 }
 
 function correctionValue(value) {
@@ -331,9 +351,10 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
   const aadhaarOk = checklist.find((item) => item.key === 'aadhaar')?.ok
   const payment = worker.payment || resolveWorkerPayment(worker)
   const changedFields = worker.changedFields || []
+  const rejoinedAfterSuspend = worker.rejoinedAfterSuspend === true || isRejoinedAfterSuspend(worker)
 
   return (
-    <Card className="overflow-hidden border-t-4" style={{ borderTopColor: worker.statusColor }}>
+    <Card className="overflow-hidden border-t-4" style={{ borderTopColor: rejoinedAfterSuspend ? '#F59E0B' : worker.statusColor }}>
       <div className="flex gap-4 items-start">
         <Avatar name={worker.name} />
 
@@ -341,9 +362,22 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
           <div className="flex items-center gap-2.5 flex-wrap mb-2">
             <h3 className="text-base font-extrabold text-[var(--text-main)]">{worker.name}</h3>
             <Badge label="Pending" color={C.warning} />
+            {rejoinedAfterSuspend ? (
+              <span
+                className="inline-flex items-center text-[11px] px-2 py-1 rounded-lg font-bold uppercase tracking-wider whitespace-nowrap bg-amber-500 text-white shadow-sm"
+                title="This serviceman was previously suspended and has rejoined"
+              >
+                {REJOINED_AFTER_SUSPEND_LABEL}
+              </span>
+            ) : null}
             <Badge label={aadhaarOk ? 'Aadhaar Verified' : 'No Aadhaar'} color={aadhaarOk ? C.success : C.danger} />
             <Badge label={`Version ${worker.versionNumber}`} color={C.primary} />
           </div>
+          {rejoinedAfterSuspend ? (
+            <p className="mb-2 text-xs font-bold text-amber-600 dark:text-amber-400">
+              This serviceman was suspended and has rejoined. Review carefully before approving.
+            </p>
+          ) : null}
           <div className="flex gap-3 flex-wrap text-xs font-medium text-[var(--text-muted)]">
             <span className="flex items-center gap-1"><Icon n="briefcase" sz={12} /> {worker.profession}</span>
             <span className="flex items-center gap-1"><Icon n="phone" sz={12} /> {worker.phone}</span>
@@ -419,8 +453,9 @@ export default function WorkerApproval() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
 
-  const mapQueueWorker = (worker, subscriptionsByWorkerId = new Map(), plansById = new Map(), subscriptionsByName = new Map()) => {
+  const mapQueueWorker = (worker, subscriptionsByWorkerId = new Map(), plansById = new Map(), subscriptionsByName = new Map(), suspendedPhones = new Set()) => {
     const subscription = findWorkerSubscription(worker, subscriptionsByWorkerId, subscriptionsByName)
+    const rejoinedAfterSuspend = isRejoinedAfterSuspend(worker, { suspendedPhones })
     return {
     ...worker,
     profession: getPrimaryProfession(worker)?.profession,
@@ -436,7 +471,9 @@ export default function WorkerApproval() {
     experience: firstValue(getPrimaryProfession(worker)?.experienceRange, getPrimaryProfession(worker)?.experienceYears, getPrimaryProfession(worker)?.experience, worker.experienceRange, worker.experienceYears, worker.experience),
     languages: normalizeLanguages(firstValue(worker.languages, worker.language, worker.knownLanguages, worker.knownLanguage, worker.spokenLanguages, worker.spokenLanguage, worker.preferredLanguages)),
     location: worker.gps,
-    statusColor: hasDocument(worker, /aadhaar|aadhar|adhaar|adhar/) ? '#14b8a6' : '#ef4444',
+    statusColor: rejoinedAfterSuspend ? '#F59E0B' : (hasDocument(worker, /aadhaar|aadhar|adhaar|adhar/) ? '#14b8a6' : '#ef4444'),
+    wasSuspended: worker.wasSuspended === true || rejoinedAfterSuspend,
+    rejoinedAfterSuspend,
   }
   }
 
@@ -469,7 +506,28 @@ export default function WorkerApproval() {
         if (key) plansById.set(key, plan)
       })
 
-      setQueue(workers.filter(shouldShowInApprovalQueue).map((worker) => mapQueueWorker(worker, subscriptionsByWorkerId, plansById, subscriptionsByName)))
+      const suspendedPhones = collectSuspendedPhones(workers)
+      const queueWorkers = workers
+        .filter((worker) => (
+          shouldShowInApprovalQueue(worker)
+          || isRejoinedAfterSuspend(worker, { suspendedPhones })
+        ))
+        .map((worker) => mapQueueWorker(worker, subscriptionsByWorkerId, plansById, subscriptionsByName, suspendedPhones))
+
+      setQueue(queueWorkers)
+
+      // Persist rejoin markers so the Approval Queue chip stays visible on refresh.
+      workers.forEach((worker) => {
+        if (!worker?.id) return
+        if (worker.rejoinedAfterSuspend === true && worker.wasSuspended === true) return
+        if (!isRejoinedAfterSuspend(worker, { suspendedPhones })) return
+        workersApi.updateWorker(worker.id, {
+          wasSuspended: true,
+          rejoinedAfterSuspend: true,
+          suspendedAt: worker.suspendedAt || worker.lastSuspendedAt || worker.suspended_at || new Date().toISOString(),
+        }).catch(() => {})
+      })
+
       setRejectedCount(workers.filter((worker) => {
         const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
         return status === 'rejected' || status.includes('reject') || worker.rejected === true

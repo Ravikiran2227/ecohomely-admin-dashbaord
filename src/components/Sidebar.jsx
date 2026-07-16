@@ -19,6 +19,7 @@ import {
   ADMIN_NOTIFICATIONS_CHANGED_EVENT,
   countUnreadAdminNotifications,
 } from '../utils/adminNotifications'
+import { isRejoinedAfterSuspend } from '../utils/workerSuspendRejoin'
 
 function toBoolean(value) {
   if (typeof value === 'boolean') return value
@@ -52,16 +53,19 @@ function isOpenComplaint(complaint = {}) {
 }
 
 function needsApproval(worker = {}) {
+  const fallbackStatus = String(worker.status || '').toLowerCase()
+  if (['suspended', 'blocked'].includes(fallbackStatus)) return false
+  if (isRejoinedAfterSuspend(worker)) return true
+  if (fallbackStatus.includes('pending') || fallbackStatus.includes('review')) return true
+
   const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || '').toLowerCase()
   if (hasPendingProfileUpdate(worker)) return true
   if (status === 'approved') return false
   const resubmittedCorrection = hasWorkerResubmittedCorrection(worker)
   if (status.includes('correction') && !resubmittedCorrection) return false
   if (status) return true
-  const fallbackStatus = String(worker.status || '').toLowerCase()
   if (['approved', 'active', 'verified'].includes(fallbackStatus)) return false
   if (fallbackStatus.includes('correction') && !resubmittedCorrection) return false
-  if (fallbackStatus.includes('pending') || fallbackStatus.includes('review')) return true
   return worker.approved === false || worker.isApproved === false || worker.adminApproved === false
 }
 

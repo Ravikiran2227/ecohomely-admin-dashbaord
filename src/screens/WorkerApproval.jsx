@@ -9,6 +9,7 @@ import Modal from '../components/Modal'
 import { C } from '../theme'
 import { getLocationLabel, getPrimaryProfession } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
+import commercialApi from '../services/commercialApi'
 import { dispatchProfileUpdatesChanged, hasPendingProfileUpdate, hasWorkerResubmittedCorrection } from '../utils/profileUpdateNotifications'
 
 const CORRECTION_OPTIONS = [
@@ -77,6 +78,120 @@ function workerPricingAmount(worker = {}, primary = {}) {
   ))
 }
 
+function workerHasPaid(worker = {}) {
+  const paymentStatus = String(worker.paymentStatus || worker.planStatus || worker.subscriptionStatus || '').toLowerCase()
+  const membership = String(worker.membership || worker.plan || worker.subscriptionPlan || worker.planType || '').toLowerCase()
+  return Boolean(
+    worker.havePaid === true
+    || worker.hasPaid === true
+    || worker.isPaid === true
+    || worker.paid === true
+    || worker.payment?.paid === true
+    || worker.payment?.havePaid === true
+    || worker.subscription?.active === true
+    || worker.subscription?.paid === true
+    || ['paid', 'success', 'successful', 'verified', 'completed'].includes(paymentStatus)
+    || ['gold', 'silver', 'bronze', 'paid', 'premium'].includes(membership),
+  )
+}
+
+function readNested(source = {}, path = '') {
+  return String(path)
+    .split('.')
+    .reduce((current, key) => (current && current[key] !== undefined ? current[key] : undefined), source)
+}
+
+function workerPaymentAmount(worker = {}) {
+  return numberValue(firstValue(
+    worker.amountPaid,
+    worker.amount_paid,
+    worker.paidAmount,
+    worker.planAmount,
+    worker.planValue,
+    worker.planPrice,
+    worker.planFee,
+    worker.subscriptionAmount,
+    worker.subscriptionPrice,
+    worker.paymentAmount,
+    worker.payment_amount,
+    worker.amount,
+    worker.fee,
+    worker.packageAmount,
+    worker.selectedPlanAmount,
+    worker.membershipAmount,
+    worker.membershipPrice,
+    worker.registrationFee,
+    worker.registrationAmount,
+    readNested(worker, 'payment.amountPaid'),
+    readNested(worker, 'payment.paidAmount'),
+    readNested(worker, 'payment.amount'),
+    readNested(worker, 'payment.price'),
+    readNested(worker, 'payment.total'),
+    readNested(worker, 'paymentDetails.amount'),
+    readNested(worker, 'subscription.amountPaid'),
+    readNested(worker, 'subscription.amount'),
+    readNested(worker, 'subscription.price'),
+    readNested(worker, 'subscriptionDetails.amount'),
+    readNested(worker, 'plan.amount'),
+    readNested(worker, 'plan.price'),
+    readNested(worker, 'membership.amount'),
+    readNested(worker, 'membership.price'),
+  ))
+}
+
+function subscriptionAmount(subscription = {}, plansById = new Map()) {
+  const direct = numberValue(firstValue(
+    subscription.amt,
+    subscription.amount,
+    subscription.price,
+    subscription.total,
+    subscription.value,
+    subscription.paidAmount,
+    subscription.amountPaid,
+    subscription.planAmount,
+    subscription.planPrice,
+  ))
+  if (direct > 0) return direct
+
+  const plan = plansById.get(String(subscription.plan || subscription.planId || subscription.planName || '').toLowerCase())
+  return numberValue(firstValue(plan?.price, plan?.amount))
+}
+
+function subscriptionIsPaid(subscription = {}) {
+  const status = String(subscription.status || subscription.paymentStatus || '').toLowerCase()
+  if (['expired', 'cancelled', 'canceled', 'failed', 'inactive'].includes(status)) return false
+  return true
+}
+
+function normalizeMatchName(value = '') {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function findWorkerSubscription(worker = {}, subscriptionsByWorkerId = new Map(), subscriptionsByName = new Map()) {
+  const byId = subscriptionsByWorkerId.get(String(worker.id))
+    || subscriptionsByWorkerId.get(String(worker.uid))
+    || subscriptionsByWorkerId.get(String(worker.authId))
+  if (byId) return byId
+
+  const nameKey = normalizeMatchName(worker.name || worker.fullName)
+  return nameKey ? subscriptionsByName.get(nameKey) || null : null
+}
+
+function resolveWorkerPayment(worker = {}, subscription = null, plansById = new Map()) {
+  const directPaid = workerHasPaid(worker)
+  const directAmount = workerPaymentAmount(worker)
+  const subAmount = subscription ? subscriptionAmount(subscription, plansById) : 0
+  const paid = directPaid || Boolean(subscription && subscriptionIsPaid(subscription))
+  const amount = directAmount > 0 ? directAmount : subAmount
+  const amountText = amount > 0 ? `Rs ${amount.toLocaleString('en-IN')}` : 'N/A'
+  return {
+    paid,
+    amount,
+    amountText,
+    detail: paid ? 'Yes' : 'No',
+  }
+}
+
 function formatDate(value) {
   if (!value) return ''
   if (typeof value === 'string') return value.slice(0, 10)
@@ -103,7 +218,7 @@ function Avatar({ name, size = 52 }) {
   )
 }
 
-function Indicator({ ok, label }) {
+function Indicator({ ok, label, detail }) {
   return (
     <div className={`flex items-center gap-2 text-xs font-medium ${ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--text-muted)]'}`}>
       <span className={`w-4 h-4 rounded-full flex items-center justify-center border text-[10px] ${
@@ -111,7 +226,10 @@ function Indicator({ ok, label }) {
       }`}>
         {ok ? '✓' : '✕'}
       </span>
-      {label}
+      <span>
+        {label}
+        {detail ? <span className="font-bold text-[var(--text-main)]"> · {detail}</span> : null}
+      </span>
     </div>
   )
 }
@@ -152,8 +270,9 @@ function changedFieldLabels(worker = {}) {
   return fields.map(correctionLabel).filter(Boolean)
 }
 
-function buildChecklist(worker = {}) {
+function buildChecklist(worker = {}, subscription = null, plansById = new Map()) {
   const primary = getPrimaryProfession(worker) || {}
+  const payment = resolveWorkerPayment(worker, subscription, plansById)
   const aadhaarOk = hasDocument(worker, /aadhaar|aadhar|adhaar|adhar/)
   const photoOk = !!firstValue(worker.profilePhoto, worker.profilePhotoUrl, worker.profilePhotoURL, worker.photoUrl, worker.imageUrl, worker.image) || hasDocument(worker, /profile|photo|image|avatar/)
   const pricingOk = workerPricingAmount(worker, primary) > 0
@@ -163,6 +282,7 @@ function buildChecklist(worker = {}) {
     { key: 'photo', label: 'Photo', ok: photoOk },
     { key: 'pricing', label: 'Pricing', ok: pricingOk },
     { key: 'services', label: 'Services', ok: servicesOk },
+    { key: 'payment', label: 'Payment', ok: payment.paid },
   ]
 }
 
@@ -209,6 +329,7 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
   const [expanded, setExpanded] = useState(false)
   const checklist = worker.checklist || buildChecklist(worker)
   const aadhaarOk = checklist.find((item) => item.key === 'aadhaar')?.ok
+  const payment = worker.payment || resolveWorkerPayment(worker)
   const changedFields = worker.changedFields || []
 
   return (
@@ -228,6 +349,10 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
             <span className="flex items-center gap-1"><Icon n="phone" sz={12} /> {worker.phone}</span>
             <span className="flex items-center gap-1"><Icon n="map-pin" sz={12} /> {worker.area}</span>
             <span className="flex items-center gap-1"><Icon n="calendar" sz={12} /> Applied {worker.dateAdded}</span>
+            <span className={`flex items-center gap-1 ${payment.paid ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
+              <Icon n="creditcard" sz={12} />
+              Payment: {payment.detail} · Amount: <span className="font-bold text-[var(--text-main)]">{payment.amountText}</span>
+            </span>
           </div>
           {changedFields.length > 0 && (
             <div className="mt-2 text-xs font-bold text-[var(--text-main)]">
@@ -287,14 +412,16 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
 export default function WorkerApproval() {
   const navigate = useNavigate()
   const [queue, setQueue] = useState([])
-  const [approvedCount, setApprovedCount] = useState(0)
+  const [rejectedCount, setRejectedCount] = useState(0)
   const [history, setHistory] = useState([])
   const [modal, setModal] = useState({ isOpen: false, type: null, worker: null, items: [], message: '' })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
 
-  const mapQueueWorker = (worker) => ({
+  const mapQueueWorker = (worker, subscriptionsByWorkerId = new Map(), plansById = new Map(), subscriptionsByName = new Map()) => {
+    const subscription = findWorkerSubscription(worker, subscriptionsByWorkerId, subscriptionsByName)
+    return {
     ...worker,
     profession: getPrimaryProfession(worker)?.profession,
     area: getLocationLabel(worker),
@@ -302,23 +429,51 @@ export default function WorkerApproval() {
     status: worker.approvalStatus,
     aadhaar: hasDocument(worker, /aadhaar|aadhar|adhaar|adhar/) ? 'verified' : 'pending',
     photo: worker.profilePhoto,
-    amount: getPrimaryProfession(worker)?.price || 0,
-    checklist: buildChecklist(worker),
+    payment: resolveWorkerPayment(worker, subscription, plansById),
+    checklist: buildChecklist(worker, subscription, plansById),
     versionNumber: maxVersion(worker),
     changedFields: changedFieldLabels(worker),
     experience: firstValue(getPrimaryProfession(worker)?.experienceRange, getPrimaryProfession(worker)?.experienceYears, getPrimaryProfession(worker)?.experience, worker.experienceRange, worker.experienceYears, worker.experience),
     languages: normalizeLanguages(firstValue(worker.languages, worker.language, worker.knownLanguages, worker.knownLanguage, worker.spokenLanguages, worker.spokenLanguage, worker.preferredLanguages)),
     location: worker.gps,
     statusColor: hasDocument(worker, /aadhaar|aadhar|adhaar|adhar/) ? '#14b8a6' : '#ef4444',
-  })
+  }
+  }
 
   const loadQueue = async () => {
     setLoading(true)
     setError('')
     try {
-      const workers = await workersApi.listWorkers()
-      setQueue(workers.filter(shouldShowInApprovalQueue).map(mapQueueWorker))
-      setApprovedCount(workers.filter(w => w.approvalStatus === 'Approved').length)
+      const [workers, subscriptions, plans] = await Promise.all([
+        workersApi.listWorkers(),
+        commercialApi.listSubscriptions().catch(() => []),
+        commercialApi.listPlans().catch(() => []),
+      ])
+
+      const subscriptionsByWorkerId = new Map()
+      const subscriptionsByName = new Map()
+      ;(Array.isArray(subscriptions) ? subscriptions : []).forEach((subscription) => {
+        const workerId = subscription.workerId || subscription.servicemanId || subscription.userId
+        if (workerId && !subscriptionsByWorkerId.has(String(workerId))) {
+          subscriptionsByWorkerId.set(String(workerId), subscription)
+        }
+        const nameKey = normalizeMatchName(subscription.name || subscription.worker || subscription.workerName || subscription.serviceman)
+        if (nameKey && !subscriptionsByName.has(nameKey)) {
+          subscriptionsByName.set(nameKey, subscription)
+        }
+      })
+
+      const plansById = new Map()
+      ;(Array.isArray(plans) ? plans : []).forEach((plan) => {
+        const key = String(plan.id || plan.planId || plan.name || plan.title || '').toLowerCase()
+        if (key) plansById.set(key, plan)
+      })
+
+      setQueue(workers.filter(shouldShowInApprovalQueue).map((worker) => mapQueueWorker(worker, subscriptionsByWorkerId, plansById, subscriptionsByName)))
+      setRejectedCount(workers.filter((worker) => {
+        const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
+        return status === 'rejected' || status.includes('reject') || worker.rejected === true
+      }).length)
     } catch (err) {
       setError(err.message || 'Unable to load approval queue.')
     } finally {
@@ -343,7 +498,6 @@ export default function WorkerApproval() {
     ].some((value) => String(value || '').toLowerCase().includes(term)))
   }, [queue, search])
   const waitingCount = queue.length
-  const rejectedCount = history.filter(item => item.type === 'reject').length
 
   const openModal = (type, worker) => {
     setModal({ isOpen: true, type, worker, items: [], message: '' })
@@ -354,17 +508,17 @@ export default function WorkerApproval() {
   const handleReject = async () => {
     if (!modal.worker) return
     await workersApi.rejectWorker(modal.worker.id, { reason: modal.message, note: modal.message })
-    setQueue(prev => prev.filter(w => w.id !== modal.worker.id))
-    setHistory(prev => [...prev, { id: modal.worker.id, type: 'reject', name: modal.worker.name, note: modal.message }])
+    setQueue((prev) => prev.filter((w) => w.id !== modal.worker.id))
+    setRejectedCount((prev) => prev + 1)
+    setHistory((prev) => [...prev, { id: modal.worker.id, type: 'reject', name: modal.worker.name, note: modal.message }])
     dispatchProfileUpdatesChanged()
     closeModal()
   }
 
   const handleApprove = async (worker) => {
     await workersApi.approveWorker(worker.id, { note: 'Approved from approval queue' })
-    setQueue(prev => prev.filter(w => w.id !== worker.id))
-    setApprovedCount(prev => prev + 1)
-    setHistory(prev => [...prev, { id: worker.id, type: 'approve', name: worker.name }])
+    setQueue((prev) => prev.filter((w) => w.id !== worker.id))
+    setHistory((prev) => [...prev, { id: worker.id, type: 'approve', name: worker.name }])
     dispatchProfileUpdatesChanged()
   }
 
@@ -406,10 +560,9 @@ export default function WorkerApproval() {
         )}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {[
           { label: 'Waiting', value: waitingCount, color: 'border-amber-500', text: 'text-amber-600' },
-          { label: 'Approved', value: approvedCount, color: 'border-emerald-500', text: 'text-emerald-600' },
           { label: 'Rejected', value: rejectedCount, color: 'border-red-500', text: 'text-red-600' },
         ].map((item, index) => (
           <div key={index} className={`bg-[var(--card-bg)] rounded-2xl border border-[var(--border-main)] p-5 border-l-4 shadow-sm ${item.color}`}>

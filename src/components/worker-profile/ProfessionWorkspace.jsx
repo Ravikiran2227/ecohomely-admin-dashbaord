@@ -795,9 +795,11 @@ export function ProfessionSummaryCard({ type, worker, profession, onOpen, onEdit
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={onEdit} className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-semibold text-[var(--text-main)] hover:bg-[var(--card-hover)]">
-            Edit
-          </button>
+          {onEdit && (
+            <button type="button" onClick={onEdit} className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-semibold text-[var(--text-main)] hover:bg-[var(--card-hover)]">
+              Edit
+            </button>
+          )}
           <button type="button" onClick={onOpen} className="inline-flex items-center gap-2 rounded-xl border border-brand-500/25 bg-brand-500/10 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-500/15 dark:text-brand-300">
             <ArrowUpRight className="h-4 w-4" />
             Open

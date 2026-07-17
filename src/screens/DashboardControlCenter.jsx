@@ -258,6 +258,7 @@ export default function DashboardControlCenter() {
   const [selectedDate, setSelectedDate] = useState(todayValue)
   const [hoveredPoint, setHoveredPoint] = useState(null)
   const [selectedPointKey, setSelectedPointKey] = useState('')
+  const [editedWorkersModalOpen, setEditedWorkersModalOpen] = useState(false)
 
   const loadDashboard = async () => {
     setLoading(true)
@@ -279,6 +280,7 @@ export default function DashboardControlCenter() {
   }, [])
 
   const records = useMemo(() => getDashboardRecords(dashboardData || {}), [dashboardData])
+  const editedServicemen = useMemo(() => records.workers.filter((worker) => worker.accountEdited === true), [records.workers])
   const performance = useMemo(() => buildDashboardPerformanceSnapshot(dashboardData || {}), [dashboardData])
   const activeDate = selectedDate || todayValue
   const chartConfig = useMemo(() => buildChartConfig(dashboardData || {}, activeTab, activeRange, activeDate), [activeDate, activeRange, activeTab, dashboardData])
@@ -287,9 +289,16 @@ export default function DashboardControlCenter() {
   const summaryCards = useMemo(
     () => buildDashboardTabSummary(dashboardData || {}, activeTab, activeDate).map((card) => ({
       ...card,
-      onClick: () => navigate(card.onClickPath || '/dashboard'),
+      value: activeTab === 'servicemen' && card.label === 'Accounts Edited' ? editedServicemen.length : card.value,
+      onClick: () => {
+        if (activeTab === 'servicemen' && card.label === 'Accounts Edited') {
+          setEditedWorkersModalOpen(true)
+          return
+        }
+        navigate(card.onClickPath || '/dashboard')
+      },
     })),
-    [activeDate, activeTab, dashboardData, navigate],
+    [activeDate, activeTab, dashboardData, editedServicemen.length, navigate],
   )
   const statusCards = useMemo(
     () => buildDashboardTabStatus(dashboardData || {}, activeTab, activeDate, activeRange),
@@ -445,6 +454,43 @@ export default function DashboardControlCenter() {
           <StatCard key={card.label} {...card} />
         ))}
       </div>
+
+      {editedWorkersModalOpen && (
+        <div className="fixed inset-0 z-[10000] flex items-start justify-center bg-black/55 px-4 py-24 backdrop-blur-sm" onClick={() => setEditedWorkersModalOpen(false)}>
+          <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-[0_24px_80px_rgba(15,23,42,0.38)]" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between gap-4 border-b border-[var(--border-main)] px-5 py-4">
+              <h3 className="text-base font-black text-[var(--text-main)]">Servicemen - Accounts Edited</h3>
+              <button type="button" onClick={() => setEditedWorkersModalOpen(false)} className="rounded-lg border border-[var(--border-main)] px-2.5 py-1 text-sm font-bold text-[var(--text-main)] hover:bg-[var(--bg-main)]">x</button>
+            </div>
+            <div className="max-h-[62vh] overflow-auto p-4">
+              {editedServicemen.length === 0 ? (
+                <p className="text-sm font-semibold text-[var(--text-muted)]">No records found.</p>
+              ) : (
+                <div className="grid gap-2">
+                  {editedServicemen.map((worker, index) => {
+                    const path = worker.id ? `/workers/${worker.id}` : ''
+                    return (
+                      <button
+                        key={worker.id || worker.uid || `${worker.phone || 'worker'}-${index}`}
+                        type="button"
+                        onClick={() => path && navigate(path)}
+                        disabled={!path}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-3 text-left transition-colors hover:border-emerald-400 disabled:cursor-default disabled:hover:border-[var(--border-main)]"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-bold text-[var(--text-main)]">{worker.name || worker.fullName || worker.workerName || 'Serviceman'}</span>
+                          <span className="block truncate text-xs text-[var(--text-muted)]">{[worker.profession || worker.primaryProfession, worker.areaName || worker.area || worker.city, worker.phone || worker.mobile, worker.status || worker.approvalStatus].filter(Boolean).join(' - ') || 'Edited account'}</span>
+                        </span>
+                        {path && <span className="shrink-0 text-xs font-bold text-emerald-600">Open</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2.35fr)_minmax(280px,0.72fr)]">
         <div className="min-w-0 space-y-4">

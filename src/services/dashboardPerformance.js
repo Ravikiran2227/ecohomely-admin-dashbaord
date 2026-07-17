@@ -347,13 +347,7 @@ function getWorkerEditedDate(worker = {}) {
 }
 
 function countEditedAccountsToday(workers = [], selectedDate) {
-  const dayStart = startOfDay(parseDateTime(`${selectedDate}T00:00:00`) || new Date())
-  const dayEnd = addDays(dayStart, 1)
-  return workers.filter((worker) => {
-    const created = parseDateTime(getWorkerDate(worker))
-    const updated = parseDateTime(getWorkerEditedDate(worker))
-    return updated && updated >= dayStart && updated < dayEnd && (!created || updated > created)
-  }).length
+  return workers.filter((worker) => worker.accountEdited === true).length
 }
 
 export function buildDashboardTabSummary(source = {}, activeTab, activeDate) {

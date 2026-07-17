@@ -269,8 +269,35 @@ function mediaListFromObject(source = {}) {
   ].flatMap((value) => Array.isArray(value) ? value : value ? [value] : [])
 }
 
-function directAadhaarDocument(documents = [], worker = {}) {
-  const directUrl = firstText(
+function aadhaarDocumentFromValue(value, index = 0) {
+  if (!value) return null
+  if (typeof value === 'string') {
+    return value ? {
+      key: 'aadhaar',
+      name: `Aadhaar ${index + 1}`,
+      url: value,
+      src: value,
+      isImage: !/\.pdf(\?|#|$)/i.test(value),
+      status: 'Uploaded',
+    } : null
+  }
+  if (typeof value !== 'object') return null
+  const url = value.url || value.src || value.downloadUrl || value.downloadURL || value.fileUrl || value.path || value.filePath || ''
+  if (!url) return null
+  return {
+    ...value,
+    key: 'aadhaar',
+    name: value.name || value.fileName || `Aadhaar ${index + 1}`,
+    url,
+    src: value.src || value.url || url,
+    fileName: value.fileName || value.name || `aadhaar-${index + 1}`,
+    isImage: value.isImage !== false && !/\.pdf(\?|#|$)/i.test(url),
+    status: 'Uploaded',
+  }
+}
+
+function collectAadhaarDocuments(documents = [], worker = {}) {
+  const candidates = [
     worker.aadhaarUrl,
     worker.aadhaarURL,
     worker.aadhaarImage,
@@ -285,18 +312,63 @@ function directAadhaarDocument(documents = [], worker = {}) {
     worker.adhaarUrl,
     worker.adhaarURL,
     worker.adhaarImage,
-  )
-  if (directUrl && isAadhaarLikeAsset(directUrl)) {
-    return { key: 'aadhaar', name: 'Aadhaar', url: directUrl, src: directUrl, isImage: true, status: 'Uploaded' }
+    worker.aadhaar,
+    worker.aadhar,
+    worker.aadharCard,
+    worker.aadhaarCard,
+  ]
+
+  const output = []
+  const visit = (value) => {
+    if (!value) return
+    if (Array.isArray(value)) {
+      value.forEach(visit)
+      return
+    }
+    if (typeof value === 'object') {
+      ;[value.files, value.file, value.front, value.back, value.frontSide, value.backSide, value.images, value.documents].forEach(visit)
+    }
+    const doc = aadhaarDocumentFromValue(value, output.length)
+    if (doc) output.push(doc)
   }
 
-  return documents.find((document) => isAadhaarLikeAsset([
-    document.fileName,
-    document.path,
-    document.filePath,
-    document.storagePath,
-    firebaseStoragePath(document.url || document.src || document.downloadURL || document.downloadUrl),
-  ].filter(Boolean).join(' ')))
+  candidates.forEach(visit)
+  documents.forEach((document) => {
+    const identity = [
+      document.key,
+      document.type,
+      document.name,
+      document.fileName,
+      document.path,
+      document.filePath,
+      document.storagePath,
+      document.url,
+      document.src,
+      firebaseStoragePath(document.url || document.src || document.downloadURL || document.downloadUrl),
+    ].filter(Boolean).join(' ')
+    if (isAadhaarLikeAsset(identity)) visit(document)
+  })
+
+  const byAsset = new Map()
+  output.forEach((document, index) => {
+    const url = document.url || document.src || document.path || document.filePath || ''
+    const signature = normalizeAssetIdentity(url) || `${document.fileName || document.name || 'aadhaar'}-${index}`
+    if (!byAsset.has(signature)) byAsset.set(signature, documentWithUploadStatus(document))
+  })
+  return [...byAsset.values()]
+}
+
+function directAadhaarDocument(documents = [], worker = {}) {
+  const aadhaarDocuments = collectAadhaarDocuments(documents, worker)
+  if (!aadhaarDocuments.length) return null
+  const first = aadhaarDocuments[0]
+  return {
+    ...first,
+    key: 'aadhaar',
+    name: 'Aadhaar Card',
+    description: aadhaarDocuments.length > 1 ? `${aadhaarDocuments.length} Aadhaar images uploaded.` : 'Aadhaar image uploaded.',
+    gallery: aadhaarDocuments,
+  }
 }
 
 function documentToProfessionMedia(document = {}, index = 0) {
@@ -1734,7 +1806,6 @@ function WorkerProfileDetailViewContent({ workerId }) {
             worker={worker}
             profession={primaryProfession}
             onOpen={() => navigate(`/workers/${worker.id}/profession/primary`)}
-            onEdit={() => setEditTarget('primary')}
           />
           {hasSecondaryProfession && (
             <ProfessionSummaryCard
@@ -1742,7 +1813,6 @@ function WorkerProfileDetailViewContent({ workerId }) {
               worker={worker}
               profession={secondaryProfession}
               onOpen={() => navigate(`/workers/${worker.id}/profession/secondary`)}
-              onEdit={() => setEditTarget('secondary')}
             />
           )}
         </div>

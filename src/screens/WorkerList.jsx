@@ -247,6 +247,12 @@ function firstText(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '')
 }
 
+function readNested(source = {}, path = '') {
+  return String(path)
+    .split('.')
+    .reduce((current, key) => (current && current[key] !== undefined ? current[key] : undefined), source)
+}
+
 function labelOf(value) {
   if (!value) return ''
   if (typeof value === 'string' || typeof value === 'number') return String(value)
@@ -305,6 +311,38 @@ function getProfessionLabel(worker) {
 }
 
 function getPaymentInfo(worker) {
+  const couponCode = firstText(
+    worker.couponCode,
+    worker.couponCodeUsed,
+    worker.appliedCouponCode,
+    readNested(worker, 'coupon.code'),
+    readNested(worker, 'coupon.couponCode'),
+    readNested(worker, 'appliedCoupon.code'),
+    readNested(worker, 'couponDetails.code'),
+  )
+  const couponApplied = firstText(
+    worker.couponApplied,
+    worker.couponUsed,
+    worker.usedCoupon,
+    readNested(worker, 'coupon.applied'),
+  )
+  const couponDiscountValue = firstText(
+    worker.couponDiscount,
+    worker.couponDiscountAmount,
+    worker.discountAmount,
+    readNested(worker, 'coupon.discount'),
+    readNested(worker, 'coupon.discountValue'),
+    readNested(worker, 'coupon.amount'),
+    readNested(worker, 'appliedCoupon.discount'),
+    readNested(worker, 'couponDetails.discount'),
+  )
+  const couponDiscount = Number(String(couponDiscountValue ?? '').replace(/[^\d.-]/g, ''))
+  const usedCoupon = Boolean(
+    (typeof couponCode === 'string' && couponCode.trim())
+    || (Number.isFinite(couponDiscount) && couponDiscount > 0)
+    || couponApplied === true
+    || ['true', 'yes', 'applied', 'used', 'redeemed'].includes(String(couponApplied || '').toLowerCase())
+  )
   const paidValue = firstText(
     worker.paid,
     worker.isPaid,
@@ -312,21 +350,30 @@ function getPaymentInfo(worker) {
     worker.paymentDone,
     worker.subscriptionPaid,
     worker.paymentStatus,
+    readNested(worker, 'payment.paid'),
+    readNested(worker, 'payment.status'),
+    readNested(worker, 'subscription.paid'),
+    readNested(worker, 'subscription.paymentStatus'),
   )
-  const paid = paidValue === true || ['paid', 'yes', 'true', 'success', 'completed', 'active'].includes(String(paidValue).toLowerCase())
+  const paid = usedCoupon || paidValue === true || ['paid', 'yes', 'true', 'success', 'successful', 'completed', 'verified', 'active'].includes(String(paidValue).toLowerCase())
   const amountValue = firstText(
     worker.paymentAmount,
     worker.amountPaid,
     worker.paidAmount,
     worker.subscriptionAmount,
     worker.planAmount,
+    readNested(worker, 'payment.amountPaid'),
+    readNested(worker, 'payment.paidAmount'),
+    readNested(worker, 'payment.amount'),
+    readNested(worker, 'subscription.amountPaid'),
+    readNested(worker, 'subscription.amount'),
   )
   const amountNumber = Number(String(amountValue ?? '').replace(/[^\d.-]/g, ''))
-  const amount = !paid || amountValue === undefined || amountValue === null || amountValue === ''
-    ? 'N/A'
-    : Number.isFinite(amountNumber)
-      ? `Rs ${amountNumber}`
-      : String(amountValue)
+  const amount = usedCoupon || !paid
+    ? 'Rs 0'
+    : Number.isFinite(amountNumber) && amountNumber > 0
+      ? `Rs ${amountNumber.toLocaleString('en-IN')}`
+      : 'Rs 0'
 
   return { paid: paid ? 'Yes' : 'No', amount }
 }

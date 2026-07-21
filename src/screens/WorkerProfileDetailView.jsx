@@ -87,7 +87,7 @@ const CORRECTION_OPTIONS = [
   { label: 'Location', key: 'location' },
   { label: 'Documents', key: 'documents' },
   { label: 'Profession Media', key: 'professionMedia' },
-  { label: 'Payment Pending', key: 'paymentPending' },
+  { label: 'Payment', key: 'payment' },
 ]
 
 function canonicalDocumentKind(document = {}) {
@@ -1152,7 +1152,7 @@ function buildCorrectionFieldValues(worker, fields) {
     location: getLocationLabel(worker),
     documents: worker.documents || [],
     professionMedia: worker.professionMedia || worker.workPhotos || [],
-    paymentPending: worker.paymentStatus || worker.planStatus || worker.subscriptionStatus || worker.paid || worker.isPaid || 'Not Paid',
+    payment: worker.paymentStatus || worker.planStatus || worker.subscriptionStatus || worker.paid || worker.isPaid || 'Not Paid',
   }
 
   return Object.fromEntries(fields.map((key) => [key, correctionValue(values[key])]))
@@ -1165,6 +1165,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const [workerBookings, setWorkerBookings] = useState([])
   const [workerReviews, setWorkerReviews] = useState([])
   const [workerPhotoUrl, setWorkerPhotoUrl] = useState('')
+  const [isPhotoPreviewOpen, setIsPhotoPreviewOpen] = useState(false)
   const [aadhaarUrl, setAadhaarUrl] = useState('')
   const [loading, setLoading] = useState(true)
   const [assetsLoading, setAssetsLoading] = useState(false)
@@ -1872,7 +1873,15 @@ function WorkerProfileDetailViewContent({ workerId }) {
           <div className="rounded-[28px] border border-[var(--border-main)] bg-[var(--card-bg)] p-5 shadow-[0_18px_44px_rgba(15,23,42,0.06)]">
             <div className="text-center">
               {workerPhotoUrl ? (
-                <img src={workerPhotoUrl} alt={worker.name} loading="eager" fetchPriority="high" decoding="async" className="mx-auto h-24 w-24 rounded-full border border-brand-500/20 object-cover shadow-lg shadow-black/10" />
+                <button
+                  type="button"
+                  onClick={() => setIsPhotoPreviewOpen(true)}
+                  className="mx-auto block rounded-full outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card-bg)]"
+                  title="View profile picture"
+                  aria-label={`View ${worker.name}'s profile picture`}
+                >
+                  <img src={workerPhotoUrl} alt={worker.name} loading="eager" fetchPriority="high" decoding="async" className="h-24 w-24 rounded-full border border-brand-500/20 object-cover shadow-lg shadow-black/10" />
+                </button>
               ) : (
                 <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-brand-500/20 bg-brand-500/10 text-2xl font-black text-brand-700 dark:text-brand-300">
                   {worker.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}
@@ -2085,6 +2094,21 @@ function WorkerProfileDetailViewContent({ workerId }) {
         onClose={() => setEditTarget(null)}
         onSave={handleSaveProfession}
       />
+
+      <Modal
+        isOpen={isPhotoPreviewOpen}
+        title={`${worker.name} - Profile Picture`}
+        onClose={() => setIsPhotoPreviewOpen(false)}
+        size="lg"
+      >
+        <div className="flex min-h-[320px] items-center justify-center overflow-hidden rounded-2xl bg-black/95 p-3">
+          <img
+            src={workerPhotoUrl}
+            alt={`${worker.name} profile`}
+            className="max-h-[65vh] max-w-full rounded-xl object-contain"
+          />
+        </div>
+      </Modal>
 
       <Modal
         isOpen={documentEditor.isOpen}

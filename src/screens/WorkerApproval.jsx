@@ -27,6 +27,7 @@ const CORRECTION_OPTIONS = [
   { label: 'Aadhaar', key: 'aadhaar' },
   { label: 'Pricing', key: 'pricing' },
   { label: 'Services', key: 'services' },
+  { label: 'Payment', key: 'payment' },
   { label: 'Location', key: 'location' },
   { label: 'Documents', key: 'documents' },
   { label: 'Profession Media', key: 'professionMedia' },
@@ -85,7 +86,6 @@ function workerPricingAmount(worker = {}, primary = {}) {
 
 function workerHasPaid(worker = {}) {
   const paymentStatus = String(worker.paymentStatus || worker.planStatus || worker.subscriptionStatus || '').toLowerCase()
-  const membership = String(worker.membership || worker.plan || worker.subscriptionPlan || worker.planType || '').toLowerCase()
   return Boolean(
     worker.havePaid === true
     || worker.hasPaid === true
@@ -93,10 +93,51 @@ function workerHasPaid(worker = {}) {
     || worker.paid === true
     || worker.payment?.paid === true
     || worker.payment?.havePaid === true
-    || worker.subscription?.active === true
     || worker.subscription?.paid === true
     || ['paid', 'success', 'successful', 'verified', 'completed'].includes(paymentStatus)
-    || ['gold', 'silver', 'bronze', 'paid', 'premium'].includes(membership),
+  )
+}
+
+function workerUsedCoupon(worker = {}, subscription = null) {
+  const couponCode = firstValue(
+    worker.couponCode,
+    worker.couponCodeUsed,
+    worker.appliedCouponCode,
+    readNested(worker, 'coupon.code'),
+    readNested(worker, 'coupon.couponCode'),
+    readNested(worker, 'appliedCoupon.code'),
+    readNested(worker, 'couponDetails.code'),
+    subscription?.couponCode,
+    subscription?.couponCodeUsed,
+    subscription?.appliedCouponCode,
+    readNested(subscription, 'coupon.code'),
+  )
+  const couponApplied = firstValue(
+    worker.couponApplied,
+    worker.couponUsed,
+    worker.usedCoupon,
+    readNested(worker, 'coupon.applied'),
+    subscription?.couponApplied,
+    subscription?.couponUsed,
+  )
+  const couponDiscount = numberValue(firstValue(
+    worker.couponDiscount,
+    worker.couponDiscountAmount,
+    worker.discountAmount,
+    readNested(worker, 'coupon.discount'),
+    readNested(worker, 'coupon.discountValue'),
+    readNested(worker, 'coupon.amount'),
+    readNested(worker, 'appliedCoupon.discount'),
+    readNested(worker, 'couponDetails.discount'),
+    subscription?.couponDiscount,
+    subscription?.discountAmount,
+    readNested(subscription, 'coupon.discount'),
+  ))
+  return Boolean(
+    (typeof couponCode === 'string' && couponCode.trim())
+    || couponDiscount > 0
+    || couponApplied === true
+    || ['true', 'yes', 'applied', 'used', 'redeemed'].includes(String(couponApplied || '').toLowerCase())
   )
 }
 
@@ -164,8 +205,13 @@ function subscriptionAmount(subscription = {}, plansById = new Map()) {
 
 function subscriptionIsPaid(subscription = {}) {
   const status = String(subscription.status || subscription.paymentStatus || '').toLowerCase()
-  if (['expired', 'cancelled', 'canceled', 'failed', 'inactive'].includes(status)) return false
-  return true
+  return Boolean(
+    subscription.paid === true
+    || subscription.isPaid === true
+    || subscription.paymentDone === true
+    || subscription.verified === true
+    || ['paid', 'success', 'successful', 'completed', 'verified', 'active'].includes(status)
+  )
 }
 
 function normalizeMatchName(value = '') {
@@ -183,12 +229,13 @@ function findWorkerSubscription(worker = {}, subscriptionsByWorkerId = new Map()
 }
 
 function resolveWorkerPayment(worker = {}, subscription = null, plansById = new Map()) {
+  const couponUsed = workerUsedCoupon(worker, subscription)
   const directPaid = workerHasPaid(worker)
   const directAmount = workerPaymentAmount(worker)
   const subAmount = subscription ? subscriptionAmount(subscription, plansById) : 0
-  const paid = directPaid || Boolean(subscription && subscriptionIsPaid(subscription))
-  const amount = directAmount > 0 ? directAmount : subAmount
-  const amountText = amount > 0 ? `Rs ${amount.toLocaleString('en-IN')}` : 'N/A'
+  const paid = couponUsed || directPaid || Boolean(subscription && subscriptionIsPaid(subscription))
+  const amount = couponUsed ? 0 : (paid ? (directAmount > 0 ? directAmount : subAmount) : 0)
+  const amountText = `Rs ${amount.toLocaleString('en-IN')}`
   return {
     paid,
     amount,
@@ -337,6 +384,7 @@ function buildCorrectionFieldValues(worker, fields) {
     aadhaar: worker.aadhaarUrl || worker.aadhaar || worker.documents?.find((doc) => doc.key === 'aadhaar') || '',
     pricing: workerPricingAmount(worker, primary) || '',
     services: primary.services || worker.services || [],
+    payment: resolveWorkerPayment(worker),
     location: getLocationLabel(worker),
     documents: worker.documents || [],
     professionMedia: worker.professionMedia || worker.workPhotos || [],

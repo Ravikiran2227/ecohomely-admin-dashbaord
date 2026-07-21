@@ -1464,6 +1464,23 @@ async function updateRecord(name, id, payload = {}) {
   return { ...current.data, ...updates, id }
 }
 
+async function updateWorkerRecordEverywhere(id, payload = {}) {
+  const current = await findRecord('workers', id)
+  const updates = withTimestamps(payload)
+  const aliases = aliasesFor('workers')
+
+  await Promise.all(
+    aliases.map(async (alias) => {
+      const recordRef = doc(db, alias, id)
+      const snapshot = await getDoc(recordRef)
+      if (!snapshot.exists()) return
+      await setDoc(recordRef, updates, { merge: true })
+    }),
+  )
+
+  return { ...current.data, ...updates, id }
+}
+
 async function reviewPropertyListing(id, payload = {}) {
   const current = await findRecord('toletListings', id, 'Listing')
   const now = new Date()
@@ -2113,7 +2130,7 @@ async function handleWorkers(parts, method, body, queryOptions) {
       changedFields: correctionFields,
       requestedFields: correctionFields,
     })
-    return updateRecord('workers', id, {
+    return updateWorkerRecordEverywhere(id, {
       Approved: status === 'Approved',
       approvalStatus: status,
       approved: status === 'Approved',
@@ -2160,7 +2177,7 @@ async function handleWorkers(parts, method, body, queryOptions) {
           }),
         }
       : body
-    const updated = await updateRecord('workers', id, updates)
+    const updated = await updateWorkerRecordEverywhere(id, updates)
     if (isResubmission) {
       await createRecord('notifications', {
         type: 'worker_profile_update',

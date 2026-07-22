@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   Medal,
   MessageCircle,
-  PencilLine,
   Phone,
   Trash2,
 } from 'lucide-react'
@@ -1925,7 +1924,6 @@ function WorkerProfileDetailViewContent({ workerId }) {
                 <div className="space-y-3">
                   <SidebarActionButton tone="primary" icon={Phone} onClick={() => window.open(`tel:${worker.phone}`, '_self')}>Call Worker</SidebarActionButton>
                   <SidebarActionButton tone="brandOutline" icon={MessageCircle} onClick={() => window.open(`https://wa.me/91${worker.phone}`, '_blank', 'noopener,noreferrer')}>WhatsApp</SidebarActionButton>
-                  <SidebarActionButton tone="secondary" icon={PencilLine} onClick={() => setIsProfileEditing(true)}>Edit Worker</SidebarActionButton>
                   <SidebarActionButton tone="brandOutline" icon={AlertTriangle} onClick={() => setCorrectionModal({ isOpen: true, items: [], message: '' })}>Mark For Correction</SidebarActionButton>
                   <SidebarActionButton tone="destructive" icon={AlertTriangle} onClick={handleSuspendToggle}>{isSuspended ? 'Reactivate Worker' : 'Suspend Worker'}</SidebarActionButton>
                   <SidebarActionButton tone="destructive" icon={Trash2} onClick={handleDeleteWorker}>Delete Worker</SidebarActionButton>

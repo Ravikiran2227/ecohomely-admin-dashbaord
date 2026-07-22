@@ -3,6 +3,7 @@ export const NAV_SECTIONS = [
     label: 'Main',
     items: [
       { path: '/dashboard', icon: 'home', label: 'Dashboard', summary: 'Track KPIs, operations, and live platform movement.' },
+      { path: '/notifications', icon: 'bell', label: 'Notifications', badgeKey: 'adminNotifications', badgeColor: '#EF4444', summary: 'Review booking, profile, and account deletion alerts.' },
     ],
   },
   {
@@ -49,7 +50,6 @@ export const NAV_SECTIONS = [
     items: [
       { path: '/announcements', icon: 'bell', label: 'New Features', isNew: true, summary: 'Create and manage Firebase app announcements.' },
       { path: '/push-notifications', icon: 'bell', label: 'Push Notifications', summary: 'Send and track customer and worker campaigns.' },
-      { path: '/notifications', icon: 'bell', label: 'Notifications', badgeKey: 'adminNotifications', badgeColor: '#EF4444', summary: 'Review booking, profile, and account deletion alerts.' },
     ],
   },
   {
@@ -84,7 +84,7 @@ export const BREADCRUMBS = {
   '/workers/approval': ['People', 'Approval Queue'],
   '/profile-updates': ['People', 'Profile Updates'],
   '/push-notifications': ['Marketing', 'Push Notifications'],
-  '/notifications': ['Marketing', 'Notifications'],
+  '/notifications': ['Main', 'Notifications'],
   '/heatmap': ['Maps', 'GPS Heatmap'],
   '/expansion': ['Maps', 'Expansion System'],
 }

@@ -826,6 +826,9 @@ export const workersApi = {
       needsCorrection: false,
       correctionRequested: false,
       correctionStatus: null,
+      // Clear the self-edit freeze flag so an accepted profile-update worker leaves Profile Updates.
+      profileEditPending: false,
+      profileEditFrozenAt: null,
       // reviewStatus is set to 'Pending' when a serviceman resubmits a correction (both here and in
       // the mobile backend) and is what the partner app reads for its "profile under review" banner.
       // Nothing else ever resets it, so it must be re-aligned to the decision on approve/reject -
@@ -855,6 +858,8 @@ export const workersApi = {
       needsCorrection: false,
       correctionRequested: false,
       correctionStatus: null,
+      profileEditPending: false,
+      profileEditFrozenAt: null,
       // Keep reviewStatus aligned to the decision (see approveWorker) so a rejected worker does not
       // stay stuck showing "profile under review" in the partner app.
       reviewStatus: 'Rejected',
@@ -886,6 +891,9 @@ export const workersApi = {
       correctionStatus: 'Pending',
       correctionSubmittedAt: null,
       correctionRequestedAt: new Date().toISOString(),
+      // Sending back for correction supersedes any frozen self-edit: the serviceman must resubmit.
+      profileEditPending: false,
+      profileEditFrozenAt: null,
     }, options).catch(() => reviewed)
   },
   suspendWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, {

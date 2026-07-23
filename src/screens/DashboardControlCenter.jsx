@@ -18,6 +18,7 @@ import {
   getDashboardRecords,
   getRecentDashboardBookings,
 } from '../services/dashboardPerformance'
+import { accountEditor, isAccountEdited } from '../utils/profileUpdateNotifications'
 
 function statusIs(row, values) {
   const status = String(row?.status || '').toLowerCase()
@@ -280,7 +281,7 @@ export default function DashboardControlCenter() {
   }, [])
 
   const records = useMemo(() => getDashboardRecords(dashboardData || {}), [dashboardData])
-  const editedServicemen = useMemo(() => records.workers.filter((worker) => worker.accountEdited === true), [records.workers])
+  const editedServicemen = useMemo(() => records.workers.filter(isAccountEdited), [records.workers])
   const performance = useMemo(() => buildDashboardPerformanceSnapshot(dashboardData || {}), [dashboardData])
   const activeDate = selectedDate || todayValue
   const chartConfig = useMemo(() => buildChartConfig(dashboardData || {}, activeTab, activeRange, activeDate), [activeDate, activeRange, activeTab, dashboardData])
@@ -469,6 +470,8 @@ export default function DashboardControlCenter() {
                 <div className="grid gap-2">
                   {editedServicemen.map((worker, index) => {
                     const path = worker.id ? `/workers/${worker.id}` : ''
+                    const editor = accountEditor(worker) || { name: 'Unknown', role: 'Unknown' }
+                    const isSelf = editor.role === 'Serviceman'
                     return (
                       <button
                         key={worker.id || worker.uid || `${worker.phone || 'worker'}-${index}`}
@@ -479,9 +482,18 @@ export default function DashboardControlCenter() {
                       >
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-bold text-[var(--text-main)]">{worker.name || worker.fullName || worker.workerName || 'Serviceman'}</span>
-                          <span className="block truncate text-xs text-[var(--text-muted)]">{[worker.profession || worker.primaryProfession, worker.areaName || worker.area || worker.city, worker.phone || worker.mobile, worker.status || worker.approvalStatus].filter(Boolean).join(' - ') || 'Edited account'}</span>
+                          <span className="block truncate text-xs text-[var(--text-muted)]">{[worker.profession || worker.primaryProfession, worker.areaName || worker.area || worker.city, worker.phone || worker.mobile].filter(Boolean).join(' - ') || 'Edited account'}</span>
                         </span>
-                        {path && <span className="shrink-0 text-xs font-bold text-emerald-600">Open</span>}
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-wide ${
+                            isSelf
+                              ? 'bg-[color-mix(in_srgb,#0ea5e9_18%,transparent)] text-[#0369a1]'
+                              : 'bg-[color-mix(in_srgb,#f59e0b_18%,transparent)] text-[#b45309]'
+                          }`}>
+                            {isSelf ? 'Serviceman' : `${editor.role}${editor.name && editor.name !== 'Admin' ? ` · ${editor.name}` : ''}`}
+                          </span>
+                          {path && <span className="text-xs font-bold text-emerald-600">Open</span>}
+                        </span>
                       </button>
                     )
                   })}

@@ -396,14 +396,70 @@ function buildDraft(worker) {
   }
 }
 
+// Detects a GENUINE secondary profession from secondary-specific fields only. buildProfessionDraft's
+// deep-scope fallback (getProfessionScope includes the whole worker object for 'secondary') can bleed
+// the PRIMARY profession's name/prices into a secondary draft, so we must NOT rely on that here — a
+// worker with only a primary profession would otherwise look like it has a secondary one.
+function hasRealSecondaryProfession(worker = {}) {
+  if (!worker || typeof worker !== 'object') return false
+
+  const objectHasData = (src) => {
+    if (!src || typeof src !== 'object') return false
+    const name = firstText(src.profession, src.professionName, src.name, src.label, src.title)
+    const description = firstText(src.description, src.jobDescription, src.professionDescription)
+    const hasServices = Array.isArray(src.services) ? src.services.length > 0 : Boolean(firstText(src.services))
+    const price = numberValue(src.price, src.amount, src.basePrice, src.servicePrice, src.startingPrice)
+    const minimumPrice = numberValue(src.minimumPrice, src.minimumVisitPrice, src.minimumVisitCharge, src.minimalVisitPrice, src.minPrice)
+    const fullServicePackagePrice = numberValue(src.fullServicePackagePrice, src.fullServicePrice, src.fullPackagePrice, src.packagePrice)
+    return Boolean(name || description || hasServices || price || minimumPrice || fullServicePackagePrice)
+  }
+
+  const professions = Array.isArray(worker.professions) ? worker.professions : []
+  const arraySecondary = professions.find((item) => String(item?.type || '').toLowerCase() === 'secondary')
+
+  const objectCandidates = [
+    arraySecondary,
+    worker.secondaryProfessionDetails?.secondary,
+    worker.secondaryProfessionDetails,
+    worker.professionDetails?.secondary,
+    worker.professionalDetails?.secondary,
+    worker.secondaryProfessionalDetails,
+    typeof worker.secondaryProfession === 'object' ? worker.secondaryProfession : null,
+  ]
+  if (objectCandidates.some(objectHasData)) return true
+
+  // Secondary stored as flat top-level fields.
+  const flatName = firstText(
+    worker.secondaryProfessionName,
+    typeof worker.secondaryProfession === 'string' ? worker.secondaryProfession : '',
+  )
+  const flatPrice = numberValue(
+    worker.secondaryPrice,
+    worker.secondaryMinimumPrice,
+    worker.secondaryMinimumVisitPrice,
+    worker.secondaryFullServicePackagePrice,
+    worker.secondaryFullServicePrice,
+  )
+  return Boolean(flatName || flatPrice)
+}
+
 function sanitizeDraft(draft, worker) {
   const primaryProfession = sanitizeProfessionDraft(draft.professions?.primary || {}, 'primary')
   const secondaryProfession = sanitizeProfessionDraft(draft.professions?.secondary || {}, 'secondary')
+  // Persist a secondary only when the worker genuinely has one. This guards against the primary
+  // profession bleeding into the secondary draft via buildProfessionDraft's deep-scope fallback,
+  // which would otherwise write a fake secondary onto the record on save.
+  const keepSecondary = hasRealSecondaryProfession(worker) && Boolean(
+    secondaryProfession.profession
+    || secondaryProfession.description
+    || secondaryProfession.services.length
+    || secondaryProfession.price
+    || secondaryProfession.minimumPrice
+    || secondaryProfession.fullServicePackagePrice,
+  )
   const professions = [
     primaryProfession,
-    secondaryProfession.profession || secondaryProfession.description || secondaryProfession.services.length || secondaryProfession.price || secondaryProfession.minimumPrice || secondaryProfession.fullServicePackagePrice
-      ? secondaryProfession
-      : null,
+    keepSecondary ? secondaryProfession : null,
   ].filter(Boolean)
 
   const payload = {
@@ -462,17 +518,17 @@ function sanitizeDraft(draft, worker) {
     professionDetails: {
       ...(worker?.professionDetails && typeof worker.professionDetails === 'object' ? worker.professionDetails : {}),
       primary: primaryProfession,
-      ...(secondaryProfession.profession || secondaryProfession.description || secondaryProfession.services.length || secondaryProfession.price || secondaryProfession.minimumPrice || secondaryProfession.fullServicePackagePrice ? { secondary: secondaryProfession } : {}),
+      ...(keepSecondary ? { secondary: secondaryProfession } : {}),
     },
     professionalDetails: {
       ...(worker?.professionalDetails && typeof worker.professionalDetails === 'object' ? worker.professionalDetails : {}),
       primary: primaryProfession,
-      ...(secondaryProfession.profession || secondaryProfession.description || secondaryProfession.services.length || secondaryProfession.price || secondaryProfession.minimumPrice || secondaryProfession.fullServicePackagePrice ? { secondary: secondaryProfession } : {}),
+      ...(keepSecondary ? { secondary: secondaryProfession } : {}),
     },
     professions,
   }
 
-  if (secondaryProfession.profession || secondaryProfession.description || secondaryProfession.services.length || secondaryProfession.price || secondaryProfession.minimumPrice || secondaryProfession.fullServicePackagePrice) {
+  if (keepSecondary) {
     Object.assign(payload, {
       secondaryProfession,
       secondaryProfessionDetails: secondaryProfession,
@@ -543,6 +599,11 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
   }, [draft.mediaDeleteTargets, worker])
   const savePayload = useMemo(() => sanitizeDraft(draft, worker), [draft, worker])
   const canSave = Boolean(savePayload.name && savePayload.phone.length === 10)
+  // Only surface the secondary profession editor when the serviceman actually has one. Uses the
+  // leak-proof detector (secondary-specific fields only) — NOT buildProfessionDraft, whose deep-scope
+  // fallback bleeds the primary profession into the secondary draft. Based on the original worker so
+  // the section stays stable while editing.
+  const hasSecondaryProfession = useMemo(() => hasRealSecondaryProfession(worker), [worker])
 
   const handleSave = () => {
     onSave(savePayload)
@@ -865,11 +926,11 @@ export default function WorkerProfileEditorModal({ isOpen, worker, onClose, onSa
             <section className="space-y-4">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Profession Details</div>
-                <p className="mt-1 text-sm text-[var(--text-muted)]">Edit all primary and secondary profession details, pricing, services, package details, and descriptions.</p>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">Edit {hasSecondaryProfession ? 'all primary and secondary' : 'primary'} profession details, pricing, services, package details, and descriptions.</p>
               </div>
               <div className="grid gap-4">
                 {renderProfessionEditor('primary', 'Primary')}
-                {renderProfessionEditor('secondary', 'Secondary')}
+                {hasSecondaryProfession && renderProfessionEditor('secondary', 'Secondary')}
               </div>
             </section>
 

@@ -10,7 +10,7 @@ import { C } from '../theme'
 import { getLocationLabel, getPrimaryProfession } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
 import commercialApi from '../services/commercialApi'
-import { dispatchProfileUpdatesChanged, hasPendingProfileUpdate, hasWorkerResubmittedCorrection } from '../utils/profileUpdateNotifications'
+import { dispatchProfileUpdatesChanged, hasPendingProfileUpdate } from '../utils/profileUpdateNotifications'
 import {
   collectSuspendedPhones,
   isRejoinedAfterSuspend,
@@ -346,14 +346,19 @@ function shouldShowInApprovalQueue(worker = {}) {
   // Suspended account that rejoined must always appear in the approval queue.
   if (isRejoinedAfterSuspend(worker)) return true
 
+  // Resubmitted corrections and post-approval self-edits are reviewed on the Profile Updates screen,
+  // not here. Keep them out of the new-registration queue so each item shows in exactly one place.
+  if (hasPendingProfileUpdate(worker)) return false
+
   // Re-registration after suspend usually lands as Pending — always queue those,
   // even if old Approved flags were left on the Firebase document.
   if (operationalStatus.includes('pending') || operationalStatus.includes('review')) return true
 
   const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || '').toLowerCase()
-  if (hasPendingProfileUpdate(worker)) return true
   if (status === 'approved') return false
-  if (status.includes('correction') && !hasWorkerResubmittedCorrection(worker)) return false
+  // A correction was requested and the serviceman has not resubmitted yet (a resubmission would have
+  // been caught by hasPendingProfileUpdate above): waiting on them, so not a new registration.
+  if (status.includes('correction')) return false
   if (status) return true
 
   // No explicit approval status: treat Active/Verified as already approved, otherwise queue.

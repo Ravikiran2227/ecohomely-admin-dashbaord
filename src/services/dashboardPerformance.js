@@ -1,4 +1,5 @@
 import dashboardApi from './dashboardApi'
+import { isAccountEdited } from '../utils/profileUpdateNotifications'
 
 export const DASHBOARD_GRAPH_TABS = [
   { id: 'customers', label: 'Customers' },
@@ -346,8 +347,10 @@ function getWorkerEditedDate(worker = {}) {
     || worker.resubmittedAt
 }
 
-function countEditedAccountsToday(workers = [], selectedDate) {
-  return workers.filter((worker) => worker.accountEdited === true).length
+function countEditedAccountsToday(workers = []) {
+  // "Accounts Edited" = profiles edited by an admin/sub-admin from the dashboard OR by the serviceman
+  // themselves (self-edit / correction resubmission). Attribution is resolved in isAccountEdited.
+  return workers.filter(isAccountEdited).length
 }
 
 export function buildDashboardTabSummary(source = {}, activeTab, activeDate) {
@@ -367,7 +370,7 @@ export function buildDashboardTabSummary(source = {}, activeTab, activeDate) {
     const approved = records.workers.filter((worker) => isApprovedWorker(worker)).length
     const rejected = records.workers.filter((worker) => isRejectedWorker(worker)).length
     return [
-      { label: 'Accounts Edited', value: countEditedAccountsToday(records.workers, activeDate), sub: focusDateLabel, color: '#F59E0B', icon: 'edit', onClickPath: '/workers' },
+      { label: 'Accounts Edited', value: countEditedAccountsToday(records.workers), sub: 'By serviceman or admin', color: '#F59E0B', icon: 'edit', onClickPath: '/workers' },
       { label: 'Today Servicemen', value: countForDay(records.workers, getWorkerDate, activeDate), sub: 'Joined today', color: '#2563EB', icon: 'clock', onClickPath: '/workers' },
       { label: 'Total Servicemen', value: records.workers.length, sub: 'All worker profiles', color: '#7C3AED', icon: 'worker', onClickPath: '/workers' },
       { label: 'Approved Servicemen', value: approved, sub: 'Approved profiles', color: '#10B981', icon: 'check', onClickPath: '/workers/approval' },

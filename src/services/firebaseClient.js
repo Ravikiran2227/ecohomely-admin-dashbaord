@@ -2092,6 +2092,24 @@ async function handleAdmin(path, method, body) {
   throw Object.assign(new Error('Route not found'), { status: 404 })
 }
 
+// Profile-content fields an admin/sub-admin can change from the dashboard. A PATCH carrying any of
+// these is a real profile edit (recorded for the dashboard "Accounts Edited" list); a PATCH with only
+// status/approval/correction keys is a review decision and must NOT be counted as an edit.
+const WORKER_CONTENT_EDIT_KEYS = new Set([
+  'name', 'fullName', 'email', 'phone', 'mobile', 'phoneNumber', 'gender', 'dateOfBirth', 'about',
+  'address', 'areaName', 'area', 'city', 'profession', 'primaryProfession', 'primaryProfessionDetails',
+  'professions', 'professionDetails', 'professionalDetails', 'services', 'skills', 'languages',
+  'experienceYears', 'experience', 'teamSize', 'price', 'basePrice', 'amount', 'servicePrice',
+  'minimumPrice', 'fullServicePackagePrice', 'profilePhoto', 'profilePhotoUrl', 'image', 'imageUrl',
+  'aadhaar', 'aadhaarUrl', 'documents', 'professionMedia', 'workPhotos', 'portfolio', 'portfolioPhotos',
+  'workingDays', 'workingSlots', 'membership', 'planType', 'serviceMode', 'serviceRadiusKm',
+  'profileBadges', 'profileHighlights',
+])
+
+function bodyHasWorkerContentEdit(body = {}) {
+  return Object.keys(body || {}).some((key) => WORKER_CONTENT_EDIT_KEYS.has(key))
+}
+
 async function handleWorkers(parts, method, body, queryOptions) {
   const id = parts[1]
   const action = parts[2]
@@ -2113,6 +2131,8 @@ async function handleWorkers(parts, method, body, queryOptions) {
     const correctionFieldValues = body?.correctionFieldValues || {}
     const correctionNote = body?.note || body?.reviewNote || (isCorrection ? `Correction requested for: ${correctionFields.join(', ')}` : '')
     const correctionRequestedAt = isCorrection ? new Date().toISOString() : null
+    // Who is requesting this correction (admin / sub-admin), so Profile Updates can tag the record.
+    const requester = isCorrection ? await resolveCurrentAdmin().catch(() => null) : null
     const correctionRequest = isCorrection
       ? {
           type: 'profile_correction',
@@ -2121,6 +2141,9 @@ async function handleWorkers(parts, method, body, queryOptions) {
           fields: correctionFields,
           fieldValues: correctionFieldValues,
           requestedAt: correctionRequestedAt,
+          requestedBy: requester?.name || null,
+          requestedById: requester?.id || null,
+          requestedByRole: requester?.role || null,
           read: false,
         }
       : null
@@ -2146,6 +2169,9 @@ async function handleWorkers(parts, method, body, queryOptions) {
       needsCorrection: isCorrection,
       correctionRequested: isCorrection,
       correctionRequestedAt,
+      correctionRequestedBy: requester?.name || null,
+      correctionRequestedById: requester?.id || null,
+      correctionRequestedByRole: requester?.role || null,
       correctionStatus: isCorrection ? 'Pending' : null,
       reviewStatus: status,
       adminCorrectionNotificationRead: isCorrection || status === 'Approved' || status === 'Rejected',
@@ -2159,24 +2185,39 @@ async function handleWorkers(parts, method, body, queryOptions) {
     const isResubmission = isWorkerCorrectionResubmission(current.data, body)
     const correctionFields = current.data.correctionFields || current.data.correctionItems || current.data.profileCorrectionRequest?.fields || []
     const workerName = nameOf({ ...current.data, ...body }, 'Serviceman')
-    const updates = isResubmission
-      ? {
-          ...body,
-          approvalStatus: 'Pending',
-          reviewStatus: 'Pending',
-          correctionStatus: 'Submitted',
-          correctionRequired: false,
-          requiresCorrection: false,
-          needsCorrection: false,
-          correctionSubmittedAt: new Date().toISOString(),
-          adminCorrectionNotificationRead: false,
-          verificationVersions: appendWorkerVersion(current.data, 'Pending', `${workerName} resubmitted requested corrections.`, {
-            changedFields: correctionFields,
-            requestedFields: correctionFields,
-            snapshotSource: body,
-          }),
-        }
-      : body
+    let updates
+    if (isResubmission) {
+      updates = {
+        ...body,
+        approvalStatus: 'Pending',
+        reviewStatus: 'Pending',
+        correctionStatus: 'Submitted',
+        correctionRequired: false,
+        requiresCorrection: false,
+        needsCorrection: false,
+        correctionSubmittedAt: new Date().toISOString(),
+        adminCorrectionNotificationRead: false,
+        verificationVersions: appendWorkerVersion(current.data, 'Pending', `${workerName} resubmitted requested corrections.`, {
+          changedFields: correctionFields,
+          requestedFields: correctionFields,
+          snapshotSource: body,
+        }),
+      }
+    } else if (bodyHasWorkerContentEdit(body)) {
+      // An admin/sub-admin edited profile content from the dashboard: record who edited it so the
+      // "Accounts Edited" list can attribute the change (serviceman self-edits never reach this path).
+      const editor = await resolveCurrentAdmin().catch(() => null)
+      updates = {
+        ...body,
+        accountEdited: true,
+        accountEditedAt: new Date().toISOString(),
+        editedBy: editor?.name || 'Admin',
+        editedById: editor?.id || null,
+        editedByRole: editor?.role || 'Admin',
+      }
+    } else {
+      updates = body
+    }
     const updated = await updateWorkerRecordEverywhere(id, updates)
     if (isResubmission) {
       await createRecord('notifications', {

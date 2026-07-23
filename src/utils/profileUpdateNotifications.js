@@ -138,6 +138,18 @@ function isApprovedWorker(worker = {}) {
     || worker.adminApproved === true
 }
 
+// An admin/sub-admin dashboard edit also bumps updatedAt, so it would otherwise look identical to a
+// serviceman self-edit. When we record an admin edit we stamp accountEditedAt; withTimestamps then
+// sets updatedAt a few ms later, so allow a settle window before treating a bumped updatedAt as a
+// genuine self-edit. A real serviceman self-edit lands seconds/minutes apart from any admin edit.
+const ADMIN_EDIT_SETTLE_MS = 60 * 1000
+
+function adminEditAtMs(worker = {}) {
+  const role = String(worker.editedByRole || '').toLowerCase()
+  if (worker.accountEdited !== true || !role || role.includes('serviceman') || role.includes('worker')) return 0
+  return toMillis(worker.accountEditedAt || worker.editedAt || 0)
+}
+
 export function hasProfileUpdateAfterReview(worker = {}) {
   if (!isApprovedWorker(worker)) return false
   const updatedMs = toMillis(profileUpdatedAt(worker))
@@ -147,13 +159,96 @@ export function hasProfileUpdateAfterReview(worker = {}) {
     toMillis(worker.approvedAt),
     toMillis(worker.reviewedAt),
   )
-  return updatedMs > 0 && reviewedMs > 0 && updatedMs > reviewedMs
+  if (!(updatedMs > 0 && reviewedMs > 0 && updatedMs > reviewedMs)) return false
+  // Do not treat an admin/sub-admin dashboard edit as a serviceman self-edit (no freeze, no review).
+  const adminMs = adminEditAtMs(worker)
+  if (adminMs > 0 && updatedMs <= adminMs + ADMIN_EDIT_SETTLE_MS) return false
+  return true
+}
+
+// A self-edit that the dashboard has frozen (approved -> under review) sets this flag. It keeps the
+// worker visible in Profile Updates even though `approved` is now false (so hasProfileUpdateAfterReview,
+// which requires approved === true, no longer fires for them).
+export function hasPendingProfileEdit(worker = {}) {
+  return worker.profileEditPending === true || worker.profileUpdatePending === true
 }
 
 export function hasPendingProfileUpdate(worker = {}) {
   if (hasResubmittedCorrectionStatus(worker)) return true
+  if (hasPendingProfileEdit(worker)) return true
   if (hasProfileUpdateAfterReview(worker)) return true
   return false
+}
+
+// A brand-new self-edit that has not yet been frozen by the dashboard: an approved worker who edited
+// after their last review and does not already carry the pending-edit flag. These are the records the
+// dashboard reconciles into an "under review" (frozen, not-live) state so the change is not public
+// until an admin/sub-admin accepts it.
+export function needsSelfEditFreeze(worker = {}) {
+  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
+  if (['rejected', 'blocked', 'suspended'].includes(status)) return false
+  if (hasPendingProfileEdit(worker)) return false
+  if (hasResubmittedCorrectionStatus(worker)) return false
+  return hasProfileUpdateAfterReview(worker)
+}
+
+// Status payload that freezes a self-edited worker: not live/verified until an admin accepts, while
+// staying visible in Profile Updates via profileEditPending. No profile-content keys here, so the
+// worker-update handler does not record it as an admin "account edit".
+export const SELF_EDIT_FREEZE_PATCH = {
+  approvalStatus: 'Pending',
+  approval_status: 'Pending',
+  reviewStatus: 'Pending',
+  approved: false,
+  isApproved: false,
+  adminApproved: false,
+  Approved: false,
+  profileEditPending: true,
+  profileEditFrozenAt: null,
+  adminCorrectionNotificationRead: false,
+}
+
+function prettyEditorRole(role = '') {
+  const value = String(role || '').trim().toLowerCase()
+  if (!value) return ''
+  if (value.includes('sub')) return 'Sub Admin'
+  if (value.includes('super')) return 'Super Admin'
+  if (value.includes('serviceman') || value.includes('worker') || value.includes('partner')) return 'Serviceman'
+  if (value.includes('admin')) return 'Admin'
+  return String(role).trim()
+}
+
+// Who last edited this serviceman's profile, for the dashboard "Accounts Edited" list.
+// An admin/sub-admin edit made from the dashboard is stamped on the record (editedByRole); a
+// serviceman self-edit or correction resubmission has no stamp and is attributed to the serviceman.
+export function accountEditor(worker = {}) {
+  const stampedRole = String(worker.editedByRole || '').trim()
+  if (worker.accountEdited === true && stampedRole) {
+    return {
+      name: worker.editedBy || 'Admin',
+      role: prettyEditorRole(stampedRole),
+      at: worker.accountEditedAt || worker.editedAt || worker.updatedAt || null,
+    }
+  }
+  if (hasResubmittedCorrectionStatus(worker) || hasPendingProfileEdit(worker) || hasProfileUpdateAfterReview(worker)) {
+    return {
+      name: worker.name || worker.fullName || worker.workerName || 'Serviceman',
+      role: 'Serviceman',
+      at: profileUpdatedAt(worker) || correctionSubmittedAt(worker) || worker.updatedAt || null,
+    }
+  }
+  if (worker.accountEdited === true) {
+    return {
+      name: worker.editedBy || 'Admin',
+      role: stampedRole ? prettyEditorRole(stampedRole) : 'Admin',
+      at: worker.accountEditedAt || worker.editedAt || worker.updatedAt || null,
+    }
+  }
+  return null
+}
+
+export function isAccountEdited(worker = {}) {
+  return accountEditor(worker) !== null
 }
 
 export function hasWorkerResubmittedCorrection(worker = {}) {

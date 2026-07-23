@@ -7,7 +7,11 @@ import {
   acknowledgeProfileUpdatesInbox,
   correctionRequestedAt,
   correctionSubmittedAt,
+  dispatchProfileUpdatesChanged,
   hasPendingProfileUpdate,
+  hasResubmittedCorrectionStatus,
+  needsSelfEditFreeze,
+  SELF_EDIT_FREEZE_PATCH,
 } from '../utils/profileUpdateNotifications'
 
 function toMillis(value) {
@@ -267,19 +271,72 @@ function initials(name) {
   return String(name || 'S').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
 }
 
+function shortRole(role = '') {
+  const value = String(role || '').toLowerCase()
+  if (value.includes('sub')) return 'Sub Admin'
+  if (value.includes('super')) return 'Super Admin'
+  if (value.includes('admin')) return 'Admin'
+  return String(role || '').trim()
+}
+
 export default function ProfileUpdates() {
   const navigate = useNavigate()
   const [workers, setWorkers] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [busyId, setBusyId] = useState('')
 
   async function load() {
     setLoading(true)
     try {
-      const rows = await workersApi.listWorkers()
-      setWorkers(Array.isArray(rows) ? rows : [])
+      let rows = await workersApi.listWorkers()
+      rows = Array.isArray(rows) ? rows : []
+      // Freeze brand-new self-edits (approved -> under review) so the change is not live until an
+      // admin accepts it. Only workers not already frozen/pending are touched, so this runs once each.
+      const toFreeze = rows.filter(needsSelfEditFreeze)
+      if (toFreeze.length) {
+        await Promise.all(toFreeze.map((worker) => workersApi
+          .updateWorker(worker.id, { ...SELF_EDIT_FREEZE_PATCH, profileEditFrozenAt: new Date().toISOString() })
+          .catch(() => null)))
+        dispatchProfileUpdatesChanged()
+        rows = await workersApi.listWorkers()
+        rows = Array.isArray(rows) ? rows : []
+      }
+      setWorkers(rows)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleAccept(id, event) {
+    if (event) event.stopPropagation()
+    if (!id || busyId) return
+    setBusyId(id)
+    try {
+      await workersApi.approveWorker(id, { note: 'Profile update approved from Profile Updates' })
+      dispatchProfileUpdatesChanged()
+      await load()
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  async function handleReject(id, event) {
+    if (event) event.stopPropagation()
+    if (!id || busyId) return
+    setBusyId(id)
+    try {
+      // Rejecting a profile change sends it back for correction: the serviceman must review and
+      // resubmit, and the account stays frozen (not live) until they do and an admin approves.
+      await workersApi.requestCorrection(id, {
+        items: [],
+        correctionFields: [],
+        note: 'Your recent profile changes were not approved. Please review and resubmit your profile.',
+      })
+      dispatchProfileUpdatesChanged()
+      await load()
+    } finally {
+      setBusyId('')
     }
   }
 
@@ -292,6 +349,8 @@ export default function ProfileUpdates() {
     .filter(hasProfileUpdate)
     .map((worker) => {
       const name = compactName(worker)
+      const meta = correctionMeta(worker)
+      const updateType = hasResubmittedCorrectionStatus(worker) ? 'correction' : 'self'
       return {
         id: worker.id || worker.uid || worker.authId,
         name,
@@ -302,6 +361,9 @@ export default function ProfileUpdates() {
         version: latestVersion(worker),
         corrections: correctionDetails(worker),
         status: worker.approvalStatus || worker.correctionStatus || worker.profileReviewStatus || 'Submitted',
+        updateType,
+        requestedByName: worker.correctionRequestedBy || meta.requestedBy || '',
+        requestedByRole: worker.correctionRequestedByRole || meta.requestedByRole || '',
       }
     })
     .sort((a, b) => toMillis(b.submittedAt) - toMillis(a.submittedAt)), [workers])
@@ -326,7 +388,7 @@ export default function ProfileUpdates() {
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--text-muted)]">People / Notifications</p>
             <h1 className="mt-2 text-3xl font-extrabold text-[var(--text-main)]">Profile Updates</h1>
-            <p className="mt-2 text-sm text-[var(--text-muted)]">Servicemen who resubmitted corrections after admin review.</p>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">Servicemen who resubmitted requested corrections or updated their own profile. Changes stay frozen until you accept them.</p>
           </div>
           <button
             type="button"
@@ -378,53 +440,105 @@ export default function ProfileUpdates() {
           </div>
         ) : filtered.length ? (
           <div className="divide-y divide-[var(--border-main)]">
-            {filtered.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => navigate(`/workers/${row.id}`)}
-                className="block w-full p-4 text-left transition hover:bg-[color-mix(in_srgb,var(--brand-500)_8%,transparent)]"
-              >
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="flex min-w-0 gap-3">
-                    <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]">
-                      {row.avatar ? (
-                        <img src={row.avatar} alt={row.name} className="h-full w-full object-cover" loading="lazy" />
-                      ) : (
-                        <div className="grid h-full w-full place-items-center text-sm font-black text-[var(--brand-500)]">{initials(row.name)}</div>
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base font-extrabold text-[var(--text-main)]">{row.name}</h3>
-                        <span className="rounded-full bg-[color-mix(in_srgb,var(--brand-500)_16%,transparent)] px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-[var(--brand-500)]">
-                          Version {row.version}
-                        </span>
+            {filtered.map((row) => {
+              const isCorrection = row.updateType === 'correction'
+              const requesterLabel = [shortRole(row.requestedByRole), row.requestedByName].filter(Boolean).join(' · ')
+              const tagText = isCorrection
+                ? `Correction by ${requesterLabel || 'Admin'}`
+                : 'Self update'
+              const message = isCorrection
+                ? `${row.name} resubmitted the corrections requested by ${shortRole(row.requestedByRole) || 'the admin'}.`
+                : `${row.name} updated their own profile. Frozen until you accept the change.`
+              const busy = busyId === row.id
+              return (
+                <div
+                  key={row.id}
+                  className="p-4 transition hover:bg-[color-mix(in_srgb,var(--brand-500)_6%,transparent)]"
+                >
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => navigate(`/workers/${row.id}`)}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); navigate(`/workers/${row.id}`) } }}
+                    className="cursor-pointer text-left outline-none"
+                  >
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="flex min-w-0 gap-3">
+                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)]">
+                          {row.avatar ? (
+                            <img src={row.avatar} alt={row.name} className="h-full w-full object-cover" loading="lazy" />
+                          ) : (
+                            <div className="grid h-full w-full place-items-center text-sm font-black text-[var(--brand-500)]">{initials(row.name)}</div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-base font-extrabold text-[var(--text-main)]">{row.name}</h3>
+                            <span className="rounded-full bg-[color-mix(in_srgb,var(--brand-500)_16%,transparent)] px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-[var(--brand-500)]">
+                              Version {row.version}
+                            </span>
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-wide ${
+                              isCorrection
+                                ? 'bg-[color-mix(in_srgb,#f59e0b_18%,transparent)] text-[#b45309]'
+                                : 'bg-[color-mix(in_srgb,#0ea5e9_18%,transparent)] text-[#0369a1]'
+                            }`}>
+                              {tagText}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm text-[var(--text-muted)]">{row.profession}</p>
+                          <p className="mt-2 text-sm font-semibold text-[var(--text-main)]">{message}</p>
+                        </div>
                       </div>
-                      <p className="mt-1 text-sm text-[var(--text-muted)]">{row.profession}</p>
-                      <p className="mt-2 text-sm font-semibold text-[var(--text-main)]">{row.name} updated their profile corrections.</p>
+                      <div className="shrink-0 text-left lg:text-right">
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Updated</p>
+                        <p className="text-sm font-bold text-[var(--text-main)]">{formatDateTime(row.submittedAt)}</p>
+                        {toMillis(row.requestedAt) > 0 && <p className="mt-1 text-xs text-[var(--text-muted)]">Requested {formatDateTime(row.requestedAt)}</p>}
+                      </div>
                     </div>
-                  </div>
-                  <div className="shrink-0 text-left lg:text-right">
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Updated</p>
-                    <p className="text-sm font-bold text-[var(--text-main)]">{formatDateTime(row.submittedAt)}</p>
-                    {toMillis(row.requestedAt) > 0 && <p className="mt-1 text-xs text-[var(--text-muted)]">Requested {formatDateTime(row.requestedAt)}</p>}
-                  </div>
-                </div>
 
-                <div className="mt-4 rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Corrections Checklist</p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {(row.corrections.length ? row.corrections : [{ key: 'empty', label: 'No updated details recorded', value: 'Open the profile to review the latest submitted data.' }]).map((field) => (
-                      <div key={`${row.id}-${field.key}-${field.label}`} className="rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-3 py-2">
-                        <span className="block text-xs font-black uppercase tracking-[0.08em] text-[var(--text-muted)]">{field.label}</span>
-                        <span className="mt-0.5 block break-words text-sm font-bold text-[var(--text-main)]">{field.value}</span>
+                    <div className="mt-4 rounded-2xl border border-[var(--border-main)] bg-[var(--bg-main)] p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Corrections Checklist</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {(row.corrections.length ? row.corrections : [{ key: 'empty', label: 'No updated details recorded', value: 'Open the profile to review the latest submitted data.' }]).map((field) => (
+                          <div key={`${row.id}-${field.key}-${field.label}`} className="rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] px-3 py-2">
+                            <span className="block text-xs font-black uppercase tracking-[0.08em] text-[var(--text-muted)]">{field.label}</span>
+                            <span className="mt-0.5 block break-words text-sm font-bold text-[var(--text-main)]">{field.value}</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/workers/${row.id}`)}
+                      className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-bold text-[var(--text-main)] transition hover:border-[var(--brand-500)]"
+                    >
+                      View full profile
+                    </button>
+                    <div className="ml-auto flex gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={(event) => handleReject(row.id, event)}
+                        className="rounded-xl border border-[#ef4444] px-4 py-2 text-sm font-bold text-[#ef4444] transition hover:bg-[color-mix(in_srgb,#ef4444_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {busy ? 'Working…' : 'Reject'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={(event) => handleAccept(row.id, event)}
+                        className="rounded-xl bg-[#10b981] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#059669] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {busy ? 'Working…' : 'Accept'}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </button>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div className="grid min-h-[280px] place-items-center p-8 text-center">

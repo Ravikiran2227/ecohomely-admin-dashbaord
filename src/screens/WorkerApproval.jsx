@@ -16,6 +16,7 @@ import {
   isRejoinedAfterSuspend,
   REJOINED_AFTER_SUSPEND_LABEL,
 } from '../utils/workerSuspendRejoin'
+import { useAuth } from '../context/authContextValue'
 
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
@@ -498,6 +499,7 @@ function WorkerCard({ worker, onReview, onProfile, onApprove, onReject, onReques
 
 export default function WorkerApproval() {
   const navigate = useNavigate()
+  const { currentUser } = useAuth()
   const [queue, setQueue] = useState([])
   const [rejectedCount, setRejectedCount] = useState(0)
   const [history, setHistory] = useState([])
@@ -627,7 +629,12 @@ export default function WorkerApproval() {
   }
 
   const handleApprove = async (worker) => {
-    await workersApi.approveWorker(worker.id, { note: 'Approved from approval queue' })
+    await workersApi.approveWorker(worker.id, {
+      note: 'Approved from approval queue',
+      approvedBy: currentUser?.name || currentUser?.displayName || currentUser?.username || 'Admin',
+      approvedById: currentUser?.id || null,
+      approvedByRole: currentUser?.role || null,
+    })
     setQueue((prev) => prev.filter((w) => w.id !== worker.id))
     setHistory((prev) => [...prev, { id: worker.id, type: 'approve', name: worker.name }])
     dispatchProfileUpdatesChanged()

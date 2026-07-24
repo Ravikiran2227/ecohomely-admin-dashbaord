@@ -1,15 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Badge from './Badge'
 import { C } from '../theme'
 
-export default function VersionSelector({ versions, selectedVersion, onVersionChange }) {
-  if (!versions?.length) return null
+const OPTION_HEIGHT_PX = 42
+const VISIBLE_OPTIONS = 6
 
+export default function VersionSelector({ versions, selectedVersion, onVersionChange }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
-  const current = versions.find(v => v.version === selectedVersion) || versions[0]
-  const latestVersion = versions.reduce((max, item) => Math.max(max, Number(item.version) || 0), 0)
-  const currentLabel = `Version ${current.version} ${Number(current.version) === latestVersion ? '(Current)' : '(Previous)'}`
+  const listRef = useRef(null)
+
+  const orderedVersions = useMemo(
+    () => [...(versions || [])].sort((left, right) => Number(left.version) - Number(right.version)),
+    [versions],
+  )
+  const current = orderedVersions.find((item) => Number(item.version) === Number(selectedVersion))
+    || orderedVersions[orderedVersions.length - 1]
+    || null
+  const latestVersion = orderedVersions.reduce((max, item) => Math.max(max, Number(item.version) || 0), 0)
+  const currentLabel = current
+    ? `Version ${current.version} ${Number(current.version) === latestVersion ? '(Current)' : '(Previous)'}`
+    : 'Version'
+  const menuMaxHeight = OPTION_HEIGHT_PX * VISIBLE_OPTIONS + 8
 
   useEffect(() => {
     if (!open) return undefined
@@ -19,6 +31,16 @@ export default function VersionSelector({ versions, selectedVersion, onVersionCh
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [open])
+
+  useEffect(() => {
+    if (!open || !listRef.current) return
+    const activeButton = listRef.current.querySelector('[data-active-version="true"]')
+    if (activeButton?.scrollIntoView) {
+      activeButton.scrollIntoView({ block: 'nearest' })
+    }
+  }, [open, selectedVersion])
+
+  if (!orderedVersions.length || !current) return null
 
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -33,21 +55,26 @@ export default function VersionSelector({ versions, selectedVersion, onVersionCh
           <span className={`text-brand-500 transition-transform ${open ? 'rotate-180' : ''}`}>v</span>
         </button>
         {open ? (
-          <div className="absolute left-0 top-[calc(100%+0.35rem)] z-[999] w-full overflow-hidden rounded-xl border border-brand-500/30 bg-[var(--card-bg)] p-1 shadow-2xl shadow-black/30">
-            {versions.map((version) => {
+          <div
+            ref={listRef}
+            className="absolute left-0 top-[calc(100%+0.35rem)] z-[999] w-full overflow-y-auto overscroll-contain rounded-xl border border-brand-500/30 bg-[var(--card-bg)] p-1 shadow-2xl shadow-black/30"
+            style={{ maxHeight: menuMaxHeight }}
+          >
+            {orderedVersions.map((version) => {
               const active = Number(version.version) === Number(selectedVersion)
               const label = `Version ${version.version} ${Number(version.version) === latestVersion ? '(Current)' : '(Previous)'}`
               return (
                 <button
                   key={version.version}
                   type="button"
+                  data-active-version={active ? 'true' : 'false'}
                   onClick={() => {
                     onVersionChange(Number(version.version))
                     setOpen(false)
                   }}
-                  className={`block w-full rounded-lg px-3 py-2.5 text-left text-sm font-black transition-colors ${active ? 'bg-brand-500 text-white' : 'text-[var(--text-main)] hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-300'}`}
+                  className={`flex h-[42px] w-full items-center rounded-lg px-3 text-left text-sm font-black transition-colors ${active ? 'bg-brand-500 text-white' : 'text-[var(--text-main)] hover:bg-brand-500/10 hover:text-brand-600 dark:hover:text-brand-300'}`}
                 >
-                  {label}
+                  <span className="truncate">{label}</span>
                 </button>
               )
             })}

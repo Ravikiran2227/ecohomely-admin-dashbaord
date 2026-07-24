@@ -16,6 +16,9 @@ import locationsApi from '../services/locationsApi'
 import workersApi from '../services/workersApi'
 import { resolveWorkerAssetUrl } from '../services/firebaseClient'
 import { correctionSubmittedAt, hasWorkerResubmittedCorrection } from '../utils/profileUpdateNotifications'
+import { getWorkerAccountCreatedValue } from '../utils/workerAccountCreated'
+import { resolveWorkerApprovedBy } from '../utils/workerProfileVersions'
+import { WorkerApprovalHistoryModal } from '../components/worker-profile/WorkerVersionModals'
 
 function FilterField({ value, onChange, options, placeholder, icon }) {
   const [open, setOpen] = useState(false)
@@ -429,20 +432,8 @@ function endOfDay(date) {
 }
 
 function getWorkerJoinedDateValue(worker = {}) {
-  return firstText(
-    worker.createdAt,
-    worker.CreatedAt,
-    worker.created_at,
-    worker.createdOn,
-    worker.created_on,
-    worker.accountCreatedAt,
-    worker.accountCreated,
-    worker.registeredAt,
-    worker.registrationDate,
-    worker.joinedAt,
-    worker.dateJoined,
-    worker.createdDate,
-  )
+  // Always the original account-created moment — never updatedAt / edit stamps.
+  return getWorkerAccountCreatedValue(worker)
 }
 
 function getWorkerUpdatedDateValue(worker = {}) {
@@ -502,7 +493,17 @@ function matchesDateRange(date, from, to) {
 }
 
 function isApproved(worker) {
-  return worker.approvalStatus === 'Approved' || worker.Approved === true || worker.approved === true
+  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || '').toLowerCase()
+  return status === 'approved'
+    || worker.Approved === true
+    || worker.approved === true
+    || worker.isApproved === true
+    || worker.adminApproved === true
+}
+
+function getApprovedByLabel(worker) {
+  if (!isApproved(worker)) return 'N/A'
+  return resolveWorkerApprovedBy(worker) || 'N/A'
 }
 
 function getDeviceType(worker) {
@@ -701,6 +702,7 @@ export default function WorkerList() {
   const [locationRows, setLocationRows] = useState({ states: [], districts: [], cities: [], areas: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [approvalHistoryWorker, setApprovalHistoryWorker] = useState(null)
   const [page, setPage] = useState(() => {
     const urlPage = Number(new URLSearchParams(window.location.search).get('page') || 1)
     return Number.isFinite(urlPage) && urlPage > 0 ? urlPage : 1
@@ -899,7 +901,7 @@ export default function WorkerList() {
           formatDateOnly(getWorkerJoinedDateValue(worker)),
           payment.paid,
           payment.amount,
-          isApproved(worker) ? firstText(worker.approvedBy, worker.approvedByName, worker.approverName) || 'N/A' : 'N/A',
+          getApprovedByLabel(worker),
         ]
       }),
     ]
@@ -963,7 +965,7 @@ export default function WorkerList() {
             const payment = getPaymentInfo(worker)
             const flagged = isFlaggedWorker(worker)
             const joinedDate = formatDateOnly(getWorkerJoinedDateValue(worker))
-            const approvedBy = isApproved(worker) ? firstText(worker.approvedBy, worker.approvedByName, worker.approverName) || 'N/A' : 'N/A'
+            const approvedBy = getApprovedByLabel(worker)
             const membershipBadge = getMembershipBadge(worker)
             return (
             <TableRow
@@ -1010,7 +1012,19 @@ export default function WorkerList() {
                   <p>Amount: <span className="font-extrabold">{payment.amount}</span></p>
                 </div>
               </TD>
-              <TD className="max-w-[150px] truncate text-xs font-semibold text-[var(--text-muted)]">{approvedBy}</TD>
+              <TD className="max-w-[170px]">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setApprovalHistoryWorker(worker)
+                  }}
+                  className="max-w-full truncate rounded-lg border border-brand-500/25 bg-brand-500/10 px-2.5 py-1.5 text-left text-xs font-extrabold text-brand-700 transition-colors hover:border-brand-500/45 hover:bg-brand-500/15 dark:text-brand-300"
+                  title="View approval history by version"
+                >
+                  {approvedBy}
+                </button>
+              </TD>
               <TD>
                 <WorkerActionMenu
                   worker={worker}
@@ -1064,6 +1078,12 @@ export default function WorkerList() {
       ) : (
         <EmptyState title="No workers match these filters" description="Try widening the location, role, or availability filters to restore results." action={<Btn v="outline" onClick={resetFilters}>Clear filters</Btn>} />
       )}
+
+      <WorkerApprovalHistoryModal
+        isOpen={Boolean(approvalHistoryWorker)}
+        worker={approvalHistoryWorker}
+        onClose={() => setApprovalHistoryWorker(null)}
+      />
     </div>
   )
 }

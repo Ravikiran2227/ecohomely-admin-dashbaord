@@ -404,9 +404,9 @@ function buildPackages(profession = {}, worker = {}) {
 
   if (packages.length > 0) {
     packages.forEach((item, index) => {
-      const label = item.label || item.name || item.title || `Package ${index + 1}`
+      const label = item.label || item.name || item.title || item.key || `Package ${index + 1}`
       const price = firstPositiveAmount(item.price, item.amount, item.value, item.total, item.packagePrice, item.packageAmount, item.charge)
-        || (/full|package/i.test(String(label || item.key || '')) ? fullPackagePrice : minimalPrice)
+        || (/full\s*service|full\s*package/i.test(String(label)) ? fullPackagePrice : (/minimal|minimum\s*visit/i.test(String(label)) ? minimalPrice : 0))
       if (price <= 0 && !firstText(item.description, item.details) && !(Array.isArray(item.features) && item.features.length) && !(Array.isArray(item.includes) && item.includes.length)) return
       builtPackages.push({
         id: item.id || item.key || `package-${index}`,
@@ -419,7 +419,7 @@ function buildPackages(profession = {}, worker = {}) {
     })
   }
 
-  if (minimalPrice > 0 && !builtPackages.some((item) => /minimal|visit/i.test(item.label))) {
+  if (minimalPrice > 0 && !builtPackages.some((item) => /minimal|minimum\s*visit/i.test(item.label))) {
     builtPackages.push({
       id: 'minimal-visit',
       label: 'Minimal Visit',
@@ -430,7 +430,7 @@ function buildPackages(profession = {}, worker = {}) {
     })
   }
 
-  if (fullPackagePrice > 0 && !builtPackages.some((item) => /full|package/i.test(item.label))) {
+  if (fullPackagePrice > 0 && !builtPackages.some((item) => /full\s*service|full\s*package/i.test(item.label))) {
     builtPackages.push({
       id: 'full-service',
       label: 'Full Service Package',
@@ -474,6 +474,19 @@ function buildPackages(profession = {}, worker = {}) {
   return builtPackages
 }
 
+function resolveSecondaryProfessionSource(worker = {}) {
+  const candidates = [
+    worker?.secondaryProfessionDetails?.secondary,
+    worker?.secondaryProfessionDetails,
+    worker?.professionDetails?.secondary,
+    worker?.professionalDetails?.secondary,
+    typeof worker?.secondaryProfession === 'object' && !Array.isArray(worker.secondaryProfession) ? worker.secondaryProfession : null,
+    worker?.secondaryProfessionalDetails,
+  ]
+
+  return candidates.find((value) => value && typeof value === 'object' && !Array.isArray(value)) || {}
+}
+
 function scopedWorkerForProfession(worker = {}, type = 'primary') {
   if (type !== 'secondary') {
     return {
@@ -487,10 +500,41 @@ function scopedWorkerForProfession(worker = {}, type = 'primary') {
     }
   }
 
-  const secondary = worker?.secondaryProfession
-    || worker?.professionDetails?.secondary
-    || worker?.secondaryProfessionDetails
-    || {}
+  const secondary = resolveSecondaryProfessionSource(worker)
+  const packages = Array.isArray(secondary.packages) && secondary.packages.length
+    ? secondary.packages
+    : (Array.isArray(secondary.pricingPackages) && secondary.pricingPackages.length
+      ? secondary.pricingPackages
+      : (Array.isArray(worker?.secondaryPackages) && worker.secondaryPackages.length
+        ? worker.secondaryPackages
+        : (Array.isArray(worker?.secondaryPricingPackages) ? worker.secondaryPricingPackages : [])))
+  const serviceCharges = Array.isArray(secondary.serviceCharges) && secondary.serviceCharges.length
+    ? secondary.serviceCharges
+    : (Array.isArray(worker?.secondaryServiceCharges) ? worker.secondaryServiceCharges : [])
+  const minimumPrice = firstPositiveAmount(
+    secondary.minimumPrice,
+    secondary.minimumVisitPrice,
+    secondary.minimalVisitCharge,
+    secondary.minimumVisitCharge,
+    secondary.visitCharge,
+    secondary.price,
+    worker?.secondaryMinimumPrice,
+    worker?.secondaryMinimumVisitPrice,
+    worker?.secondaryMinimalVisitCharge,
+    worker?.secondaryPrice,
+  )
+  const fullServicePackagePrice = firstPositiveAmount(
+    secondary.fullServicePackagePrice,
+    secondary.fullServicePrice,
+    secondary.fullPackagePrice,
+    secondary.fullServicePackage,
+    secondary.fullService,
+    secondary.packagePrice,
+    worker?.secondaryFullServicePackagePrice,
+    worker?.secondaryFullServicePrice,
+    worker?.secondaryFullPackagePrice,
+    worker?.secondaryPackagePrice,
+  )
 
   return {
     id: worker?.id,
@@ -499,21 +543,27 @@ function scopedWorkerForProfession(worker = {}, type = 'primary') {
     planExpiry: worker?.planExpiry,
     serviceRadiusKm: worker?.serviceRadiusKm,
     ...secondary,
-    packages: secondary.packages || secondary.pricingPackages || worker?.secondaryPackages || worker?.secondaryPricingPackages || [],
-    pricingPackages: secondary.pricingPackages || secondary.packages || worker?.secondaryPricingPackages || worker?.secondaryPackages || [],
+    packages,
+    pricingPackages: packages,
     servicePackages: secondary.servicePackages || worker?.secondaryServicePackages || [],
     pricing: secondary.pricing || worker?.secondaryPricing || worker?.secondaryProfessionPricing || {},
     services: Array.isArray(secondary.services) ? secondary.services : (Array.isArray(worker?.secondaryServices) ? worker.secondaryServices : []),
     subServices: secondary.subServices || secondary.subservices || worker?.secondarySubServices || worker?.secondaryServices || [],
-    minimumPrice: secondary.minimumPrice ?? secondary.minimumVisitPrice ?? secondary.minimalVisitCharge ?? worker?.secondaryMinimumPrice ?? worker?.secondaryMinimumVisitPrice,
-    minimumVisitPrice: secondary.minimumVisitPrice ?? worker?.secondaryMinimumVisitPrice,
-    minimalVisitCharge: secondary.minimalVisitCharge ?? worker?.secondaryMinimalVisitCharge,
-    fullServicePackagePrice: secondary.fullServicePackagePrice ?? secondary.fullServicePackage ?? secondary.packagePrice ?? worker?.secondaryFullServicePackagePrice,
-    packagePrice: secondary.packagePrice ?? worker?.secondaryPackagePrice,
-    serviceCharges: secondary.serviceCharges ?? worker?.secondaryServiceCharges ?? [],
-    minimalVisitIncludes: secondary.minimalVisitIncludes ?? secondary.minimumVisitIncludes ?? worker?.secondaryMinimalVisitIncludes ?? [],
-    fullServiceIncludes: secondary.fullServiceIncludes ?? secondary.packageIncludes ?? secondary.fullServicePackage?.includes ?? worker?.secondaryFullServiceIncludes ?? [],
-    additionalFullServicePackages: secondary.additionalFullServicePackages ?? worker?.secondaryAdditionalFullServicePackages ?? [],
+    price: minimumPrice || secondary.price || worker?.secondaryPrice || 0,
+    minimumPrice: minimumPrice || 0,
+    minimumVisitPrice: minimumPrice || secondary.minimumVisitPrice || worker?.secondaryMinimumVisitPrice || 0,
+    minimalVisitCharge: minimumPrice || secondary.minimalVisitCharge || worker?.secondaryMinimalVisitCharge || 0,
+    minimumVisitCharge: minimumPrice || secondary.minimumVisitCharge || 0,
+    fullServicePackagePrice: fullServicePackagePrice || 0,
+    fullServicePrice: fullServicePackagePrice || 0,
+    fullPackagePrice: fullServicePackagePrice || 0,
+    fullServicePackage: fullServicePackagePrice || secondary.fullServicePackage || null,
+    fullService: fullServicePackagePrice || secondary.fullService || null,
+    packagePrice: fullServicePackagePrice || secondary.packagePrice || worker?.secondaryPackagePrice || 0,
+    serviceCharges,
+    minimalVisitIncludes: secondary.minimalVisitIncludes || secondary.minimumVisitIncludes || worker?.secondaryMinimalVisitIncludes || [],
+    fullServiceIncludes: secondary.fullServiceIncludes || secondary.packageIncludes || secondary.fullServicePackage?.includes || worker?.secondaryFullServiceIncludes || [],
+    additionalFullServicePackages: secondary.additionalFullServicePackages || worker?.secondaryAdditionalFullServicePackages || [],
   }
 }
 
@@ -597,8 +647,15 @@ function buildProfessionInfoRows(profession = {}, worker = {}, reviewCards = [])
     { label: 'Review Count', value: getProfessionField(profession, worker, ['reviewCount', 'reviewsCount']) ?? (reviewCards.length ? reviewCards.length : '') },
     { label: 'Experience Range (Years)', value: getProfessionField(profession, worker, ['experienceRange', 'experienceYears', 'yearsOfExperience', 'experience']) || (experienceYears ? `${experienceYears}+` : '') },
     { label: 'Team Size', value: getProfessionField(profession, worker, ['teamSize', 'teamMembers', 'teamMemberCount']) },
-    { label: 'Minimum Visit Price', value: getProfessionField(profession, worker, ['minimumPrice', 'minimalVisitCharge', 'minimumVisitCharge', 'visitCharge', 'price', 'basePrice']) },
-    { label: 'Minimal Visit Includes', value: getProfessionField(profession, worker, ['minimalVisitIncludes', 'minimumVisitIncludes', 'visitIncludes', 'includes']) },
+    { label: 'Minimum Visit Price', value: firstPositiveAmount(
+      getProfessionField(profession, worker, ['minimumPrice', 'minimalVisitCharge', 'minimumVisitCharge', 'minimumVisitPrice', 'visitCharge', 'price', 'basePrice']),
+      profession.minimumPrice,
+      profession.minimalVisitCharge,
+      profession.price,
+      worker.minimumPrice,
+      worker.minimalVisitCharge,
+      worker.price,
+    ) || undefined },
     { label: 'Full Service Package Price', value: resolveFullServicePackagePrice(profession, worker) },
     { label: 'Service Included Charges', value: serviceCharges.length ? serviceCharges.map((item) => `${item.service}: ${formatCurrency(item.charge)}`).join(', ') : '' },
     { label: 'Brand Certification', value: getProfessionField(profession, worker, ['brandCertification', 'brandCertificate', 'certification', 'brand.certification']) },

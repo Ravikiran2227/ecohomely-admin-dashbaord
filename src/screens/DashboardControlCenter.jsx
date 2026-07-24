@@ -30,6 +30,27 @@ function statusIn(row, values) {
   return values.some((value) => status === String(value).trim().toLowerCase())
 }
 
+function formatEditedAt(value) {
+  if (!value) return '—'
+  const parsed = value instanceof Date
+    ? value
+    : typeof value?.toDate === 'function'
+      ? value.toDate()
+      : typeof value?.seconds === 'number'
+        ? new Date(value.seconds * 1000)
+        : typeof value?._seconds === 'number'
+          ? new Date(value._seconds * 1000)
+          : new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '—'
+  return parsed.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 function workerNeedsApproval(worker = {}) {
   return worker.approvalStatus === 'Pending'
     || worker.status === 'Pending'
@@ -470,8 +491,12 @@ export default function DashboardControlCenter() {
                 <div className="grid gap-2">
                   {editedServicemen.map((worker, index) => {
                     const path = worker.id ? `/workers/${worker.id}` : ''
-                    const editor = accountEditor(worker) || { name: 'Unknown', role: 'Unknown' }
+                    const editor = accountEditor(worker) || { name: 'Unknown', role: 'Unknown', at: null }
                     const isSelf = editor.role === 'Serviceman'
+                    const editedAtLabel = formatEditedAt(editor.at)
+                    const editorLabel = isSelf
+                      ? (worker.name || worker.fullName || 'Serviceman')
+                      : (editor.name || 'Admin')
                     return (
                       <button
                         key={worker.id || worker.uid || `${worker.phone || 'worker'}-${index}`}
@@ -483,6 +508,10 @@ export default function DashboardControlCenter() {
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-bold text-[var(--text-main)]">{worker.name || worker.fullName || worker.workerName || 'Serviceman'}</span>
                           <span className="block truncate text-xs text-[var(--text-muted)]">{[worker.profession || worker.primaryProfession, worker.areaName || worker.area || worker.city, worker.phone || worker.mobile].filter(Boolean).join(' - ') || 'Edited account'}</span>
+                          <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-[var(--text-muted)]">
+                            <span>Edited: <span className="font-bold text-[var(--text-main)]">{editedAtLabel}</span></span>
+                            <span>Edited by: <span className="font-bold text-[var(--text-main)]">{editorLabel}</span></span>
+                          </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
                           <span className={`rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-wide ${
@@ -490,7 +519,7 @@ export default function DashboardControlCenter() {
                               ? 'bg-[color-mix(in_srgb,#0ea5e9_18%,transparent)] text-[#0369a1]'
                               : 'bg-[color-mix(in_srgb,#f59e0b_18%,transparent)] text-[#b45309]'
                           }`}>
-                            {isSelf ? 'Serviceman' : `${editor.role}${editor.name && editor.name !== 'Admin' ? ` · ${editor.name}` : ''}`}
+                            {isSelf ? 'Serviceman' : editor.role}
                           </span>
                           {path && <span className="text-xs font-bold text-emerald-600">Open</span>}
                         </span>

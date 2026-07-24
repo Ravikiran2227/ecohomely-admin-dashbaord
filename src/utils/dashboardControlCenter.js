@@ -1,3 +1,5 @@
+import { getWorkerAccountCreatedValue } from './workerAccountCreated'
+
 export const DASHBOARD_GRAPH_TABS = [
   { id: 'bookings', label: 'Bookings' },
   { id: 'workers', label: 'Workers' },
@@ -79,7 +81,7 @@ export function getLatestTrackedDate(source = {}) {
     ...bookings.map((item) => extractDate(item.requestedAt)),
     ...complaints.map((item) => extractDate(item.date)),
     ...payments.map((item) => extractDate(item.date)),
-    ...workers.map((item) => extractDate(item.dateAdded)),
+    ...workers.map((item) => extractDate(getWorkerAccountCreatedValue(item))),
   ].filter(Boolean)
 
   return values.sort().at(-1) || new Date().toISOString().slice(0, 10)
@@ -124,7 +126,7 @@ export function buildChartConfig(source = {}, activeTab, activeRange, selectedDa
       title: 'Workers',
       subtitle: 'New worker onboarding',
       rows: workers,
-      getDate: (row) => extractDate(row.dateAdded),
+      getDate: (row) => extractDate(getWorkerAccountCreatedValue(row)),
       getHour: () => 12,
       getValue: () => 1,
     },

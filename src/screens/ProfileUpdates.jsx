@@ -13,6 +13,7 @@ import {
   needsSelfEditFreeze,
   SELF_EDIT_FREEZE_PATCH,
 } from '../utils/profileUpdateNotifications'
+import { useAuth } from '../context/authContextValue'
 
 function toMillis(value) {
   if (!value) return 0
@@ -281,6 +282,7 @@ function shortRole(role = '') {
 
 export default function ProfileUpdates() {
   const navigate = useNavigate()
+  const { currentUser } = useAuth()
   const [workers, setWorkers] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -313,7 +315,12 @@ export default function ProfileUpdates() {
     if (!id || busyId) return
     setBusyId(id)
     try {
-      await workersApi.approveWorker(id, { note: 'Profile update approved from Profile Updates' })
+      await workersApi.approveWorker(id, {
+        note: 'Profile update approved from Profile Updates',
+        approvedBy: currentUser?.name || currentUser?.displayName || currentUser?.username || 'Admin',
+        approvedById: currentUser?.id || null,
+        approvedByRole: currentUser?.role || null,
+      })
       dispatchProfileUpdatesChanged()
       await load()
     } finally {

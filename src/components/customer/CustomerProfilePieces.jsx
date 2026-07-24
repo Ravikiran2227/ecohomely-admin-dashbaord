@@ -1,45 +1,42 @@
 import { C } from '../../theme'
 
-export function CustomerAvatar({ name = '', photoUrl = '', size = 80 }) {
+export function CustomerAvatar({ name = '', photoUrl = '', size = 80, onPreview }) {
   const initials = String(name || '').split(' ').map((part) => part[0]).join('').substring(0, 2).toUpperCase()
   const colors = [C.primary, C.teal, C.purple, C.success, C.info]
   const color = colors[(name || 'C').charCodeAt(0) % colors.length]
+  const canPreview = Boolean(photoUrl && onPreview)
 
-  if (photoUrl) {
-    return (
-      <>
-        <img
-          src={photoUrl}
-          alt={name || 'Customer'}
-          className="rounded-full shrink-0 border-4 object-cover"
-          style={{
-            width: size,
-            height: size,
-            borderColor: `${color}35`,
-          }}
-          onError={(event) => {
-            event.currentTarget.style.display = 'none'
-            event.currentTarget.nextElementSibling?.classList.remove('hidden')
-          }}
-        />
-        <div
-          className="hidden rounded-full flex items-center justify-center font-black shrink-0 border-4"
-          style={{
-            width: size,
-            height: size,
-            background: `${color}18`,
-            borderColor: `${color}35`,
-            fontSize: size * 0.33,
-            color,
-          }}
-        >
-          {initials || 'C'}
-        </div>
-      </>
-    )
-  }
-
-  return (
+  const avatarImage = photoUrl ? (
+    <>
+      <img
+        src={photoUrl}
+        alt={name || 'Customer'}
+        className="rounded-full shrink-0 border-4 object-cover"
+        style={{
+          width: size,
+          height: size,
+          borderColor: `${color}35`,
+        }}
+        onError={(event) => {
+          event.currentTarget.style.display = 'none'
+          event.currentTarget.nextElementSibling?.classList.remove('hidden')
+        }}
+      />
+      <div
+        className="hidden rounded-full flex items-center justify-center font-black shrink-0 border-4"
+        style={{
+          width: size,
+          height: size,
+          background: `${color}18`,
+          borderColor: `${color}35`,
+          fontSize: size * 0.33,
+          color,
+        }}
+      >
+        {initials || 'C'}
+      </div>
+    </>
+  ) : (
     <div
       className="rounded-full flex items-center justify-center font-black shrink-0 border-4"
       style={{
@@ -53,6 +50,20 @@ export function CustomerAvatar({ name = '', photoUrl = '', size = 80 }) {
     >
       {initials || 'C'}
     </div>
+  )
+
+  if (!canPreview) return avatarImage
+
+  return (
+    <button
+      type="button"
+      onClick={onPreview}
+      className="rounded-full outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card-bg)]"
+      title="View profile picture"
+      aria-label={`View ${name || 'customer'} profile picture`}
+    >
+      {avatarImage}
+    </button>
   )
 }
 

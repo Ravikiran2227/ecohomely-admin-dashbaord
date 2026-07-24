@@ -484,7 +484,110 @@ export function getPrimaryProfession(worker) {
 
 export function getSecondaryProfession(worker) {
   const professions = Array.isArray(worker.professions) ? worker.professions : []
-  return professions.find((item) => typeof item === 'object' && item.type === 'Secondary') || null
+  const fromList = professions.find((item) => typeof item === 'object' && item.type === 'Secondary') || null
+  const detailsCandidate = worker?.secondaryProfessionDetails?.secondary
+    || worker?.secondaryProfessionDetails
+    || worker?.professionDetails?.secondary
+    || worker?.professionalDetails?.secondary
+    || (typeof worker?.secondaryProfession === 'object' && !Array.isArray(worker.secondaryProfession) ? worker.secondaryProfession : null)
+    || worker?.secondaryProfessionalDetails
+    || null
+  const details = detailsCandidate && typeof detailsCandidate === 'object' && !Array.isArray(detailsCandidate)
+    ? detailsCandidate
+    : null
+
+  if (!fromList && !details) return null
+
+  return {
+    ...(details || {}),
+    ...(fromList || {}),
+    type: 'Secondary',
+    profession: fromList?.profession
+      || details?.profession
+      || details?.professionName
+      || details?.name
+      || (typeof worker?.secondaryProfession === 'string' ? worker.secondaryProfession : '')
+      || worker?.secondaryProfessionName
+      || 'Not set',
+    price: firstPositiveNumber(
+      fromList?.price,
+      details?.price,
+      worker?.secondaryPrice,
+      fromList?.minimumPrice,
+      details?.minimumPrice,
+      worker?.secondaryMinimumPrice,
+    ) || fromList?.price || details?.price || 0,
+    minimumPrice: firstPositiveNumber(
+      fromList?.minimumPrice,
+      fromList?.minimumVisitPrice,
+      fromList?.minimalVisitCharge,
+      details?.minimumPrice,
+      details?.minimumVisitPrice,
+      details?.minimalVisitCharge,
+      worker?.secondaryMinimumPrice,
+      worker?.secondaryMinimumVisitPrice,
+      worker?.secondaryMinimalVisitCharge,
+      fromList?.price,
+      details?.price,
+      worker?.secondaryPrice,
+    ) || 0,
+    fullServicePackagePrice: firstPositiveNumber(
+      fromList?.fullServicePackagePrice,
+      fromList?.fullServicePrice,
+      fromList?.packagePrice,
+      details?.fullServicePackagePrice,
+      details?.fullServicePrice,
+      details?.packagePrice,
+      worker?.secondaryFullServicePackagePrice,
+      worker?.secondaryFullServicePrice,
+      worker?.secondaryFullPackagePrice,
+      worker?.secondaryPackagePrice,
+    ) || 0,
+    packages: Array.isArray(fromList?.packages) && fromList.packages.length
+      ? fromList.packages
+      : (Array.isArray(fromList?.pricingPackages) && fromList.pricingPackages.length
+        ? fromList.pricingPackages
+        : (Array.isArray(details?.packages) && details.packages.length
+          ? details.packages
+          : (Array.isArray(details?.pricingPackages) && details.pricingPackages.length
+            ? details.pricingPackages
+            : (Array.isArray(worker?.secondaryPackages) ? worker.secondaryPackages : (Array.isArray(worker?.secondaryPricingPackages) ? worker.secondaryPricingPackages : []))))),
+    pricingPackages: Array.isArray(fromList?.pricingPackages) && fromList.pricingPackages.length
+      ? fromList.pricingPackages
+      : (Array.isArray(fromList?.packages) && fromList.packages.length
+        ? fromList.packages
+        : (Array.isArray(details?.pricingPackages) && details.pricingPackages.length
+          ? details.pricingPackages
+          : (Array.isArray(details?.packages) && details.packages.length
+            ? details.packages
+            : (Array.isArray(worker?.secondaryPricingPackages) ? worker.secondaryPricingPackages : (Array.isArray(worker?.secondaryPackages) ? worker.secondaryPackages : []))))),
+    serviceCharges: Array.isArray(fromList?.serviceCharges) && fromList.serviceCharges.length
+      ? fromList.serviceCharges
+      : (Array.isArray(details?.serviceCharges) && details.serviceCharges.length
+        ? details.serviceCharges
+        : (Array.isArray(worker?.secondaryServiceCharges) ? worker.secondaryServiceCharges : [])),
+    fullServiceIncludes: fromList?.fullServiceIncludes
+      || fromList?.packageIncludes
+      || details?.fullServiceIncludes
+      || details?.packageIncludes
+      || worker?.secondaryFullServiceIncludes
+      || [],
+    additionalFullServicePackages: Array.isArray(fromList?.additionalFullServicePackages) && fromList.additionalFullServicePackages.length
+      ? fromList.additionalFullServicePackages
+      : (Array.isArray(details?.additionalFullServicePackages) && details.additionalFullServicePackages.length
+        ? details.additionalFullServicePackages
+        : (Array.isArray(worker?.secondaryAdditionalFullServicePackages) ? worker.secondaryAdditionalFullServicePackages : [])),
+    pricing: details?.pricing || fromList?.pricing || worker?.secondaryPricing || worker?.secondaryProfessionPricing || {},
+  }
+}
+
+function firstPositiveNumber(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue
+    const amount = typeof value === 'number' ? value : Number(String(value).replace(/[^\d.-]/g, ''))
+    if (Number.isFinite(amount) && amount > 0) return amount
+  }
+  return 0
 }
 
 export function isMultiSkilled(worker) {

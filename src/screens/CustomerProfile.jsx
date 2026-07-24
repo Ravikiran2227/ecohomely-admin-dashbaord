@@ -10,6 +10,7 @@ import InfoRow from '../components/InfoRow'
 import SectionCard from '../components/SectionCard'
 import { CustomerAvatar, CustomerMetricTile, CustomerProfileField } from '../components/customer/CustomerProfilePieces'
 import RelatedRecordsPanel from '../components/RelatedRecordsPanel'
+import Modal from '../components/Modal'
 import { C } from '../theme'
 import { CustomerLocationHeatmap } from '../components/LeafletMap'
 import { buildCustomerActivity, formatBookingScheduleLabel, formatTimelineStamp, getSortableDate, toSortedRecords } from '../utils/customerProfileActivity'
@@ -118,6 +119,7 @@ export default function CustomerProfile() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [isPhotoPreviewOpen, setIsPhotoPreviewOpen] = useState(false)
 
   const loadProfile = useCallback(async () => {
     setLoading(true)
@@ -423,7 +425,12 @@ export default function CustomerProfile() {
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.35fr)_320px]">
           <div className="flex min-w-0 flex-col gap-6 sm:flex-row sm:items-start">
             <div className="flex shrink-0 flex-col items-start gap-3">
-              <CustomerAvatar name={data.name} photoUrl={data.photoUrl} size={88} />
+              <CustomerAvatar
+                name={data.name}
+                photoUrl={data.photoUrl}
+                size={88}
+                onPreview={data.photoUrl ? () => setIsPhotoPreviewOpen(true) : undefined}
+              />
               <Badge label={data.status} color={STATUS_COLOR[data.status] || C.muted} />
               <div className="text-[13px] font-medium text-[var(--text-muted)]">{data.device}</div>
             </div>
@@ -750,6 +757,21 @@ export default function CustomerProfile() {
       )}
 
       {/* LOCATION TAB */}
+
+      <Modal
+        isOpen={isPhotoPreviewOpen && Boolean(data.photoUrl)}
+        title={`${data.name || 'Customer'} - Profile Picture`}
+        onClose={() => setIsPhotoPreviewOpen(false)}
+        size="lg"
+      >
+        <div className="flex min-h-[320px] items-center justify-center overflow-hidden rounded-2xl bg-black/95 p-3">
+          <img
+            src={data.photoUrl}
+            alt={`${data.name || 'Customer'} profile`}
+            className="max-h-[65vh] max-w-full rounded-xl object-contain"
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

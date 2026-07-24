@@ -305,7 +305,11 @@ function sanitizeProfessionDraft(draft, type) {
   const teamSize = Math.max(0, Number(draft.teamSize) || 0)
 
   return {
-    ...(draft._source || {}),
+    // Only spread an OBJECT source. When a profession is stored as a plain name string (e.g.
+    // secondaryProfession = "Drivers"), spreading the string would explode it into character-index
+    // keys {0:'D',1:'r',...}, corrupting the saved profession and crashing the customer app that
+    // renders the value as text.
+    ...(draft._source && typeof draft._source === 'object' && !Array.isArray(draft._source) ? draft._source : {}),
     type: normalizedType,
     profession: String(draft.profession || '').trim(),
     pricingModel: draft.pricingModel || 'hourly',
@@ -457,10 +461,13 @@ function sanitizeDraft(draft, worker) {
     || secondaryProfession.minimumPrice
     || secondaryProfession.fullServicePackagePrice,
   )
-  const professions = [
+  const professionObjects = [
     primaryProfession,
     keepSecondary ? secondaryProfession : null,
   ].filter(Boolean)
+  // The customer app stores `professions` as an array of plain profession-NAME STRINGS. Persist that
+  // shape (not objects) so the app never has to render an object as a text node and crash.
+  const professionNames = professionObjects.map((item) => item.profession).filter(Boolean)
 
   const payload = {
     name: draft.name.trim(),
@@ -525,12 +532,15 @@ function sanitizeDraft(draft, worker) {
       primary: primaryProfession,
       ...(keepSecondary ? { secondary: secondaryProfession } : {}),
     },
-    professions,
+    professions: professionNames,
   }
 
   if (keepSecondary) {
     Object.assign(payload, {
-      secondaryProfession,
+      // The app stores/renders secondaryProfession as the plain NAME STRING (like primary's
+      // `profession`). Writing the object here turns it into a non-string the app renders as a React
+      // child and crashes on. Keep the structured data in secondaryProfessionDetails only.
+      secondaryProfession: secondaryProfession.profession,
       secondaryProfessionDetails: secondaryProfession,
       secondaryPrice: secondaryProfession.price,
       secondaryMinimumPrice: secondaryProfession.minimumPrice,
@@ -557,8 +567,15 @@ function sanitizeDraft(draft, worker) {
   }
 
   if (draft.mediaDeleteTargets?.length) {
-    Object.assign(payload, buildWorkerMediaDeletePayload({ ...worker, professions: payload.professions }, 'all', draft.mediaDeleteTargets))
+    // Feed the media helper the OBJECT professions so it can strip media, but do not let its object
+    // output become the persisted value (re-normalized below).
+    Object.assign(payload, buildWorkerMediaDeletePayload({ ...worker, professions: professionObjects }, 'all', draft.mediaDeleteTargets))
   }
+
+  // Final safety net: the fields the customer app renders as text must stay in their canonical string
+  // shapes, regardless of any object reintroduced by the media-delete merge above.
+  payload.professions = professionNames
+  if (keepSecondary) payload.secondaryProfession = secondaryProfession.profession
 
   return payload
 }

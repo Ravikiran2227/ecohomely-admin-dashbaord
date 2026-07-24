@@ -15,6 +15,7 @@ import {
   where,
 } from 'firebase/firestore'
 import { ROLE_PERMISSIONS, PERMISSIONS, ROLES, getPermissionsForRole } from '../config/rbac'
+import { lockWorkerAccountCreatedFields } from '../utils/workerAccountCreated'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyA0BSrwXFoBeMvdN4efvfJqHRQarNbZap4',
@@ -109,9 +110,13 @@ const HEATMAP_AREA_COORDS = {
 
 function docToJson(snapshot) {
   const path = snapshot.ref?.path || ''
+  const createTime = snapshot.createTime?.toDate?.()
+    ? snapshot.createTime.toDate().toISOString()
+    : (snapshot.createTime || null)
   return {
     id: snapshot.id,
     ...snapshot.data(),
+    ...(createTime ? { __createTime: createTime } : {}),
     __path: path,
     __parentId: snapshot.ref?.parent?.parent?.id || '',
     __parentPath: snapshot.ref?.parent?.parent?.path || '',
@@ -974,6 +979,8 @@ function withTimestamps(payload = {}, { create = false } = {}) {
     delete body.joinedAt
     delete body.dateJoined
     delete body.dateAdded
+    delete body.registeredAt
+    delete body.registrationDate
   }
 
   return {
@@ -1084,6 +1091,13 @@ function appendWorkerVersion(current = {}, status, note = '', extra = {}) {
       data: workerSnapshot({ ...current, ...extra.snapshotSource }),
       changedFields: extra.changedFields || [],
       requestedFields: extra.requestedFields || current.correctionFields || current.correctionItems || [],
+      approvedBy: extra.approvedBy || null,
+      approvedByName: extra.approvedByName || extra.approvedBy || null,
+      approvedById: extra.approvedById || null,
+      approvedByRole: extra.approvedByRole || null,
+      reviewedBy: extra.reviewedBy || extra.approvedBy || null,
+      reviewedByName: extra.reviewedByName || extra.approvedByName || extra.approvedBy || null,
+      actorName: extra.actorName || extra.approvedBy || null,
     },
   ]
 }
@@ -1466,7 +1480,7 @@ async function updateRecord(name, id, payload = {}) {
 
 async function updateWorkerRecordEverywhere(id, payload = {}) {
   const current = await findRecord('workers', id)
-  const updates = withTimestamps(payload)
+  const updates = lockWorkerAccountCreatedFields(current.data, withTimestamps(payload))
   const aliases = aliasesFor('workers')
 
   await Promise.all(
@@ -2127,12 +2141,16 @@ async function handleWorkers(parts, method, body, queryOptions) {
           ? 'Correction Required'
           : 'Pending'
     const isCorrection = status === 'Correction Required'
+    const isApproval = status === 'Approved'
     const correctionFields = body?.correctionFields || body?.items || []
     const correctionFieldValues = body?.correctionFieldValues || {}
     const correctionNote = body?.note || body?.reviewNote || (isCorrection ? `Correction requested for: ${correctionFields.join(', ')}` : '')
     const correctionRequestedAt = isCorrection ? new Date().toISOString() : null
-    // Who is requesting this correction (admin / sub-admin), so Profile Updates can tag the record.
-    const requester = isCorrection ? await resolveCurrentAdmin().catch(() => null) : null
+    // Resolve the acting admin for approve / reject / correction so Approved By can be shown later.
+    const actor = await resolveCurrentAdmin().catch(() => null)
+    const actorName = body?.approvedBy || body?.approvedByName || body?.reviewedBy || actor?.name || actor?.displayName || actor?.username || 'Admin'
+    const actorId = body?.approvedById || body?.reviewedById || actor?.id || null
+    const actorRole = body?.approvedByRole || body?.reviewedByRole || actor?.role || null
     const correctionRequest = isCorrection
       ? {
           type: 'profile_correction',
@@ -2141,24 +2159,32 @@ async function handleWorkers(parts, method, body, queryOptions) {
           fields: correctionFields,
           fieldValues: correctionFieldValues,
           requestedAt: correctionRequestedAt,
-          requestedBy: requester?.name || null,
-          requestedById: requester?.id || null,
-          requestedByRole: requester?.role || null,
+          requestedBy: actorName,
+          requestedById: actorId,
+          requestedByRole: actorRole,
           read: false,
         }
       : null
     const current = await findRecord('workers', id)
-    const versionNote = correctionNote || body?.reason || `${status} by admin`
+    const versionNote = correctionNote || body?.reason || `${status} by ${actorName}`
     const verificationVersions = appendWorkerVersion(current.data, status, versionNote, {
       changedFields: correctionFields,
       requestedFields: correctionFields,
+      approvedBy: actorName,
+      approvedByName: actorName,
+      approvedById: actorId,
+      approvedByRole: actorRole,
+      reviewedBy: actorName,
+      reviewedByName: actorName,
+      actorName,
     })
     return updateWorkerRecordEverywhere(id, {
-      Approved: status === 'Approved',
+      Approved: isApproval,
       approvalStatus: status,
-      approved: status === 'Approved',
-      adminApproved: status === 'Approved',
-      profileReviewClearedAt: status === 'Approved' || status === 'Rejected' ? new Date().toISOString() : null,
+      approved: isApproval,
+      adminApproved: isApproval,
+      isApproved: isApproval,
+      profileReviewClearedAt: isApproval || status === 'Rejected' ? new Date().toISOString() : null,
       reviewNote: correctionNote,
       rejectionReason: body?.reason || null,
       correctionItems: correctionFields,
@@ -2169,15 +2195,36 @@ async function handleWorkers(parts, method, body, queryOptions) {
       needsCorrection: isCorrection,
       correctionRequested: isCorrection,
       correctionRequestedAt,
-      correctionRequestedBy: requester?.name || null,
-      correctionRequestedById: requester?.id || null,
-      correctionRequestedByRole: requester?.role || null,
+      correctionRequestedBy: isCorrection ? actorName : null,
+      correctionRequestedById: isCorrection ? actorId : null,
+      correctionRequestedByRole: isCorrection ? actorRole : null,
       correctionStatus: isCorrection ? 'Pending' : null,
       reviewStatus: status,
-      adminCorrectionNotificationRead: isCorrection || status === 'Approved' || status === 'Rejected',
+      adminCorrectionNotificationRead: isCorrection || isApproval || status === 'Rejected',
       partnerAppPopup: correctionRequest,
       profileCorrectionRequest: correctionRequest,
       verificationVersions,
+      ...(isApproval ? {
+        approvedBy: actorName,
+        approvedByName: actorName,
+        approvedById: actorId,
+        approvedByRole: actorRole,
+        approverName: actorName,
+        reviewedBy: actorName,
+        reviewedByName: actorName,
+        verifiedBy: actorName,
+        approvedAt: new Date().toISOString(),
+        reviewedAt: new Date().toISOString(),
+      } : {}),
+      ...(status === 'Rejected' ? {
+        rejectedBy: actorName,
+        rejectedByName: actorName,
+        rejectedById: actorId,
+        rejectedAt: new Date().toISOString(),
+        reviewedBy: actorName,
+        reviewedByName: actorName,
+        reviewedAt: new Date().toISOString(),
+      } : {}),
     })
   }
   if (method === 'PATCH') {

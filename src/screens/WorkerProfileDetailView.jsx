@@ -35,6 +35,8 @@ import { buildBookings, buildLeadRows, buildReviewRows, computeEarningsBreakdown
 import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
 import { buildWorkerMediaDeletePayload } from '../utils/workerMedia'
 import { isWorkerVerified } from '../utils/workerSuspendRejoin'
+import { getWorkerAccountCreatedValue } from '../utils/workerAccountCreated'
+import { WorkerVersionCompareModal } from '../components/worker-profile/WorkerVersionModals'
 
 const TAB_ITEMS = [
   { id: 'overview', label: 'Profile Overview' },
@@ -1181,6 +1183,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const [notice, setNotice] = useState(null)
   const [correctionModal, setCorrectionModal] = useState({ isOpen: false, items: [], message: '' })
   const [documentEditor, setDocumentEditor] = useState({ isOpen: false, document: null, url: '' })
+  const [isVersionCompareOpen, setIsVersionCompareOpen] = useState(false)
   const [isTabPending, startTabTransition] = useTransition()
   const returnPage = new URLSearchParams(location.search).get('returnPage') || location.state?.returnPage
   const backToWorkers = () => navigate(returnPage ? `/workers?page=${encodeURIComponent(returnPage)}` : '/workers')
@@ -1341,7 +1344,6 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const visibleTabItems = hasSecondaryProfession ? TAB_ITEMS : TAB_ITEMS.filter((tab) => tab.id !== 'secondary')
   const effectiveActiveTab = activeTab === 'secondary' && !hasSecondaryProfession ? 'primary' : activeTab
   const workerLocation = worker ? getLocationLabel(worker) : ''
-  const joinedDate = formatDate(worker.verificationVersions?.[0]?.updatedAt || worker.lastActive)
   const documentCards = withRequiredDocumentCards(worker.documents || [], worker)
   const bookingCards = buildBookings(worker, primaryProfession, workerBookings)
   const leadRows = buildLeadRows(worker, primaryProfession, workerBookings)
@@ -1405,7 +1407,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
     { label: 'Coupon Type', paths: ['couponType', 'coupon.type', 'coupon.discountType', 'appliedCoupon.type', 'couponDetails.type', 'couponDetails.discountType'] },
     { label: 'Coupon Applied At', paths: ['couponAppliedAt', 'coupon.appliedAt', 'appliedCoupon.appliedAt', 'couponDetails.appliedAt'] },
     { label: 'Profile Complete', paths: ['profileComplete', 'isProfileComplete', 'profileCompleted'] },
-    { label: 'Account Created', paths: ['accountCreated', 'createdAt', 'createdDate', 'dateAdded', 'joinedAt'] },
+    { label: 'Account Created', paths: [], format: () => formatDate(getWorkerAccountCreatedValue(worker)) },
     { label: 'Online Now', paths: ['onlineNow', 'isOnline', 'online', 'availability.isOnline'] },
     { label: 'Bookings Count', paths: ['bookingsCount', 'bookingCount', 'totalBookings'], format: (value) => formatProfileFieldValue(value) || String(bookingCards.length) },
     { label: 'Call Now Count', paths: ['callNowCount', 'callCount', 'callsCount'] },
@@ -1662,7 +1664,15 @@ function WorkerProfileDetailViewContent({ workerId }) {
       </section>
 
       {metrics.length > 0 && (
-        <WorkerDetailSection title="Profile Overview" subtitle="Performance, pricing, and operational health for this worker">
+        <WorkerDetailSection
+          title="Profile Overview"
+          subtitle="Performance, pricing, and operational health for this worker"
+          action={(
+            <Btn v="outline" size="sm" onClick={() => setIsVersionCompareOpen(true)}>
+              View Version History
+            </Btn>
+          )}
+        >
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {metrics.map((metric) => (
               <MetricCard key={metric.label} {...metric} />
@@ -2185,6 +2195,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
           </div>
         </div>
       </Modal>
+
+      <WorkerVersionCompareModal
+        isOpen={isVersionCompareOpen}
+        worker={worker}
+        onClose={() => setIsVersionCompareOpen(false)}
+      />
 
       <ActionToast notice={notice} />
     </div>

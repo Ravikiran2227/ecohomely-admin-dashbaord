@@ -1,5 +1,6 @@
 import dashboardApi from './dashboardApi'
 import { isAccountEdited } from '../utils/profileUpdateNotifications'
+import { getWorkerAccountCreatedValue } from '../utils/workerAccountCreated'
 
 export const DASHBOARD_GRAPH_TABS = [
   { id: 'customers', label: 'Customers' },
@@ -166,7 +167,7 @@ function getBookingDate(booking) {
 }
 
 function getWorkerDate(worker) {
-  return worker?.dateAdded || worker?.createdAt || worker?.joinedAt || worker?.registeredAt
+  return getWorkerAccountCreatedValue(worker)
 }
 
 function getCustomerDate(customer) {

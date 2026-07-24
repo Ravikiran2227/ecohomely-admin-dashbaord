@@ -549,41 +549,76 @@ function normalizeProfessionList(worker = {}) {
     return worker.professions.map((profession, index) => {
       const type = typeof profession === 'object' && profession.type ? profession.type : (index === 0 ? 'Primary' : 'Secondary')
       const isSecondary = String(type || '').toLowerCase() === 'secondary'
-      const professionName = labelOf(profession)
-      const price = professionPriceFrom(profession, isSecondary ? {} : worker)
-      const fullServicePackagePrice = fullPackagePriceFrom(profession, isSecondary ? {} : worker)
-      const packages = pricingPackagesFrom(profession, isSecondary ? {} : worker)
+      const secondaryDetails = isSecondary
+        ? (
+          worker?.secondaryProfessionDetails?.secondary
+          || (typeof worker?.secondaryProfessionDetails === 'object' && !Array.isArray(worker.secondaryProfessionDetails) ? worker.secondaryProfessionDetails : null)
+          || worker?.professionDetails?.secondary
+          || (typeof worker?.secondaryProfession === 'object' && !Array.isArray(worker.secondaryProfession) ? worker.secondaryProfession : null)
+          || {}
+        )
+        : {}
+      const source = isSecondary
+        ? { ...(secondaryDetails || {}), ...(typeof profession === 'object' && !Array.isArray(profession) ? profession : {}) }
+        : (typeof profession === 'object' && !Array.isArray(profession) ? profession : {})
+      const workerFallback = isSecondary
+        ? {
+          price: worker.secondaryPrice,
+          startingPrice: worker.secondaryPrice,
+          minimumPrice: worker.secondaryMinimumPrice,
+          minimumVisitPrice: worker.secondaryMinimumVisitPrice,
+          minimalVisitCharge: worker.secondaryMinimalVisitCharge,
+          fullServicePackagePrice: worker.secondaryFullServicePackagePrice,
+          fullServicePrice: worker.secondaryFullServicePrice,
+          fullPackagePrice: worker.secondaryFullPackagePrice,
+          packagePrice: worker.secondaryPackagePrice,
+          packages: worker.secondaryPackages || worker.secondaryPricingPackages,
+          pricingPackages: worker.secondaryPricingPackages || worker.secondaryPackages,
+          serviceCharges: worker.secondaryServiceCharges,
+          fullServiceIncludes: worker.secondaryFullServiceIncludes,
+          additionalFullServicePackages: worker.secondaryAdditionalFullServicePackages,
+          pricing: worker.secondaryPricing || worker.secondaryProfessionPricing,
+        }
+        : worker
+      const professionName = labelOf(source) || labelOf(profession)
+      const price = professionPriceFrom(source, isSecondary ? workerFallback : worker)
+      const fullServicePackagePrice = fullPackagePriceFrom(source, isSecondary ? workerFallback : worker)
+      const packages = pricingPackagesFrom(source, isSecondary ? workerFallback : worker)
       return {
         ...(typeof profession === 'object' && !Array.isArray(profession) ? profession : {}),
+        ...source,
         type,
-        profession: professionName || (!isSecondary ? labelOf(worker.profession) : '') || 'Not set',
-        services: Array.isArray(profession?.services) ? profession.services : (!isSecondary && Array.isArray(worker.services) ? worker.services : []),
-        pricingModel: profession?.pricingModel || profession?.pricing?.model || (!isSecondary ? worker.pricingModel || worker.pricing?.model : '') || (packages.length ? 'package' : 'hourly'),
+        profession: professionName || (!isSecondary ? labelOf(worker.profession) : (typeof worker.secondaryProfession === 'string' ? worker.secondaryProfession : worker.secondaryProfessionName)) || 'Not set',
+        services: Array.isArray(source?.services) ? source.services : (Array.isArray(profession?.services) ? profession.services : (!isSecondary && Array.isArray(worker.services) ? worker.services : (Array.isArray(worker.secondaryServices) ? worker.secondaryServices : []))),
+        pricingModel: source?.pricingModel || source?.pricing?.model || profession?.pricingModel || (!isSecondary ? worker.pricingModel || worker.pricing?.model : '') || (packages.length ? 'package' : 'hourly'),
         price,
-        minimumPrice: firstNumberIncludingZero(profession?.minimumPrice, profession?.minimumVisitPrice, profession?.minimumVisitCharge, profession?.minimalVisitPrice, profession?.minimalVisitCharge, profession?.visitCharge, price),
+        minimumPrice: firstNumberIncludingZero(source?.minimumPrice, source?.minimumVisitPrice, source?.minimumVisitCharge, source?.minimalVisitPrice, source?.minimalVisitCharge, source?.visitCharge, profession?.minimumPrice, price),
         fullServicePackagePrice,
         packagePrice: fullServicePackagePrice,
         packages,
         pricingPackages: packages,
-        minimalVisitCharge: firstNumberIncludingZero(profession?.minimalVisitCharge, profession?.minimumVisitCharge, profession?.minimumVisitPrice, profession?.minimumPrice, !isSecondary ? worker.minimalVisitCharge : undefined),
-        minimalVisitIncludes: profession?.minimalVisitIncludes || profession?.minimumVisitIncludes || profession?.visitIncludes || profession?.includes || (!isSecondary ? worker.minimalVisitIncludes : undefined) || [],
-        fullServicePackage: profession?.fullServicePackage || (!isSecondary ? worker.fullServicePackage : undefined) || null,
-        fullServiceIncludes: profession?.fullServiceIncludes || profession?.packageIncludes || profession?.fullServiceItems || (!isSecondary && worker.fullServicePackage?.includes ? worker.fullServicePackage.includes : undefined) || [],
-        serviceCharges: Array.isArray(profession?.serviceCharges) ? profession.serviceCharges : (!isSecondary && Array.isArray(worker.serviceCharges) ? worker.serviceCharges : []),
-        additionalFullServicePackages: Array.isArray(profession?.additionalFullServicePackages) ? profession.additionalFullServicePackages : (!isSecondary && Array.isArray(worker.additionalFullServicePackages) ? worker.additionalFullServicePackages : []),
+        minimalVisitCharge: firstNumberIncludingZero(source?.minimalVisitCharge, source?.minimumVisitCharge, source?.minimumVisitPrice, source?.minimumPrice, !isSecondary ? worker.minimalVisitCharge : worker.secondaryMinimalVisitCharge),
+        minimalVisitIncludes: source?.minimalVisitIncludes || source?.minimumVisitIncludes || source?.visitIncludes || source?.includes || profession?.minimalVisitIncludes || (!isSecondary ? worker.minimalVisitIncludes : worker.secondaryMinimalVisitIncludes) || [],
+        fullServicePackage: source?.fullServicePackage || profession?.fullServicePackage || (!isSecondary ? worker.fullServicePackage : null) || null,
+        fullServiceIncludes: source?.fullServiceIncludes || source?.packageIncludes || source?.fullServiceItems || profession?.fullServiceIncludes || (!isSecondary && worker.fullServicePackage?.includes ? worker.fullServicePackage.includes : worker.secondaryFullServiceIncludes) || [],
+        serviceCharges: Array.isArray(source?.serviceCharges) ? source.serviceCharges : (Array.isArray(profession?.serviceCharges) ? profession.serviceCharges : (!isSecondary && Array.isArray(worker.serviceCharges) ? worker.serviceCharges : (Array.isArray(worker.secondaryServiceCharges) ? worker.secondaryServiceCharges : []))),
+        additionalFullServicePackages: Array.isArray(source?.additionalFullServicePackages) ? source.additionalFullServicePackages : (Array.isArray(profession?.additionalFullServicePackages) ? profession.additionalFullServicePackages : (!isSecondary && Array.isArray(worker.additionalFullServicePackages) ? worker.additionalFullServicePackages : (Array.isArray(worker.secondaryAdditionalFullServicePackages) ? worker.secondaryAdditionalFullServicePackages : []))),
         experienceYears: numberFromCandidates(
+          source?.experienceYears,
+          source?.experienceRange,
+          source?.secondaryExperienceRange,
+          source?.experienceYear,
+          source?.yearsOfExperience,
+          source?.yearOfExperience,
+          source?.totalExperience,
+          source?.workExperience,
+          source?.experience,
+          source?.experice,
+          source?.experince,
+          source?.exprience,
           profession?.experienceYears,
           profession?.experienceRange,
-          profession?.secondaryExperienceRange,
-          profession?.experienceYear,
-          profession?.yearsOfExperience,
-          profession?.yearOfExperience,
-          profession?.totalExperience,
-          profession?.workExperience,
           profession?.experience,
-          profession?.experice,
-          profession?.experince,
-          profession?.exprience,
           ...(isSecondary ? [
             worker.secondaryExperienceYears,
             worker.secondaryExperienceRange,
@@ -818,6 +853,7 @@ export const workersApi = {
   reviewWorker: async (workerId, payload, options = {}) => normalizeWorker(await apiClient.post(`${WORKERS_PATH}/${workerId}/review`, payload, options)),
   approveWorker: async (workerId, payload = {}, options = {}) => {
     const reviewed = await workersApi.reviewWorker(workerId, { ...payload, action: 'approve' }, options)
+    const approvedBy = payload.approvedBy || payload.approvedByName || payload.reviewedBy || reviewed?.approvedBy || reviewed?.approvedByName || ''
     return workersApi.updateWorker(workerId, {
       profileReviewClearedAt: new Date().toISOString(),
       adminCorrectionNotificationRead: true,
@@ -846,6 +882,16 @@ export const workersApi = {
       suspendedAt: null,
       correctionRequestedAt: null,
       correctionSubmittedAt: null,
+      ...(approvedBy ? {
+        approvedBy,
+        approvedByName: approvedBy,
+        approverName: approvedBy,
+        reviewedBy: approvedBy,
+        reviewedByName: approvedBy,
+        verifiedBy: approvedBy,
+        approvedAt: new Date().toISOString(),
+        reviewedAt: new Date().toISOString(),
+      } : {}),
     }, options).catch(() => reviewed)
   },
   rejectWorker: async (workerId, payload = {}, options = {}) => {

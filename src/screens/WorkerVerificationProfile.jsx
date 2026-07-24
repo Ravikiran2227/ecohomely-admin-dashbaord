@@ -20,6 +20,7 @@ import { getPrimaryProfession, getLocationLabel } from '../data/workerSystem'
 import workersApi from '../services/workersApi'
 import { dispatchProfileUpdatesChanged } from '../utils/profileUpdateNotifications'
 import { resolveStorageAssetUrl, resolveWorkerAssetUrl, resolveWorkerStorageFiles } from '../services/firebaseClient'
+import { useAuth } from '../context/authContextValue'
 
 const CORRECTION_OPTIONS = [
   { label: 'Full Name', key: 'name' },
@@ -410,6 +411,7 @@ function SmallDocumentThumb({ doc }) {
 export default function WorkerVerificationProfile() {
   const navigate = useNavigate()
   const { id } = useParams()
+  const { currentUser } = useAuth()
   const [worker, setWorker] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -579,7 +581,12 @@ export default function WorkerVerificationProfile() {
   const closeAction = () => setActionModal({ isOpen: false, type: null, items: [], message: '' })
 
   const confirmApprove = async () => {
-    const updated = await workersApi.approveWorker(profile.id, { note: actionModal.message })
+    const updated = await workersApi.approveWorker(profile.id, {
+      note: actionModal.message,
+      approvedBy: currentUser?.name || currentUser?.displayName || currentUser?.username || 'Admin',
+      approvedById: currentUser?.id || null,
+      approvedByRole: currentUser?.role || null,
+    })
     setWorker(updated)
     if (statusKey) {
       setStatusOverrides((prev) => ({ ...prev, [statusKey]: 'Approved' }))

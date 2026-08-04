@@ -171,7 +171,30 @@ function getWorkerDate(worker) {
 }
 
 function getCustomerDate(customer) {
-  return customer?.dateJoined || customer?.createdAt || customer?.joinedAt || customer?.registeredAt
+  if (!customer || typeof customer !== 'object') return null
+  // Real Firestore customer docs record their join date under a wide range of
+  // field names/formats. Check every known signal (mirrors CustomerList +
+  // worker account-created detection) so new customers actually surface in the
+  // counters and analytics chart, then fall back to updatedAt as a last resort.
+  return customer.dateJoined
+    || customer.joinedAt
+    || customer.joined_at
+    || customer.registeredAt
+    || customer.registrationDate
+    || customer.accountCreatedAt
+    || customer.accountCreated
+    || customer.createdAt
+    || customer.CreatedAt
+    || customer.created_at
+    || customer.createdOn
+    || customer.created_on
+    || customer.createdDate
+    || customer.createTime
+    || customer.__createTime
+    || customer.dateAdded
+    || customer.timestamp
+    || customer.updatedAt
+    || null
 }
 
 function getComplaintDate(complaint) {

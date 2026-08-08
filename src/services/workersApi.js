@@ -974,6 +974,27 @@ export const workersApi = {
     rejoinedAfterSuspend: false,
     suspendedAt: null,
   }, options),
+  // Manually settle the partner registration fee for a worker who already paid
+  // on Razorpay but whose Firestore doc never got flagged (client-side write was
+  // lost). Writing havePaid:true is what stops the partner app re-asking for the
+  // fee (the app gates purely on havePaid === true) and what the admin dashboard
+  // reads as "Paid". Only use after confirming the payment in the Razorpay dashboard.
+  markRegistrationPaid: (workerId, payload = {}, options = {}) => {
+    const amount = Number(payload.amount)
+    return workersApi.updateWorker(workerId, {
+      havePaid: true,
+      hasPaid: true,
+      isPaid: true,
+      paid: true,
+      paymentStatus: 'completed',
+      amountPaid: Number.isFinite(amount) && amount > 0 ? amount : 199,
+      paymentCompletedAt: new Date().toISOString(),
+      registrationFeeSettledBy: payload.adminName || 'Admin Dashboard',
+      registrationFeeSettledSource: payload.source || 'admin_manual',
+      registrationFeeSettledAt: new Date().toISOString(),
+      ...(payload.razorpayPaymentId ? { registrationRazorpayPaymentId: payload.razorpayPaymentId } : {}),
+    }, options)
+  },
   updateProfession,
   getWorkerDashboard: (params = {}, options = {}) => apiClient.get(`${WORKERS_PATH}/dashboard`, { ...options, query: params }),
   getRankedWorkers: (params = {}, options = {}) => apiClient.get(`${WORKERS_PATH}/ranked`, { ...options, query: params }),

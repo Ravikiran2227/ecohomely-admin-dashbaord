@@ -173,9 +173,15 @@ function getWorkerDate(worker) {
 function getCustomerDate(customer) {
   if (!customer || typeof customer !== 'object') return null
   // Real Firestore customer docs record their join date under a wide range of
-  // field names/formats. Check every known signal (mirrors CustomerList +
-  // worker account-created detection) so new customers actually surface in the
-  // counters and analytics chart, then fall back to updatedAt as a last resort.
+  // field names/formats. Check every known signal so new customers actually
+  // surface in the counters and analytics chart.
+  //
+  // IMPORTANT: the ~317 newest customer accounts carry NO createdAt/dateJoined
+  // field at all — the only recent signal they have is `lastSeen`. The old
+  // admin panel counts these correctly by falling back to lastSeen, which is
+  // why its "This Week / This Month" totals are right. `updatedAt` only changes
+  // on profile edits (not on signup), so it must NOT win over lastSeen or the
+  // newest signups get dropped and the counts under-report.
   return customer.dateJoined
     || customer.joinedAt
     || customer.joined_at
@@ -192,6 +198,7 @@ function getCustomerDate(customer) {
     || customer.createTime
     || customer.__createTime
     || customer.dateAdded
+    || customer.lastSeen
     || customer.timestamp
     || customer.updatedAt
     || null

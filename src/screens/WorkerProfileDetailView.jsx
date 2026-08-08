@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
+  IndianRupee,
   Medal,
   MessageCircle,
   Phone,
@@ -1568,6 +1569,41 @@ function WorkerProfileDetailViewContent({ workerId }) {
     navigate('/workers', { replace: true })
   }
 
+  const isRegistrationPaid = (
+    worker?.havePaid === true
+    || worker?.hasPaid === true
+    || worker?.isPaid === true
+    || worker?.paid === true
+    || ['paid', 'success', 'successful', 'verified', 'completed'].includes(String(worker?.paymentStatus || '').toLowerCase())
+  )
+
+  const handleMarkRegistrationPaid = async () => {
+    if (!worker) return
+    const input = window.prompt(
+      `Mark the registration fee as PAID for ${worker.name || 'this worker'}?\n\n`
+      + 'Use this ONLY after confirming the payment in the Razorpay dashboard.\n'
+      + 'Enter the amount paid (in rupees):',
+      '199',
+    )
+    if (input === null) return
+    const amount = Number(String(input).replace(/[^\d.]/g, ''))
+    try {
+      const updated = await workersApi.markRegistrationPaid(worker.id, { amount, source: 'admin_manual' })
+      setWorker(updated)
+      setNotice({
+        tone: 'success',
+        title: 'Registration fee marked paid',
+        message: `${worker.name || 'Worker'} is now recorded as paid. The partner app will stop asking for the registration fee.`,
+      })
+    } catch (error) {
+      setNotice({
+        tone: 'warning',
+        title: 'Could not update payment',
+        message: error?.message || 'Failed to mark the registration fee as paid. Please try again.',
+      })
+    }
+  }
+
   const handleTabChange = (tabId) => {
     startTabTransition(() => setActiveTab(tabId))
   }
@@ -1935,6 +1971,9 @@ function WorkerProfileDetailViewContent({ workerId }) {
                   <SidebarActionButton tone="primary" icon={Phone} onClick={() => window.open(`tel:${worker.phone}`, '_self')}>Call Worker</SidebarActionButton>
                   <SidebarActionButton tone="brandOutline" icon={MessageCircle} onClick={() => window.open(`https://wa.me/91${worker.phone}`, '_blank', 'noopener,noreferrer')}>WhatsApp</SidebarActionButton>
                   <SidebarActionButton tone="brandOutline" icon={AlertTriangle} onClick={() => setCorrectionModal({ isOpen: true, items: [], message: '' })}>Mark For Correction</SidebarActionButton>
+                  {!isRegistrationPaid && (
+                    <SidebarActionButton tone="brandOutline" icon={IndianRupee} onClick={handleMarkRegistrationPaid}>Mark Registration Paid</SidebarActionButton>
+                  )}
                   <SidebarActionButton tone="destructive" icon={AlertTriangle} onClick={handleSuspendToggle}>{isSuspended ? 'Reactivate Worker' : 'Suspend Worker'}</SidebarActionButton>
                   <SidebarActionButton tone="destructive" icon={Trash2} onClick={handleDeleteWorker}>Delete Worker</SidebarActionButton>
                 </div>

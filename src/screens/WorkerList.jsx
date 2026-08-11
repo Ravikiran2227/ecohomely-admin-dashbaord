@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
@@ -601,6 +602,28 @@ function downloadCsv(filename, rows) {
 
 function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onUnflag, onDelete }) {
   const [open, setOpen] = useState(false)
+  const buttonRef = useRef(null)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
+
+  const updatePosition = useCallback(() => {
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const MENU_WIDTH = 160
+    // Align the menu's right edge with the button's right edge, keeping it on screen.
+    const left = Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8))
+    setMenuPos({ top: rect.bottom + 8, left })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    updatePosition()
+    window.addEventListener('scroll', updatePosition, true)
+    window.addEventListener('resize', updatePosition)
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true)
+      window.removeEventListener('resize', updatePosition)
+    }
+  }, [open, updatePosition])
 
   function toggleMenu(event) {
     event.stopPropagation()
@@ -610,6 +633,7 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onUnfl
   return (
     <div className="relative inline-flex" onClick={(event) => event.stopPropagation()}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={toggleMenu}
         className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] text-lg font-black leading-none text-[var(--text-muted)] hover:border-brand-500 hover:text-brand-500"
@@ -620,11 +644,12 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onUnfl
       >
         ...
       </button>
-      {open && (
+      {open && createPortal(
         <>
           <div className="fixed inset-0 z-[80]" onClick={() => setOpen(false)} />
           <div
-            className="absolute right-0 top-full z-[90] mt-2 w-40 overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-xl"
+            className="fixed z-[90] w-40 overflow-hidden rounded-xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-xl"
+            style={{ top: menuPos.top, left: menuPos.left }}
             role="menu"
           >
             <button
@@ -686,7 +711,8 @@ function WorkerActionMenu({ worker, flagged, onReviews, onReject, onFlag, onUnfl
               Delete
             </button>
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   )

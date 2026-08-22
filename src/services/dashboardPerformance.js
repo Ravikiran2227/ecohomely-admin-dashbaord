@@ -1,4 +1,5 @@
 import dashboardApi from './dashboardApi'
+import { normalizeApprovalStatus } from './workersApi'
 import { isAccountEdited } from '../utils/profileUpdateNotifications'
 import { getWorkerAccountCreatedValue } from '../utils/workerAccountCreated'
 
@@ -44,14 +45,17 @@ function isResolvedFlag(record = {}) {
   )
 }
 
+// Approval/rejection are resolved with the SAME normalizer the Workers screen and old admin panel
+// use (normalizeApprovalStatus). The dashboard previously did its own narrow check
+// (status === 'approved' || approved === true ...), which missed the many worker docs that record
+// approval as a capitalized `Approved`, a string boolean ('true'/'yes'), or status 'active'/'verified'.
+// That mismatch is why the dashboard reported only ~18 approved while the old panel showed ~956.
 function isApprovedWorker(worker = {}) {
-  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
-  return status === 'approved' || worker.approved === true || worker.isApproved === true || worker.adminApproved === true
+  return normalizeApprovalStatus(worker) === 'Approved'
 }
 
 function isRejectedWorker(worker = {}) {
-  const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
-  return status === 'rejected' || status.includes('reject') || worker.rejected === true
+  return normalizeApprovalStatus(worker) === 'Rejected'
 }
 
 function getFlaggedWorkers(workers = []) {
@@ -166,7 +170,35 @@ function getBookingDate(booking) {
     || booking?.timestamp
 }
 
-function getWorkerDate(worker) {
+function getWorkerDate(worker = {}) {
+  if (!worker || typeof worker !== 'object') return null
+  // Old-panel parity for "Today Servicemen" / the registrations graph.
+  //
+  // We count a serviceman on their REGISTRATION day using the first available signup signal
+  // (never updatedAt/editedAt, which change on every edit). We deliberately do NOT use the
+  // "earliest of all candidates" resolver here: it takes the smallest timestamp across every
+  // creation-ish field (including version-history rows and migrated fields), so a single stray or
+  // back-dated value silently pushed genuine same-day registrations out of the Today / This-week
+  // buckets. That is why a serviceman who joined today showed in the old panel's count but not in
+  // the new dashboard graph. Preferring the locked accountCreatedAt, then the primary createdAt /
+  // dateJoined signals, restores parity while staying immutable across profile edits.
+  const direct = worker.accountCreatedAt
+    || worker.accountCreated
+    || worker.createdAt
+    || worker.CreatedAt
+    || worker.created_at
+    || worker.dateJoined
+    || worker.joinedAt
+    || worker.joined_at
+    || worker.createdOn
+    || worker.created_on
+    || worker.createdDate
+    || worker.registeredAt
+    || worker.registrationDate
+    || worker.__createTime
+    || worker.createTime
+  if (direct) return direct
+  // Fallback keeps workers that only carry a version-history creation signal counted somewhere.
   return getWorkerAccountCreatedValue(worker)
 }
 

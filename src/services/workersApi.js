@@ -311,7 +311,7 @@ function getWorkerExperienceYears(worker = {}) {
   )
 }
 
-function normalizeApprovalStatus(worker = {}) {
+export function normalizeApprovalStatus(worker = {}) {
   const operationalStatus = String(worker.status || '').toLowerCase()
   // Operational suspension/block must win over leftover Approved flags from before suspend.
   if (['rejected', 'blocked', 'suspended'].includes(operationalStatus)) return 'Rejected'

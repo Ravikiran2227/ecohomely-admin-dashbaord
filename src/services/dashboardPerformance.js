@@ -410,6 +410,24 @@ function getWorkerEditedDate(worker = {}) {
     || worker.resubmittedAt
 }
 
+// The date the dashboard uses to place a serviceman on the Today/registrations chart, matching the
+// old admin panel. The old panel counts a serviceman on the most recent day they REGISTERED or were
+// EDITED (a self-edit or an admin edit) - e.g. a worker who joined weeks ago but edited their profile
+// today appears under "today". So we take the later of the registration date and, when the profile is
+// an edited account, its edit date. Pure creation date alone (getWorkerDate) missed edited-today
+// profiles, which is why they were absent from the graph and the Today count.
+function getWorkerActivityDate(worker = {}) {
+  const created = getWorkerDate(worker)
+  const edited = isAccountEdited(worker) ? getWorkerEditedDate(worker) : null
+  if (created && edited) {
+    const createdAt = parseDateTime(created)
+    const editedAt = parseDateTime(edited)
+    if (createdAt && editedAt) return editedAt.getTime() >= createdAt.getTime() ? edited : created
+    return edited || created
+  }
+  return created || edited
+}
+
 function countEditedAccountsToday(workers = []) {
   // "Accounts Edited" = profiles edited by an admin/sub-admin from the dashboard OR by the serviceman
   // themselves (self-edit / correction resubmission). Attribution is resolved in isAccountEdited.
@@ -434,7 +452,7 @@ export function buildDashboardTabSummary(source = {}, activeTab, activeDate) {
     const rejected = records.workers.filter((worker) => isRejectedWorker(worker)).length
     return [
       { label: 'Accounts Edited', value: countEditedAccountsToday(records.workers), sub: 'By serviceman or admin', color: '#F59E0B', icon: 'edit', onClickPath: '/workers' },
-      { label: 'Today Servicemen', value: countForDay(records.workers, getWorkerDate, activeDate), sub: 'Joined today', color: '#2563EB', icon: 'clock', onClickPath: '/workers' },
+      { label: 'Today Servicemen', value: countForDay(records.workers, getWorkerActivityDate, activeDate), sub: 'Joined or edited today', color: '#2563EB', icon: 'clock', onClickPath: '/workers' },
       { label: 'Total Servicemen', value: records.workers.length, sub: 'All worker profiles', color: '#7C3AED', icon: 'worker', onClickPath: '/workers' },
       { label: 'Approved Servicemen', value: approved, sub: 'Approved profiles', color: '#10B981', icon: 'check', onClickPath: '/workers/approval' },
       { label: 'Rejected Servicemen', value: rejected, sub: 'Rejected profiles', color: '#EF4444', icon: 'close', onClickPath: '/workers' },
@@ -488,7 +506,7 @@ export function buildDashboardTabStatus(source = {}, activeTab, activeDate, acti
     return [
       { label: 'Approved', value: records.workers.filter((worker) => isApprovedWorker(worker)).length, color: '#10B981' },
       { label: 'Rejected', value: records.workers.filter((worker) => isRejectedWorker(worker)).length, color: '#EF4444' },
-      { label: 'New', value: inRange(records.workers, getWorkerDate).length, color: '#2563EB' },
+      { label: 'New', value: inRange(records.workers, getWorkerActivityDate).length, color: '#2563EB' },
     ]
   }
 
@@ -541,8 +559,8 @@ export function buildChartConfig(source = {}, activeTab, activeRange, selectedDa
       title: 'Servicemen',
       subtitle: 'Serviceman registrations',
       rows: records.workers,
-      getDate: (row) => extractDate(getWorkerDate(row)),
-      getHour: () => 12,
+      getDate: (row) => extractDate(getWorkerActivityDate(row)),
+      getHour: (row) => parseDateTime(getWorkerActivityDate(row))?.getHours() ?? 12,
       getValue: () => 1,
     },
     customers: {
@@ -702,7 +720,7 @@ export function buildDashboardModuleMap(source = {}, time = 'week') {
         { label: 'Total Workers', value: records.workers.length, sub: 'Registered workers', icon: 'worker' },
         { label: 'Active Workers', value: records.workers.filter((worker) => isStatus(worker, ['Active']) || isStatus({ status: worker.availability }, ['Available'])).length, sub: 'Ready for jobs', icon: 'users' },
         { label: 'Busy Workers', value: new Set(records.bookings.filter((booking) => isStatus(booking, ['In Progress']) && booking.workerId).map((booking) => booking.workerId)).size, sub: 'Currently on jobs', icon: 'activity' },
-        { label: 'New Registrations', value: countInDateRange(records.workers, getWorkerDate, start, end), sub: 'Joined in selected time', icon: 'calendar' },
+        { label: 'New Registrations', value: countInDateRange(records.workers, getWorkerActivityDate, start, end), sub: 'Joined or edited in selected time', icon: 'calendar' },
       ],
       chartTitle: time === 'today' ? 'Hourly Worker Activity' : time === 'week' ? 'Daily Worker Growth' : 'Weekly Worker Growth',
       chartSubtitle: 'Worker availability and growth trend',

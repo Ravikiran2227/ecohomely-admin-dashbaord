@@ -16,7 +16,7 @@ import { DataTable, TableRow, TD } from '../components/Table'
 import locationsApi from '../services/locationsApi'
 import workersApi from '../services/workersApi'
 import { resolveWorkerAssetUrl } from '../services/firebaseClient'
-import { correctionSubmittedAt, hasWorkerResubmittedCorrection } from '../utils/profileUpdateNotifications'
+import { correctionSubmittedAt, hasWorkerResubmittedCorrection, isAccountEdited } from '../utils/profileUpdateNotifications'
 import { getWorkerAccountCreatedValue } from '../utils/workerAccountCreated'
 import { resolveWorkerApprovedBy } from '../utils/workerProfileVersions'
 import { WorkerApprovalHistoryModal } from '../components/worker-profile/WorkerVersionModals'
@@ -468,6 +468,18 @@ function getWorkerCreatedDate(worker) {
   return toDate(getWorkerJoinedDateValue(worker))
 }
 
+// Date used by the Today / period filter. Matches the old admin panel: a serviceman counts on the
+// most recent day they REGISTERED or were EDITED (self-edit or admin edit). A worker who joined
+// earlier but edited their profile today must surface under the "Today" filter, so we take the later
+// of the creation date and, for edited accounts, the edit date. The "Joined Date" COLUMN still shows
+// the immutable creation date via getWorkerJoinedDateValue - only the filter uses this activity date.
+function getWorkerActivityDate(worker) {
+  const created = getWorkerCreatedDate(worker)
+  const edited = isAccountEdited(worker) ? toDate(getWorkerUpdatedDateValue(worker)) : null
+  if (created && edited) return edited.getTime() >= created.getTime() ? edited : created
+  return created || edited
+}
+
 function matchesPeriod(date, period) {
   if (!period || period === 'total') return true
   if (!date) return false
@@ -829,8 +841,8 @@ export default function WorkerList() {
     const matchesAvailability = !filters.availability || String(worker.availability || '').toLowerCase() === String(filters.availability).toLowerCase()
     const workerApproved = isApproved(worker)
     const matchesApproval = !filters.approvalStatus || (filters.approvalStatus === 'approved' ? workerApproved : !workerApproved)
-    const createdDate = getWorkerCreatedDate(worker)
-    const matchesDate = matchesPeriod(createdDate, filters.period) && matchesDateRange(createdDate, filters.dateFrom, filters.dateTo)
+    const activityDate = getWorkerActivityDate(worker)
+    const matchesDate = matchesPeriod(activityDate, filters.period) && matchesDateRange(activityDate, filters.dateFrom, filters.dateTo)
     const matchesSearch = !search || text.includes(search.toLowerCase())
 
     return matchesState && matchesDistrict && matchesCity && matchesArea && matchesProfession && matchesPlan && matchesAvailability && matchesApproval && matchesDate && matchesSearch

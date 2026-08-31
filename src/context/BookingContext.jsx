@@ -46,6 +46,57 @@ function toDateTimeString(value) {
   return null
 }
 
+function sanitizePhone(value) {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'object') return ''
+  const text = String(value).trim()
+  if (!text) return ''
+  if (String(text).replace(/\D/g, '').length < 7) return ''
+  return text
+}
+
+function extractCustomerPhoneForBookingContext(record = {}) {
+  const keys = ['customerPhone', 'customer_phone', 'phone', 'phoneNumber', 'phone_number', 'mobile', 'mobileNumber', 'mobile_number', 'contactNumber', 'whatsappNumber']
+  for (const k of keys) {
+    const v = sanitizePhone(record[k])
+    if (v) return v
+  }
+  if (record.customerDetails && typeof record.customerDetails === 'object') {
+    for (const k of ['phone', 'phoneNumber', 'phone_number', 'mobile', 'mobileNumber', 'mobile_number']) {
+      const v = sanitizePhone(record.customerDetails[k])
+      if (v) return v
+    }
+    for (const k of Object.keys(record.customerDetails)) {
+      if (/phone|mobile|contact|whatsapp|tel/i.test(k)) {
+        const v = sanitizePhone(record.customerDetails[k])
+        if (v) return v
+      }
+    }
+  }
+  return ''
+}
+
+function extractWorkerPhoneForBookingContext(record = {}) {
+  const keys = ['workerPhone', 'worker_phone', 'servicemanPhone', 'serviceman_phone', 'phone', 'phoneNumber', 'phone_number', 'mobile', 'mobileNumber', 'mobile_number']
+  for (const k of keys) {
+    const v = sanitizePhone(record[k])
+    if (v) return v
+  }
+  if (record.workerDetails && typeof record.workerDetails === 'object') {
+    for (const k of ['phone', 'phoneNumber', 'phone_number', 'mobile', 'mobileNumber', 'mobile_number']) {
+      const v = sanitizePhone(record.workerDetails[k])
+      if (v) return v
+    }
+    for (const k of Object.keys(record.workerDetails)) {
+      if (/phone|mobile|contact|whatsapp|tel/i.test(k)) {
+        const v = sanitizePhone(record.workerDetails[k])
+        if (v) return v
+      }
+    }
+  }
+  return ''
+}
+
 function locationArea(location = {}) {
   return location.city || location.area || location.address || ''
 }
@@ -107,24 +158,54 @@ function normalizeBooking(record = {}) {
     paymentMode: record.paymentMode || record.method || '',
     address: record.address || record.customerDetails?.address || customerLocation?.address || '',
     landmark: record.landmark || '',
-    customerDetails: record.customerDetails || {
-      id: record.customerId || record.userId || '',
-      name: record.customerName || record.customer || record.userName || '',
-      email: record.customerEmail || record.email || '',
-      phone: record.customerPhone || record.phone || '',
-      area: record.area || locationArea(customerLocation) || '',
-      bookings: record.customerBookings || 0,
-      location: customerLocation,
-    },
-    workerDetails: record.workerDetails || (record.workerId || record.servicemanId ? {
-      id: record.workerId || record.servicemanId,
-      name: record.workerName || record.servicemanName || record.worker || '',
-      phone: record.workerPhone || '',
-      profession: record.profession || record.service || record.category || '',
-      status: record.workerStatus || '',
-      rating: record.workerRating || null,
-      location: workerLocation,
-    } : null),
+    customerDetails: (() => {
+      if (record.customerDetails && typeof record.customerDetails === 'object') {
+        const cPhone = sanitizePhone(record.customerDetails.phone || record.customerDetails.phoneNumber || record.customerDetails.mobile || record.customerDetails.mobileNumber) || extractCustomerPhoneForBookingContext(record)
+        return {
+          ...record.customerDetails,
+          id: record.customerDetails.id || record.customerId || record.userId || '',
+          name: record.customerDetails.name || record.customerName || record.customer || record.userName || '',
+          email: record.customerDetails.email || record.customerEmail || record.email || '',
+          phone: cPhone || extractCustomerPhoneForBookingContext(record) || '',
+          area: record.customerDetails.area || record.area || locationArea(customerLocation) || '',
+          bookings: record.customerDetails.bookings || record.customerBookings || 0,
+          location: record.customerDetails.location || customerLocation,
+        }
+      }
+      return {
+        id: record.customerId || record.userId || '',
+        name: record.customerName || record.customer || record.userName || '',
+        email: record.customerEmail || record.email || '',
+        phone: extractCustomerPhoneForBookingContext(record) || '',
+        area: record.area || locationArea(customerLocation) || '',
+        bookings: record.customerBookings || 0,
+        location: customerLocation,
+      }
+    })(),
+    workerDetails: (() => {
+      if (record.workerDetails && typeof record.workerDetails === 'object') {
+        const wPhone = sanitizePhone(record.workerDetails.phone || record.workerDetails.phoneNumber || record.workerDetails.mobile || record.workerDetails.mobileNumber) || extractWorkerPhoneForBookingContext(record)
+        return {
+          ...record.workerDetails,
+          id: record.workerDetails.id || record.workerId || record.servicemanId || '',
+          name: record.workerDetails.name || record.workerName || record.servicemanName || record.worker || '',
+          phone: wPhone || extractWorkerPhoneForBookingContext(record) || '',
+          profession: record.workerDetails.profession || record.profession || record.service || record.category || '',
+          status: record.workerDetails.status || record.workerStatus || '',
+          rating: record.workerDetails.rating || record.workerRating || null,
+          location: record.workerDetails.location || workerLocation,
+        }
+      }
+      return record.workerId || record.servicemanId ? {
+        id: record.workerId || record.servicemanId,
+        name: record.workerName || record.servicemanName || record.worker || '',
+        phone: extractWorkerPhoneForBookingContext(record) || '',
+        profession: record.profession || record.service || record.category || '',
+        status: record.workerStatus || '',
+        rating: record.workerRating || null,
+        location: workerLocation,
+      } : null
+    })(),
     adminNotes: record.adminNotes || '',
     workerNotes: record.workerNotes || '',
     customerNotes: record.customerNotes || '',

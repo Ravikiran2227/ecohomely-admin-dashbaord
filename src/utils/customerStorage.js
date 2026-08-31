@@ -15,6 +15,79 @@ function pickFirst(record, keys, fallback = '') {
   return key ? record[key] : fallback
 }
 
+const CUSTOMER_PHONE_FIELDS = [
+  'phone',
+  'phoneNumber',
+  'phone_number',
+  'phoneNo',
+  'phone_no',
+  'mobile',
+  'mobileNumber',
+  'mobile_number',
+  'mobileNo',
+  'mobile_no',
+  'contactNumber',
+  'contact_number',
+  'contactNo',
+  'contact_no',
+  'contactPhone',
+  'contact_phone',
+  'whatsappNumber',
+  'whatsapp_number',
+  'whatsappNo',
+  'userPhone',
+  'userPhoneNumber',
+  'user_phone',
+  'user_phone_number',
+  'telephone',
+  'tel',
+  'cellphone',
+  'cellPhone',
+  'cell_phone',
+]
+
+function sanitizePhoneValue(value) {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'object') return ''
+  const text = String(value).trim()
+  if (!text) return ''
+  const digits = text.replace(/\D/g, '')
+  if (digits.length < 7) return ''
+  return text
+}
+
+function extractCustomerPhone(record = {}) {
+  if (!record || typeof record !== 'object') return ''
+  let direct = pickFirst(record, CUSTOMER_PHONE_FIELDS, '')
+  let sanitized = sanitizePhoneValue(direct)
+  if (sanitized) return sanitized
+  const nested = pickNestedFirst(record, CUSTOMER_PHONE_FIELDS, '')
+  sanitized = sanitizePhoneValue(nested)
+  if (sanitized) return sanitized
+  for (const key of Object.keys(record)) {
+    if (/phone|mobile|contact|whatsapp|tel|cell/i.test(key)) {
+      const val = record[key]
+      if (val !== undefined && val !== null && typeof val !== 'object') {
+        const s = sanitizePhoneValue(val)
+        if (s) return s
+      }
+      const maybeObj = record[key]
+      if (maybeObj && typeof maybeObj === 'object' && !Array.isArray(maybeObj)) {
+        for (const nestedKey of Object.keys(maybeObj)) {
+          if (/phone|mobile|contact|whatsapp|tel|cell/i.test(nestedKey)) {
+            const nestedVal = maybeObj[nestedKey]
+            if (nestedVal !== undefined && nestedVal !== null && typeof nestedVal !== 'object') {
+              const s2 = sanitizePhoneValue(nestedVal)
+              if (s2) return s2
+            }
+          }
+        }
+      }
+    }
+  }
+  return ''
+}
+
 const CUSTOMER_PHOTO_FIELDS = [
   'photoUrl',
   'photoURL',
@@ -199,19 +272,28 @@ function normalizedLocation(record = {}, relatedBookings = []) {
 }
 
 function getIdentityKeys(record = {}) {
+  const phone = extractCustomerPhone(record)
   return [
     record.id,
     record.uid,
     record.customerId,
     record.userId,
     record.email,
+    phone,
     record.phone,
     record.phoneNumber,
+    record.phone_number,
     record.mobile,
+    record.mobileNumber,
+    record.mobile_number,
+    record.contactNumber,
+    record.whatsappNumber,
   ].filter(Boolean).map((value) => String(value).trim().toLowerCase())
 }
 
 function isRelatedToCustomer(item = {}, customerKeys = []) {
+  const itemPhone = extractCustomerPhone(item)
+  const customerPhoneAlt = itemPhone || pickFirst(item, CUSTOMER_PHONE_FIELDS, '')
   const itemKeys = [
     item.customerId,
     item.customer_id,
@@ -226,6 +308,10 @@ function isRelatedToCustomer(item = {}, customerKeys = []) {
     item.customerPhone,
     item.mobile,
     item.customerMobile,
+    item.phoneNumber,
+    item.mobileNumber,
+    item.contactNumber,
+    customerPhoneAlt,
   ].filter(Boolean).map((value) => String(value).trim().toLowerCase())
 
   return itemKeys.some((key) => customerKeys.includes(key))
@@ -248,11 +334,20 @@ export function normalizeCustomerRecord(record = {}, related = {}) {
   const latestBooking = [...bookings]
     .sort((left, right) => dateMs(right.completedAt || right.startedAt || right.requestedAt || right.bookingDate || right.bookedAt || right.createdAt) - dateMs(left.completedAt || left.startedAt || left.requestedAt || left.bookingDate || left.bookedAt || left.createdAt))[0]
 
+  let phone = extractCustomerPhone(record)
+  if (!phone && bookings.length) {
+    const bookingPhone = bookings.find((b) => sanitizePhoneValue(b.customerPhone || b.customer_phone || b.phone || b.phoneNumber || b.mobile || b.mobileNumber))
+    if (bookingPhone) phone = sanitizePhoneValue(bookingPhone.customerPhone || bookingPhone.customer_phone || bookingPhone.phone || bookingPhone.phoneNumber || bookingPhone.mobile || bookingPhone.mobileNumber)
+  }
+  if (!phone && record.email) {
+    // last-resort: no phone in doc and no booking phone — leave empty so UI shows Not set
+  }
+
   return cloneRecord({
     ...record,
     id: String(record.id || record.customerId || ''),
     name: pickFirst(record, ['name', 'fullName', 'displayName'], ''),
-    phone: pickFirst(record, ['phone', 'phoneNumber', 'mobile'], ''),
+    phone,
     email: pickFirst(record, ['email'], ''),
     photoUrl: normalizePhotoValue(pickNestedFirst(record, CUSTOMER_PHOTO_FIELDS)),
     area: pickFirst(record, ['area', 'areaName', 'city', 'cityName'], normalizedLocation(record, bookings)?.area || ''),

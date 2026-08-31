@@ -1124,6 +1124,67 @@ function isWorkerCorrectionResubmission(current = {}, payload = {}) {
   return Object.keys(payload || {}).some((key) => !ignored.has(key))
 }
 
+const BOOKING_CUSTOMER_PHONE_KEYS = ['customerPhone', 'customer_phone', 'customerPhoneNumber', 'customer_phone_number', 'phone', 'phoneNumber', 'phone_number', 'mobile', 'mobileNumber', 'mobile_number', 'contactNumber', 'contact_number', 'whatsappNumber', 'userPhone', 'telephone', 'tel']
+const CUSTOMER_FALLBACK_PHONE_KEYS = ['phone', 'phoneNumber', 'phone_number', 'phoneNo', 'mobile', 'mobileNumber', 'mobile_number', 'mobileNo', 'contactNumber', 'contact_number', 'whatsappNumber', 'whatsapp_number', 'userPhone', 'userPhoneNumber', 'telephone', 'tel', 'cellphone', 'cellPhone']
+const BOOKING_WORKER_PHONE_KEYS = ['workerPhone', 'worker_phone', 'servicemanPhone', 'serviceman_phone', 'phone', 'phoneNumber', 'phone_number', 'mobile', 'mobileNumber', 'mobile_number']
+
+function extractCustomerPhoneForBooking(record = {}, customer = {}) {
+  let v = pick(record, BOOKING_CUSTOMER_PHONE_KEYS, '')
+  if (v && String(v).replace(/\D/g, '').length >= 7) return String(v).trim()
+  if (record.customerDetails && typeof record.customerDetails === 'object') {
+    v = pick(record.customerDetails, CUSTOMER_FALLBACK_PHONE_KEYS, '')
+    if (v && String(v).replace(/\D/g, '').length >= 7) return String(v).trim()
+    for (const k of Object.keys(record.customerDetails)) {
+      if (/phone|mobile|contact|whatsapp|tel|cell/i.test(k)) {
+        const val = record.customerDetails[k]
+        if (val && typeof val !== 'object' && String(val).replace(/\D/g, '').length >= 7) return String(val).trim()
+      }
+    }
+  }
+  v = pick(customer, CUSTOMER_FALLBACK_PHONE_KEYS, '')
+  if (v && String(v).replace(/\D/g, '').length >= 7) return String(v).trim()
+  if (customer && typeof customer === 'object') {
+    for (const k of Object.keys(customer)) {
+      if (/phone|mobile|contact|whatsapp|tel|cell/i.test(k)) {
+        const val = customer[k]
+        if (val && typeof val !== 'object' && String(val).replace(/\D/g, '').length >= 7) return String(val).trim()
+      }
+    }
+    for (const k of Object.keys(customer)) {
+      const nested = customer[k]
+      if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+        for (const nk of Object.keys(nested)) {
+          if (/phone|mobile|contact|whatsapp|tel|cell/i.test(nk)) {
+            const val2 = nested[nk]
+            if (val2 && typeof val2 !== 'object' && String(val2).replace(/\D/g, '').length >= 7) return String(val2).trim()
+          }
+        }
+      }
+    }
+  }
+  return ''
+}
+
+function extractWorkerPhoneForBooking(record = {}, worker = {}) {
+  let v = pick(record, BOOKING_WORKER_PHONE_KEYS, '')
+  if (v && String(v).replace(/\D/g, '').length >= 7) return String(v).trim()
+  if (record.workerDetails && typeof record.workerDetails === 'object') {
+    v = pick(record.workerDetails, CUSTOMER_FALLBACK_PHONE_KEYS, '')
+    if (v && String(v).replace(/\D/g, '').length >= 7) return String(v).trim()
+  }
+  v = pick(worker, CUSTOMER_FALLBACK_PHONE_KEYS, '')
+  if (v && String(v).replace(/\D/g, '').length >= 7) return String(v).trim()
+  if (worker && typeof worker === 'object') {
+    for (const k of Object.keys(worker)) {
+      if (/phone|mobile|contact|whatsapp|tel|cell/i.test(k)) {
+        const val = worker[k]
+        if (val && typeof val !== 'object' && String(val).replace(/\D/g, '').length >= 7) return String(val).trim()
+      }
+    }
+  }
+  return ''
+}
+
 function normalizeBookingRecord(record = {}, customerById = new Map(), workerById = new Map()) {
   const explicitCustomerId = normalizeId(pick(record, ['customerId', 'customer_id']))
   const explicitWorkerId = normalizeId(pick(record, ['workerId', 'servicemanId', 'serviceman_id', 'worker_id', 'providerId', 'serviceManId']))
@@ -1142,6 +1203,8 @@ function normalizeBookingRecord(record = {}, customerById = new Map(), workerByI
   const userLocation = record.userLocation || {}
   const servicemanLocation = record.servicemanLocation || {}
 
+  const enrichedCustomerPhone = extractCustomerPhoneForBooking(record, customer)
+  const enrichedWorkerPhone = extractWorkerPhoneForBooking(record, worker)
   return {
     ...record,
     id: record.id,
@@ -1157,10 +1220,10 @@ function normalizeBookingRecord(record = {}, customerById = new Map(), workerByI
     customerName,
     customer: customerName,
     customerEmail: pick(record, ['customerEmail', 'email'], pick(customer, ['email'], '')),
-    customerPhone: pick(record, ['customerPhone', 'phone', 'phoneNumber', 'mobile'], pick(customer, ['phone', 'phoneNumber', 'mobile'], '')),
+    customerPhone: enrichedCustomerPhone,
     workerName,
     worker: workerName,
-    workerPhone: pick(record, ['workerPhone', 'servicemanPhone'], pick(worker, ['phone', 'phoneNumber', 'mobile'], '')),
+    workerPhone: enrichedWorkerPhone,
     service,
     category: pick(record, ['category', 'serviceType', 'profession', 'serviceName'], service),
     status: pick(record, ['status', 'bookingStatus', 'Status'], 'Pending'),

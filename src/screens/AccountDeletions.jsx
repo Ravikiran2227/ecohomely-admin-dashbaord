@@ -30,6 +30,63 @@ function field(row = {}, keys = []) {
   return ''
 }
 
+function nestedField(row = {}, keys = []) {
+  const direct = field(row, keys)
+  if (direct) return direct
+
+  const lowerKeys = new Set(keys.map((key) => String(key).toLowerCase()))
+  const stack = Object.values(row || {}).filter((value) => value && typeof value === 'object')
+  const seen = new Set()
+
+  while (stack.length) {
+    const current = stack.shift()
+    if (!current || seen.has(current)) continue
+    seen.add(current)
+
+    if (Array.isArray(current)) {
+      stack.push(...current.filter((value) => value && typeof value === 'object'))
+      continue
+    }
+
+    const matchedKey = Object.keys(current).find((key) => lowerKeys.has(key.toLowerCase()) && current[key] !== undefined && current[key] !== null && String(current[key]).trim() !== '')
+    if (matchedKey) return current[matchedKey]
+    stack.push(...Object.values(current).filter((value) => value && typeof value === 'object'))
+  }
+
+  return ''
+}
+
+function phoneField(row = {}) {
+  return nestedField(row, [
+    'phone',
+    'phoneNumber',
+    'phone_number',
+    'phoneNo',
+    'phone_no',
+    'mobile',
+    'mobileNumber',
+    'mobile_number',
+    'mobileNo',
+    'mobile_no',
+    'contactNumber',
+    'contact_number',
+    'contactPhone',
+    'whatsappNumber',
+    'whatsapp_number',
+    'userPhone',
+    'userPhoneNumber',
+    'customerPhone',
+  ])
+}
+
+function emailField(row = {}) {
+  return nestedField(row, ['email', 'emailAddress', 'email_id', 'emailId', 'mail', 'userEmail', 'customerEmail'])
+}
+
+function nameField(row = {}) {
+  return nestedField(row, ['name', 'fullName', 'userName', 'customerName', 'workerName', 'displayName'])
+}
+
 function identityValues(row = {}) {
   return [
     row.id,
@@ -40,10 +97,8 @@ function identityValues(row = {}) {
     row.workerId,
     row.servicemanId,
     row.partnerId,
-    row.phone,
-    row.phoneNumber,
-    row.mobile,
-    row.mobileNumber,
+    phoneField(row),
+    emailField(row),
   ].filter(Boolean).map((value) => String(value).trim()).filter(Boolean)
 }
 
@@ -98,15 +153,12 @@ function normalizeRequest(row = {}, profile = null) {
   const status = field(row, ['status', 'requestStatus', 'deletionStatus', 'state'])
   return {
     ...row,
-    displayName: field(row, ['name', 'fullName', 'userName', 'customerName', 'workerName', 'displayName'])
-      || field(profile || {}, ['name', 'fullName', 'userName', 'customerName', 'workerName', 'displayName']),
+    displayName: nameField(row) || nameField(profile || {}),
     accountId: field(row, ['userId', 'uid', 'authId', 'customerId', 'workerId', 'servicemanId', 'partnerId']),
     accountType: field(row, ['userType', 'accountType', 'role', 'type']),
     sourceCollection: row.sourceCollection || row.collectionName || '',
-    phone: field(row, ['phone', 'phoneNumber', 'mobile', 'mobileNumber'])
-      || field(profile || {}, ['phone', 'phoneNumber', 'mobile', 'mobileNumber']),
-    email: field(row, ['email', 'emailAddress'])
-      || field(profile || {}, ['email', 'emailAddress']),
+    phone: phoneField(row) || phoneField(profile || {}),
+    email: emailField(row) || emailField(profile || {}),
     reason: field(row, ['reason', 'deletionReason', 'message', 'description', 'note']),
     requestedAt: field(row, ['requestDate', 'requestedAt', 'createdAt', 'date', 'submittedAt']),
     status,

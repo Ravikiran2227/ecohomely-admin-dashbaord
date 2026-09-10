@@ -10,7 +10,7 @@ import InfoRow from '../components/InfoRow'
 import PricingCard from '../components/PricingCard'
 import PersonTrackingPanel from '../components/PersonTrackingPanel'
 import RelatedRecordsPanel from '../components/RelatedRecordsPanel'
-import { buildCustomerServiceTimelineEvents, buildPersonTrackingProfile, formatHistoryDate } from '../utils/toLetProfiles'
+import { buildCustomerServiceTimelineEvents, buildPersonTrackingProfile, formatHistoryDate, resolveOwnerContact } from '../utils/toLetProfiles'
 import bookingsApi from '../services/bookingsApi'
 import complaintsApi from '../services/complaintsApi'
 
@@ -108,10 +108,14 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
     complaints,
     listings: allListings,
     enquiries: allEnquiries,
-    customerId: listing.ownerCustomerId,
+    customerId: listing.ownerCustomerId || listing.userId,
     phone: listing.ownerPhone,
     name: listing.ownerName,
   })
+  const ownerContact = resolveOwnerContact(listing, ownerContext.customer)
+  const ownerDisplayName = ownerContact.name
+  const ownerDisplayPhone = ownerContact.phone
+  const ownerDisplayEmail = ownerContact.email
   const ownerSummary = ownerContext.customer ? [
     { label: 'Customer ID', value: ownerContext.customer.id, color: '#2563EB', meta: ownerContext.customer.status },
     { label: 'Owned Listings', value: ownerContext.ownedListings.length, color: '#16A34A', meta: `${ownerContext.liveOwnedListings} live` },
@@ -372,26 +376,26 @@ export default function ToLetDetail({ listing, listingEnquiries = [], customers 
           >
             <PersonTrackingPanel
               title="Registered Owner Profile"
-              name={listing.ownerName}
-              meta={`${listing.ownerPhone} · ${listing.area}`}
-              registration={ownerContext.customer ? `Registered as ${ownerContext.customer.id} · ${ownerContext.customer.status}` : 'Owner not yet registered as a customer'}
+              name={ownerDisplayName}
+              meta={[ownerDisplayPhone, listing.area].filter(Boolean).join(' · ') || listing.area || 'No contact number'}
+              registration={ownerContext.customer ? `Registered as ${ownerDisplayName}${ownerContext.customer.id ? ` · ${ownerContext.customer.id}` : ''} · ${ownerContext.customer.status}` : 'Owner not yet registered as a customer'}
               registrationColor={ownerContext.customer ? '#2563EB' : '#F59E0B'}
               tags={[
                 { label: listing.directCallAllowed ? 'Direct call allowed' : 'Call restricted', color: listing.directCallAllowed ? '#16A34A' : '#F59E0B' },
                 { label: `${ownerContext.receivedEnquiries.length} enquiries received`, color: '#F59E0B' },
               ]}
               details={[
-                { label: 'Contact Number', value: listing.ownerPhone },
+                { label: 'Contact Number', value: ownerDisplayPhone || 'Not available on profile' },
                 { label: 'Customer Registration', value: ownerContext.customer ? `${ownerContext.customer.id} · ${ownerContext.customer.status}` : 'Not registered', subtle: !ownerContext.customer },
-                { label: 'Email', value: ownerContext.customer?.email || 'No email on customer record', subtle: !ownerContext.customer?.email },
+                { label: 'Email', value: ownerDisplayEmail || 'No email on customer record', subtle: !ownerDisplayEmail },
                 { label: 'Joined', value: ownerContext.customer ? formatHistoryDate(ownerContext.customer.dateJoined) : 'Pending registration', subtle: !ownerContext.customer },
                 { label: 'Owned Listings', value: ownerContext.customer ? ownerContext.ownedListings.length : 0, subtle: !ownerContext.customer },
                 { label: 'Service History', value: ownerContext.customer ? `${ownerContext.customerBookings.length} bookings · ${ownerContext.customerComplaints.length} complaints` : 'No linked service history', subtle: !ownerContext.customer },
               ]}
               notice={ownerContext.customer ? null : 'Register this owner as a customer profile to track service bookings, complaints, and repeat To Let activity from the same person record.'}
               actions={[
-                { label: 'Call Owner', v: 'outline', onClick: () => window.open(`tel:${listing.ownerPhone}`, '_self') },
-                { label: 'WhatsApp', v: 'outline', onClick: () => window.open(`https://wa.me/91${listing.ownerPhone}`, '_blank', 'noopener,noreferrer') },
+                ownerDisplayPhone ? { label: 'Call Owner', v: 'outline', onClick: () => window.open(`tel:${ownerDisplayPhone}`, '_self') } : null,
+                ownerDisplayPhone ? { label: 'WhatsApp', v: 'outline', onClick: () => window.open(`https://wa.me/91${String(ownerDisplayPhone).replace(/\D/g, '').slice(-10)}`, '_blank', 'noopener,noreferrer') } : null,
                 { label: 'View Enquiries', v: 'primary', onClick: () => onOpenEnquiries?.(listing.id) },
                 !ownerContext.customer ? { label: 'Register Owner', v: 'success', onClick: () => onRegisterOwner?.(listing.id) } : null,
                 ownerContext.customer ? { label: 'Open Customer Profile', v: 'ghost', onClick: () => onOpenCustomer?.(ownerContext.customer.id) } : null,

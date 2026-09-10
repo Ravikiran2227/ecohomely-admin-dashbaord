@@ -327,6 +327,14 @@ function uniqueById(records = []) {
   })
 }
 
+function recordHasDisplayName(record = {}) {
+  const text = String(record?.name || '').trim()
+  if (!text) return false
+  if (text === String(record.id || '')) return false
+  if (/^user[_-]?\d+$/i.test(text)) return false
+  return true
+}
+
 export function normalizeCustomerRecord(record = {}, related = {}) {
   const bookings = related.bookings || []
   const complaints = related.complaints || []
@@ -343,12 +351,21 @@ export function normalizeCustomerRecord(record = {}, related = {}) {
     // last-resort: no phone in doc and no booking phone — leave empty so UI shows Not set
   }
 
+  const firstName = pickFirst(record, ['firstName', 'first_name', 'givenName'], '')
+  const lastName = pickFirst(record, ['lastName', 'last_name', 'familyName', 'surname'], '')
+  const combinedName = [firstName, lastName].filter(Boolean).join(' ').trim()
+  const name = pickFirst(
+    record,
+    ['name', 'fullName', 'displayName', 'userName', 'username', 'ownerName', 'contactName'],
+    combinedName
+  )
+
   return cloneRecord({
     ...record,
     id: String(record.id || record.customerId || ''),
-    name: pickFirst(record, ['name', 'fullName', 'displayName'], ''),
+    name,
     phone,
-    email: pickFirst(record, ['email'], ''),
+    email: pickFirst(record, ['email', 'emailId', 'emailAddress', 'mail'], ''),
     photoUrl: normalizePhotoValue(pickNestedFirst(record, CUSTOMER_PHOTO_FIELDS)),
     area: pickFirst(record, ['area', 'areaName', 'city', 'cityName'], normalizedLocation(record, bookings)?.area || ''),
     address: pickFirst(record, ['address', 'fullAddress', 'formattedAddress'], normalizedLocation(record, bookings)?.address || ''),
@@ -399,7 +416,53 @@ export async function loadCustomers(filters = {}, options = {}) {
     })
   })
 
-  return Promise.all(normalized.map((record) => hydrateCustomerPhoto(record)))
+  // users + customers aliases can return the same id twice — keep the richest profile
+  const deduped = []
+  const byId = new Map()
+  normalized.forEach((record) => {
+    const key = String(record.id || '').trim()
+    if (!key) {
+      deduped.push(record)
+      return
+    }
+    const existing = byId.get(key)
+    if (!existing) {
+      byId.set(key, record)
+      return
+    }
+    const existingScore =
+      (recordHasDisplayName(existing) ? 4 : 0) +
+      (existing.phone ? 3 : 0) +
+      (existing.email ? 2 : 0) +
+      (existing.photoUrl ? 1 : 0)
+    const nextScore =
+      (recordHasDisplayName(record) ? 4 : 0) +
+      (record.phone ? 3 : 0) +
+      (record.email ? 2 : 0) +
+      (record.photoUrl ? 1 : 0)
+    if (nextScore > existingScore) {
+      byId.set(key, {
+        ...existing,
+        ...record,
+        name: recordHasDisplayName(record) ? record.name : existing.name,
+        phone: record.phone || existing.phone,
+        email: record.email || existing.email,
+        photoUrl: record.photoUrl || existing.photoUrl,
+      })
+    } else {
+      byId.set(key, {
+        ...record,
+        ...existing,
+        name: recordHasDisplayName(existing) ? existing.name : record.name,
+        phone: existing.phone || record.phone,
+        email: existing.email || record.email,
+        photoUrl: existing.photoUrl || record.photoUrl,
+      })
+    }
+  })
+  byId.forEach((record) => deduped.push(record))
+
+  return Promise.all(deduped.map((record) => hydrateCustomerPhoto(record)))
 }
 
 export async function loadCustomerProfile(customerId, options = {}) {

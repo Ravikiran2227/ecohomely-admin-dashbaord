@@ -17,6 +17,8 @@ import { buildCustomerActivity, formatBookingScheduleLabel, formatTimelineStamp,
 import { buildPersonTrackingProfile } from '../utils/toLetProfiles'
 import { loadCustomerProfile, loadCustomers, upsertStoredCustomerRecord } from '../utils/customerStorage'
 import customersApi from '../services/customersApi'
+import { doc, setDoc } from 'firebase/firestore'
+import { db } from '../services/firebaseClient'
 
 const STATUS_COLOR = { Active: C.success, Blocked: C.danger, Inactive: C.muted }
 const BOOKING_STATUS_COLOR = { Completed: C.success, 'In Progress': C.primary, Pending: C.warning, Cancelled: C.danger }
@@ -345,6 +347,72 @@ export default function CustomerProfile() {
     navigate('/customers', { replace: true })
   }
 
+  const [sendingVerification, setSendingVerification] = useState(false)
+  const sendPhoneVerification = async () => {
+    if (!customer?.id) return
+    // handle typo prakashbathala vs prakashbatthala — both resolved via id, so filter by email already done
+    const defaultMsg = `Hi ${customer.name || 'there'}, please re-verify your mobile number: open Ecohomely app → Profile → Edit Phone → Enter number → Verify OTP.`
+    const msg = window.prompt('Message to show as banner for OTP re-verification (user will see on next app launch):', defaultMsg)
+    if (msg === null) return
+    if (!window.confirm(`Send re-verification banner to ${customer.name || customer.email} (${customer.id})?\n\n"${msg}"`)) return
+    setSendingVerification(true)
+    setError('')
+    try {
+      const now = new Date()
+      const payload = {
+        type: 'phone_reverification',
+        title: 'Mobile verification required',
+        message: msg,
+        requestedAt: now.toISOString(),
+        requestedAtMs: now.getTime(),
+        read: false,
+        action: 'open_phone_otp',
+        ctaLabel: 'Verify now',
+      }
+      const updates = {
+        phoneVerificationRequest: payload,
+        phone_reverification: payload,
+        userAppPopup: { ...payload, type: 'phone_correction' },
+        partnerAppPopup: { ...payload, type: 'phone_correction' },
+        updatedAt: now.toISOString(),
+      }
+      await Promise.all([
+        setDoc(doc(db, 'users', customer.id), updates, { merge: true }),
+        setDoc(doc(db, 'customers', customer.id), updates, { merge: true }).catch(() => {}),
+      ])
+      setError('')
+      window.alert('Banner sent! User will see it on next app launch. Remove after number is captured (same button → Clear).')
+    } catch (e) {
+      setError(e.message || 'Failed to send verification request.')
+    } finally {
+      setSendingVerification(false)
+    }
+  }
+
+  const clearPhoneVerification = async () => {
+    if (!customer?.id) return
+    if (!window.confirm(`Clear re-verification banner for ${customer.name || customer.email}?`)) return
+    setSendingVerification(true)
+    try {
+      const { deleteField } = await import('firebase/firestore')
+      const clear = {
+        phoneVerificationRequest: deleteField(),
+        phone_reverification: deleteField(),
+        userAppPopup: deleteField(),
+        partnerAppPopup: deleteField(),
+      }
+      await Promise.all([
+        setDoc(doc(db, 'users', customer.id), clear, { merge: true }),
+        setDoc(doc(db, 'customers', customer.id), clear, { merge: true }).catch(() => {}),
+      ])
+      window.alert('Banner cleared. Firestore phone field will be filled once user verifies OTP.')
+    } catch (e) {
+      setError(e.message || 'Failed to clear banner.')
+    } finally {
+      setSendingVerification(false)
+    }
+  }
+
   const cur = data
   const set = key => val => setForm(p => ({ ...(p || customer), [key]: val }))
 
@@ -396,9 +464,17 @@ export default function CustomerProfile() {
                 </Btn>
               </>
             ) : (
-              <Btn v="primary" onClick={startEdit}>
-                <Icon n="edit" sz={13} cl="#fff" /> Edit Profile
-              </Btn>
+              <>
+                <Btn v="primary" onClick={startEdit}>
+                  <Icon n="edit" sz={13} cl="#fff" /> Edit Profile
+                </Btn>
+                <Btn v="outline" onClick={sendPhoneVerification} disabled={sendingVerification}>
+                  <Icon n="phone" sz={13} /> {sendingVerification ? 'Sending...' : 'Request OTP Verify'}
+                </Btn>
+                <Btn v="ghost" size="sm" onClick={clearPhoneVerification} disabled={sendingVerification}>
+                  Clear Banner
+                </Btn>
+              </>
             )}
           </div>
         }

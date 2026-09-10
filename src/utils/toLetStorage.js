@@ -1,6 +1,6 @@
 import toLetApi from '../services/toLetApi'
 import { getStoredCustomers } from './customerStorage'
-import { findRegisteredCustomer } from './toLetProfiles'
+import { findRegisteredCustomer, resolveOwnerContact } from './toLetProfiles'
 
 const CURRENT_DATE = new Date().toISOString().slice(0, 10)
 const AREA_COORDS = {
@@ -156,13 +156,28 @@ function normalizeStatus(record = {}) {
 
 export function normalizeToLetListing(record = {}, customers = getStoredCustomers()) {
   const form = sourceForm(record)
-  const ownerName = pickListing(record, ['ownerName', 'owner', 'ownerFullName', 'contactName', 'name'], record.userId || 'Unknown owner')
-  const ownerPhone = pickListing(record, ['ownerPhone', 'phone', 'mobile', 'whatsappNumber', 'contactPhone'], '')
+  // App-created listings only store userId — avoid generic `name`/`phone` keys
+  // that collide with property title / unrelated form data.
+  const rawOwnerName = pickFirst(record, ['ownerName', 'owner', 'ownerFullName', 'contactName'], '')
+  const rawOwnerPhone = pickFirst(record, ['ownerPhone', 'contactPhone', 'whatsappNumber'], '')
   const matchedCustomer = findRegisteredCustomer(customers, {
     customerId: record.ownerCustomerId || record.userId,
-    phone: ownerPhone,
-    name: ownerName,
+    phone: rawOwnerPhone,
+    name: rawOwnerName,
   })
+  const resolvedOwner = resolveOwnerContact(
+    {
+      ownerName: rawOwnerName,
+      ownerPhone: rawOwnerPhone,
+      ownerEmail: pickFirst(record, ['ownerEmail', 'email'], ''),
+      ownerCustomerId: record.ownerCustomerId,
+      userId: record.userId,
+    },
+    matchedCustomer
+  )
+  const ownerName = resolvedOwner.name
+  const ownerPhone = resolvedOwner.phone
+  const ownerEmail = resolvedOwner.email
   const propertyType = pickListing(record, ['propertyType', 'type', 'categoryName', 'categoryId'], 'Property')
   const fullAddress = pickListing(record, ['fullAddress', 'address'], '')
   const area = inferAreaFromAddress(pickListing(record, ['locality', 'area', 'areaName', 'selectedArea', 'propertyArea', 'locationName', 'city'], ''), fullAddress)
@@ -178,7 +193,7 @@ export function normalizeToLetListing(record = {}, customers = getStoredCustomer
   const amenities = Array.isArray(form.generalAmenities) ? form.generalAmenities : []
   const title = pickListing(
     record,
-    ['title', 'name', 'propertyName'],
+    ['title', 'propertyName'],
     `${propertyTypeLabel(propertyType)} in ${area || pickListing(record, ['city'], 'Visakhapatnam')}`
   )
 
@@ -188,6 +203,7 @@ export function normalizeToLetListing(record = {}, customers = getStoredCustomer
     title,
     ownerName,
     ownerPhone,
+    ownerEmail,
     ownerCustomerId: matchedCustomer?.id || record.ownerCustomerId || record.userId || null,
     area,
     propertyType: propertyTypeLabel(propertyType),

@@ -17,44 +17,146 @@ export function formatHistoryDate(value) {
   }).format(parsed)
 }
 
+/** True when a value is empty or looks like an internal user/customer id, not a display name. */
+export function isPlaceholderPersonName(value, id = '') {
+  const text = String(value || '').trim()
+  if (!text) return true
+  const normalized = text.toLowerCase()
+  if (['unknown owner', 'unknown customer', 'unknown', 'n/a', 'na', '-'].includes(normalized)) return true
+  if (id && text === String(id)) return true
+  if (/^user[_-]?\d+$/i.test(text)) return true
+  if (/^[A-Za-z0-9_-]{20,}$/.test(text) && !/\s/.test(text)) return true
+  return false
+}
+
+function customerProfileScore(customer = {}) {
+  let score = 0
+  if (!isPlaceholderPersonName(customer.name, customer.id)) score += 4
+  if (customer.phone) score += 3
+  if (customer.email) score += 2
+  if (customer.photoUrl) score += 1
+  return score
+}
+
+function pickBestCustomer(matches = []) {
+  if (!matches.length) return null
+  if (matches.length === 1) return matches[0]
+  return [...matches].sort((left, right) => customerProfileScore(right) - customerProfileScore(left))[0]
+}
+
 export function findRegisteredCustomer(customers, { customerId, phone, name }) {
+  const matches = []
+
   if (customerId) {
-    const byId = customers.find((customer) => customer.id === customerId)
-    if (byId) return byId
+    matches.push(
+      ...customers.filter(
+        (customer) =>
+          customer.id === customerId || customer.uid === customerId || customer.userId === customerId
+      )
+    )
   }
 
   if (phone) {
-    const byPhone = customers.find((customer) => customer.phone === phone)
-    if (byPhone) return byPhone
+    const digits = String(phone).replace(/\D/g, '')
+    matches.push(
+      ...customers.filter((customer) => {
+        const customerDigits = String(customer.phone || '').replace(/\D/g, '')
+        return (
+          customer.phone === phone ||
+          (digits.length >= 7 && customerDigits.endsWith(digits.slice(-10)))
+        )
+      })
+    )
   }
 
-  if (name) {
+  if (name && !isPlaceholderPersonName(name, customerId)) {
     const normalized = String(name).trim().toLowerCase()
-    return customers.find((customer) => String(customer.name).trim().toLowerCase() === normalized) || null
+    matches.push(
+      ...customers.filter(
+        (customer) => String(customer.name || '').trim().toLowerCase() === normalized
+      )
+    )
   }
 
-  return null
+  const unique = []
+  const seen = new Set()
+  matches.forEach((customer) => {
+    const key = customer?.id || customer?.__path || JSON.stringify(customer)
+    if (seen.has(key)) return
+    seen.add(key)
+    unique.push(customer)
+  })
+
+  return pickBestCustomer(unique)
+}
+
+export function resolveOwnerContact(listing = {}, customer = null) {
+  const ownerId = listing.ownerCustomerId || listing.userId || customer?.id || ''
+  const listingName = listing.ownerName
+  const customerName = customer?.name
+  const listingPhone = String(listing.ownerPhone || '').trim()
+  const customerPhone = String(customer?.phone || '').trim()
+  const listingEmail = String(listing.ownerEmail || listing.email || '').trim()
+  const customerEmail = String(customer?.email || '').trim()
+
+  const name = !isPlaceholderPersonName(customerName, ownerId)
+    ? String(customerName).trim()
+    : !isPlaceholderPersonName(listingName, ownerId)
+      ? String(listingName).trim()
+      : customerEmail
+        ? String(customerEmail).split('@')[0]
+        : listingEmail
+          ? String(listingEmail).split('@')[0]
+          : ownerId || 'Unknown owner'
+
+  const phone = customerPhone || listingPhone || ''
+  const email = customerEmail || listingEmail || ''
+
+  return {
+    name,
+    phone,
+    email,
+    ownerId,
+    hasRealName: !isPlaceholderPersonName(name, ownerId) && name !== String(ownerId),
+  }
 }
 
 export function buildCustomerServiceHistory({ customerId, bookings, complaints }) {
   const customerBookings = bookings
     .filter((booking) => booking.customerId === customerId)
-    .sort((left, right) => (parseDateValue(right.completedAt || right.startedAt || right.requestedAt)?.getTime() || 0) - (parseDateValue(left.completedAt || left.startedAt || left.requestedAt)?.getTime() || 0))
+    .sort(
+      (left, right) =>
+        (parseDateValue(right.completedAt || right.startedAt || right.requestedAt)?.getTime() || 0) -
+        (parseDateValue(left.completedAt || left.startedAt || left.requestedAt)?.getTime() || 0)
+    )
 
   const customerComplaints = complaints
     .filter((complaint) => complaint.customerId === customerId)
-    .sort((left, right) => (parseDateValue(right.date)?.getTime() || 0) - (parseDateValue(left.date)?.getTime() || 0))
+    .sort(
+      (left, right) =>
+        (parseDateValue(right.date)?.getTime() || 0) - (parseDateValue(left.date)?.getTime() || 0)
+    )
 
   return {
     customerBookings,
     customerComplaints,
     completedBookings: customerBookings.filter((booking) => booking.status === 'Completed').length,
-    activeBookings: customerBookings.filter((booking) => ['Pending', 'In Progress'].includes(booking.status)).length,
-    openComplaints: customerComplaints.filter((complaint) => complaint.status !== 'Resolved').length,
+    activeBookings: customerBookings.filter((booking) =>
+      ['Pending', 'In Progress'].includes(booking.status)
+    ).length,
+    openComplaints: customerComplaints.filter((complaint) => complaint.status !== 'Resolved')
+      .length,
   }
 }
 
-export function buildRegisteredPersonContext({ customers, bookings, complaints, customerId, phone, name }) {
+export function buildRegisteredPersonContext({
+  customers,
+  bookings,
+  complaints,
+  customerId,
+  phone,
+  name,
+}) {
   const customer = findRegisteredCustomer(customers, { customerId, phone, name })
 
   if (!customer) {
@@ -74,8 +176,24 @@ export function buildRegisteredPersonContext({ customers, bookings, complaints, 
   }
 }
 
-export function buildPersonTrackingProfile({ customers, bookings, complaints, listings = [], enquiries = [], customerId, phone, name }) {
-  const base = buildRegisteredPersonContext({ customers, bookings, complaints, customerId, phone, name })
+export function buildPersonTrackingProfile({
+  customers,
+  bookings,
+  complaints,
+  listings = [],
+  enquiries = [],
+  customerId,
+  phone,
+  name,
+}) {
+  const base = buildRegisteredPersonContext({
+    customers,
+    bookings,
+    complaints,
+    customerId,
+    phone,
+    name,
+  })
 
   if (!base.customer) {
     return {
@@ -89,9 +207,17 @@ export function buildPersonTrackingProfile({ customers, bookings, complaints, li
     }
   }
 
-  const ownedListings = listings.filter((listing) => listing.ownerCustomerId === base.customer.id || listing.ownerPhone === base.customer.phone)
+  const ownedListings = listings.filter(
+    (listing) =>
+      listing.ownerCustomerId === base.customer.id ||
+      listing.ownerPhone === base.customer.phone ||
+      listing.userId === base.customer.id
+  )
   const ownedListingIds = new Set(ownedListings.map((listing) => listing.id))
-  const enquiryRecords = enquiries.filter((enquiry) => enquiry.customerId === base.customer.id || enquiry.phone === base.customer.phone)
+  const enquiryRecords = enquiries.filter(
+    (enquiry) =>
+      enquiry.customerId === base.customer.id || enquiry.phone === base.customer.phone
+  )
   const receivedEnquiries = enquiries.filter((enquiry) => ownedListingIds.has(enquiry.listingId))
 
   return {
@@ -100,7 +226,9 @@ export function buildPersonTrackingProfile({ customers, bookings, complaints, li
     enquiryRecords,
     receivedEnquiries,
     liveOwnedListings: ownedListings.filter((listing) => listing.status === 'Live').length,
-    activeOwnedListings: ownedListings.filter((listing) => ['Live', 'Hold'].includes(listing.status)).length,
+    activeOwnedListings: ownedListings.filter((listing) =>
+      ['Live', 'Hold'].includes(listing.status)
+    ).length,
     openEnquiryRecords: enquiryRecords.filter((enquiry) => enquiry.status !== 'Closed').length,
   }
 }
@@ -132,6 +260,7 @@ export function buildCustomerServiceTimelineEvents({ context, label }) {
     status: complaint.status,
   }))
 
-  return [...bookingEvents, ...complaintEvents]
-    .sort((left, right) => (right.dateValue?.getTime() || 0) - (left.dateValue?.getTime() || 0))
+  return [...bookingEvents, ...complaintEvents].sort(
+    (left, right) => (right.dateValue?.getTime() || 0) - (left.dateValue?.getTime() || 0)
+  )
 }

@@ -2278,6 +2278,19 @@ async function handleWorkers(parts, method, body, queryOptions) {
         verifiedBy: actorName,
         approvedAt: new Date().toISOString(),
         reviewedAt: new Date().toISOString(),
+        // Clear partner self-update pending flags so Profile Updates inbox drops the card.
+        profileEditPending: false,
+        profileUpdatePending: false,
+        profilePendingReview: false,
+        profileEditFrozenAt: null,
+        pendingQueue: null,
+        profileUpdateSource: null,
+        updateType: null,
+        resubmittedAt: null,
+        changedFields: null,
+        pendingChangedFields: null,
+        lastResubmittedFields: null,
+        lastResubmittedSections: null,
       } : {}),
       ...(status === 'Rejected' ? {
         rejectedBy: actorName,
@@ -2287,6 +2300,12 @@ async function handleWorkers(parts, method, body, queryOptions) {
         reviewedBy: actorName,
         reviewedByName: actorName,
         reviewedAt: new Date().toISOString(),
+        profileEditPending: false,
+        profileUpdatePending: false,
+        profilePendingReview: false,
+        profileEditFrozenAt: null,
+        pendingQueue: null,
+        resubmittedAt: null,
       } : {}),
     })
   }

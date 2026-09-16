@@ -862,9 +862,22 @@ export const workersApi = {
       needsCorrection: false,
       correctionRequested: false,
       correctionStatus: null,
-      // Clear the self-edit freeze flag so an accepted profile-update worker leaves Profile Updates.
+      // Clear ALL self-edit / profile-update pending flags so Accept removes the card from
+      // Profile Updates. Partner writes both profileEditPending and profileUpdatePending.
       profileEditPending: false,
+      profileUpdatePending: false,
+      profilePendingReview: false,
       profileEditFrozenAt: null,
+      pendingQueue: null,
+      profileUpdateSource: null,
+      updateType: null,
+      resubmittedAt: null,
+      changedFields: null,
+      pendingChangedFields: null,
+      lastResubmittedFields: null,
+      lastResubmittedSections: null,
+      correctionFields: [],
+      correctionItems: [],
       // reviewStatus is set to 'Pending' when a serviceman resubmits a correction (both here and in
       // the mobile backend) and is what the partner app reads for its "profile under review" banner.
       // Nothing else ever resets it, so it must be re-aligned to the decision on approve/reject -
@@ -905,7 +918,17 @@ export const workersApi = {
       correctionRequested: false,
       correctionStatus: null,
       profileEditPending: false,
+      profileUpdatePending: false,
+      profilePendingReview: false,
       profileEditFrozenAt: null,
+      pendingQueue: null,
+      profileUpdateSource: null,
+      updateType: null,
+      resubmittedAt: null,
+      changedFields: null,
+      pendingChangedFields: null,
+      lastResubmittedFields: null,
+      lastResubmittedSections: null,
       // Keep reviewStatus aligned to the decision (see approveWorker) so a rejected worker does not
       // stay stuck showing "profile under review" in the partner app.
       reviewStatus: 'Rejected',
@@ -939,7 +962,10 @@ export const workersApi = {
       correctionRequestedAt: new Date().toISOString(),
       // Sending back for correction supersedes any frozen self-edit: the serviceman must resubmit.
       profileEditPending: false,
+      profileUpdatePending: false,
+      profilePendingReview: false,
       profileEditFrozenAt: null,
+      pendingQueue: null,
     }, options).catch(() => reviewed)
   },
   suspendWorker: (workerId, payload = {}, options = {}) => workersApi.updateWorker(workerId, {

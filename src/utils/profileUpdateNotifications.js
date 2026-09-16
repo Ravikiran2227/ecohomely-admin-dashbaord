@@ -170,7 +170,26 @@ export function hasProfileUpdateAfterReview(worker = {}) {
 // worker visible in Profile Updates even though `approved` is now false (so hasProfileUpdateAfterReview,
 // which requires approved === true, no longer fires for them).
 export function hasPendingProfileEdit(worker = {}) {
-  return worker.profileEditPending === true || worker.profileUpdatePending === true
+  const pending =
+    worker.profileEditPending === true ||
+    worker.profileUpdatePending === true ||
+    worker.profilePendingReview === true
+  if (!pending) return false
+  // Defense: Accept used to set Approved without clearing profileUpdatePending — do not keep
+  // already-approved workers in Profile Updates because of those stale flags.
+  const status = String(
+    worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '',
+  ).toLowerCase()
+  if (
+    status.includes('approved') ||
+    worker.Approved === true ||
+    worker.approved === true ||
+    worker.isApproved === true ||
+    worker.adminApproved === true
+  ) {
+    return false
+  }
+  return true
 }
 
 export function hasPendingProfileUpdate(worker = {}) {

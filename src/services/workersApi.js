@@ -728,7 +728,16 @@ export function normalizeWorker(worker = {}) {
     availability,
     planType: worker.planType || 'Free',
     membership: normalizeMembership(worker.membership),
-    serviceRadiusKm: worker.serviceRadiusKm || 10,
+    serviceRadiusKm: (() => {
+      const explicit = Number(worker.serviceRadiusKm);
+      if (Number.isFinite(explicit) && explicit > 0) return explicit;
+      const fromLabel = String(worker.serviceRadius || '').match(/(\d+(\.\d+)?)/);
+      if (fromLabel) {
+        const n = Number(fromLabel[1]);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+      return 10;
+    })(),
     rankDistanceKm: worker.rankDistanceKm ?? 999,
     state_id: worker.state_id || worker.stateId || '',
     district_id: worker.district_id || worker.districtId || '',

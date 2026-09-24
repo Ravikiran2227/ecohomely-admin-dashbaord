@@ -294,7 +294,15 @@ function buildProfessionDraft(worker, type) {
     subServices: joinListInput(source?.subServices || source?.subservices || source?.sub_service || source?.subService),
     minimalVisitIncludes: joinListInput(source?.minimalVisitIncludes || source?.minimumVisitIncludes || source?.visitIncludes || source?.includes),
     fullServiceIncludes: joinListInput(source?.fullServiceIncludes || source?.packageIncludes || source?.fullServiceItems),
-    description: source?.description || source?.jobDescription || source?.professionDescription || '',
+    description: firstText(
+      source?.description,
+      source?.jobDescription,
+      source?.professionDescription,
+      type === 'secondary' ? worker?.secondaryDescription : '',
+      type === 'secondary' ? worker?.secondaryAbout : '',
+      type === 'primary' ? worker?.description : '',
+      type === 'primary' ? worker?.about : '',
+    ),
   }
 }
 
@@ -386,8 +394,8 @@ function buildDraft(worker) {
     city_id: worker?.city_id || '',
     mandal_id: worker?.mandal_id || '',
     area_id: worker?.area_id || '',
-    about: worker?.about || '',
-    languages: joinListInput(worker?.languages),
+    about: firstText(worker?.about, worker?.description, worker?.jobDescription) || '',
+    languages: joinListInput(worker?.languages || worker?.languagesKnown),
     skills: joinListInput(worker?.skills),
     profileBadges: joinListInput(worker?.profileBadges),
     profileHighlights: joinListInput(worker?.profileHighlights),
@@ -493,6 +501,10 @@ function sanitizeDraft(draft, worker) {
     profilePhoto: Boolean(draft.profilePhoto),
     serviceMode: draft.serviceMode,
     serviceRadiusKm: Math.max(0, Number(draft.serviceRadiusKm) || 0),
+    serviceRadius: (() => {
+      const km = Math.max(0, Number(draft.serviceRadiusKm) || 0)
+      return km > 0 ? `${km}km` : (worker?.serviceRadius || '')
+    })(),
     locationAccuracy: draft.locationAccuracy,
     cluster_id: draft.cluster_id,
     state_id: draft.state_id,
@@ -500,8 +512,12 @@ function sanitizeDraft(draft, worker) {
     city_id: draft.city_id,
     mandal_id: draft.mandal_id,
     area_id: draft.area_id,
+    // Keep About + portfolio summary aliases aligned with the partner app (`description`).
     about: draft.about.trim(),
+    description: draft.about.trim(),
+    jobDescription: draft.about.trim(),
     languages: parseListInput(draft.languages),
+    languagesKnown: parseListInput(draft.languages),
     skills: parseListInput(draft.skills),
     profileBadges: parseListInput(draft.profileBadges),
     profileHighlights: parseListInput(draft.profileHighlights),
@@ -524,12 +540,18 @@ function sanitizeDraft(draft, worker) {
     primaryProfessionDetails: primaryProfession,
     professionDetails: {
       ...(worker?.professionDetails && typeof worker.professionDetails === 'object' ? worker.professionDetails : {}),
-      primary: primaryProfession,
+      primary: {
+        ...primaryProfession,
+        description: primaryProfession.description || draft.about.trim(),
+      },
       ...(keepSecondary ? { secondary: secondaryProfession } : {}),
     },
     professionalDetails: {
       ...(worker?.professionalDetails && typeof worker.professionalDetails === 'object' ? worker.professionalDetails : {}),
-      primary: primaryProfession,
+      primary: {
+        ...primaryProfession,
+        description: primaryProfession.description || draft.about.trim(),
+      },
       ...(keepSecondary ? { secondary: secondaryProfession } : {}),
     },
     professions: professionNames,
@@ -542,6 +564,8 @@ function sanitizeDraft(draft, worker) {
       // child and crashes on. Keep the structured data in secondaryProfessionDetails only.
       secondaryProfession: secondaryProfession.profession,
       secondaryProfessionDetails: secondaryProfession,
+      secondaryDescription: secondaryProfession.description || worker?.secondaryDescription || '',
+      secondaryAbout: secondaryProfession.description || worker?.secondaryAbout || worker?.secondaryDescription || '',
       secondaryPrice: secondaryProfession.price,
       secondaryMinimumPrice: secondaryProfession.minimumPrice,
       secondaryMinimumVisitPrice: secondaryProfession.minimumPrice,

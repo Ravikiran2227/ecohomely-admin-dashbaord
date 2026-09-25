@@ -542,7 +542,7 @@ function sanitizeDraft(draft, worker) {
       ...(worker?.professionDetails && typeof worker.professionDetails === 'object' ? worker.professionDetails : {}),
       primary: {
         ...primaryProfession,
-        description: primaryProfession.description || draft.about.trim(),
+        description: draft.about.trim() || primaryProfession.description,
       },
       ...(keepSecondary ? { secondary: secondaryProfession } : {}),
     },
@@ -550,7 +550,7 @@ function sanitizeDraft(draft, worker) {
       ...(worker?.professionalDetails && typeof worker.professionalDetails === 'object' ? worker.professionalDetails : {}),
       primary: {
         ...primaryProfession,
-        description: primaryProfession.description || draft.about.trim(),
+        description: draft.about.trim() || primaryProfession.description,
       },
       ...(keepSecondary ? { secondary: secondaryProfession } : {}),
     },

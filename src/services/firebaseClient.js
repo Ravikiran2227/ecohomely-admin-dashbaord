@@ -1359,7 +1359,15 @@ function workerDocTimestampMs(row = {}) {
 }
 
 function portfolioSummaryText(row = {}) {
-  return String(row.description || row.about || row.jobDescription || '').trim()
+  const candidates = [
+    String(row.description || '').trim(),
+    String(row.about || '').trim(),
+    String(row.jobDescription || '').trim(),
+    String(row.bio || '').trim(),
+  ].filter(Boolean)
+  if (!candidates.length) return ''
+  if (candidates.every((t) => t === candidates[0])) return candidates[0]
+  return candidates.reduce((best, t) => (t.length >= best.length ? t : best), '')
 }
 
 /**
@@ -1381,16 +1389,9 @@ function mergeWorkerAliasRows(existing, incoming) {
     secondary = incoming
   }
   const merged = { ...secondary, ...primary }
-  const primaryAbout = portfolioSummaryText(primary)
-  const secondaryAbout = portfolioSummaryText(secondary)
-  const about = primaryAbout || secondaryAbout
-  if (about) {
-    merged.description = primary.description || secondary.description || about
-    merged.about = primary.about || secondary.about || about
-    merged.jobDescription = primary.jobDescription || secondary.jobDescription || about
-    const chosen = String(
-      merged.description || merged.about || merged.jobDescription || about,
-    ).trim()
+  // Prefer the newer row's portfolio summary; fall back to the other alias.
+  const chosen = portfolioSummaryText(primary) || portfolioSummaryText(secondary)
+  if (chosen) {
     merged.description = chosen
     merged.about = chosen
     merged.jobDescription = chosen

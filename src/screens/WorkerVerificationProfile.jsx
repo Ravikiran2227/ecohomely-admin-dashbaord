@@ -527,7 +527,12 @@ export default function WorkerVerificationProfile() {
       experience: experienceYears > 0 ? `${experienceYears} ${experienceYears === 1 ? 'year' : 'years'}` : '',
       languages,
       location,
-      about: worker.professions?.[0]?.description || worker.about || '',
+      about:
+        worker.description ||
+        worker.about ||
+        worker.jobDescription ||
+        worker.professions?.[0]?.description ||
+        '',
       specializations: (worker.professions || []).flatMap((item) => item.services || []),
       services: (worker.professions || []).flatMap((item) => item.services || []),
       workPhotos: worker.workPhotos || [],

@@ -1210,8 +1210,50 @@ function WorkerProfileDetailViewContent({ workerId }) {
             : []
       setWorkerReviews(reviewRows)
       setIsSuspended(data.status === 'Suspended')
-      setWorkingDays(Array.isArray(data.workingDays) ? data.workingDays : [])
-      setWorkingSlots(Array.isArray(data.workingSlots) ? data.workingSlots : [])
+      {
+        const dayLabels = WORKING_DAY_OPTIONS
+        let days = Array.isArray(data.workingDays) ? data.workingDays.filter(Boolean) : []
+        if (!days.length && Array.isArray(data.availabilityDays) && data.availabilityDays.length) {
+          days = data.availabilityDays
+            .map((day) => {
+              if (typeof day === 'string' && dayLabels.includes(day)) return day
+              const idx = Number(day)
+              return Number.isFinite(idx) && idx >= 0 && idx < dayLabels.length ? dayLabels[idx] : null
+            })
+            .filter(Boolean)
+        }
+        setWorkingDays(days)
+
+        let slots = Array.isArray(data.workingSlots) ? data.workingSlots.filter(Boolean) : []
+        if (!slots.length) {
+          const formatClock = (value) => {
+            if (value == null || value === '') return ''
+            if (typeof value === 'string' && (/\d{1,2}:\d{2}/.test(value) || /\b(AM|PM)\b/i.test(value))) {
+              return value.trim()
+            }
+            let date = null
+            if (typeof value?.toDate === 'function') {
+              try { date = value.toDate() } catch { date = null }
+            } else if (typeof value === 'object' && typeof value.seconds === 'number') {
+              date = new Date(value.seconds * 1000)
+            } else {
+              const parsed = new Date(value)
+              if (!Number.isNaN(parsed.getTime())) date = parsed
+            }
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
+            let hours = date.getHours()
+            const minutes = date.getMinutes()
+            const suffix = hours >= 12 ? 'PM' : 'AM'
+            hours = hours % 12
+            if (hours === 0) hours = 12
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${suffix}`
+          }
+          const start = formatClock(data.availabilityStart)
+          const end = formatClock(data.availabilityEnd)
+          if (start && end) slots = [`${start} - ${end}`]
+        }
+        setWorkingSlots(slots)
+      }
       setLoading(false)
 
       const customerMap = new Map((Array.isArray(customers) ? customers : []).flatMap((customer) => (
@@ -1365,7 +1407,12 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const planValue = rawPlanValue === '' || rawPlanValue === null || rawPlanValue === undefined ? null : Number(rawPlanValue)
   const planExpiryDays = worker.planExpiry ? Math.ceil((new Date(worker.planExpiry).getTime() - TODAY_MS) / (1000 * 60 * 60 * 24)) : null
   const planHealth = planExpiryDays == null ? '' : planExpiryDays < 0 ? 'Expired' : planExpiryDays <= 7 ? `${planExpiryDays} days left` : `Valid for ${planExpiryDays} days`
-  const profileOverviewDescription = worker.about || primaryProfession?.description || ''
+  const profileOverviewDescription =
+    worker.description ||
+    worker.about ||
+    worker.jobDescription ||
+    primaryProfession?.description ||
+    ''
   const profileLanguages = normalizeProfileLanguages(worker)
   const experienceYears = extractExperienceYears(primaryProfession, worker) || getExperienceYears(worker, primaryProfession)
   const experienceLabel = extractExperienceLabel(primaryProfession, worker) || String(experienceYears || 0)

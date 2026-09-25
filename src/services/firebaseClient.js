@@ -1063,6 +1063,9 @@ function workerSnapshot(row = {}) {
   const profession = pick(row, ['profession', 'primaryProfession', 'professionName', 'category', 'serviceName'])
   const languages = row.languages || row.language || row.knownLanguages || row.spokenLanguages || ''
   const services = row.services || row.serviceList || row.categories || ''
+  const aboutText = String(
+    pick(row, ['description', 'about', 'jobDescription']) || row.description || row.about || row.jobDescription || '',
+  ).trim()
   return {
     name: nameOf(row, ''),
     phone: pick(row, ['phone', 'mobile', 'phoneNumber']),
@@ -1074,6 +1077,9 @@ function workerSnapshot(row = {}) {
     location: pick(row, ['areaName', 'area', 'cityName', 'city', 'serviceArea']),
     image: pick(row, ['profilePhoto', 'profilePhotoUrl', 'photoUrl', 'image', 'imageUrl']),
     aadhaar: pick(row, ['aadhaarUrl', 'aadhaarImage', 'aadharUrl', 'aadharImage']),
+    about: aboutText,
+    description: aboutText,
+    jobDescription: aboutText,
   }
 }
 
@@ -1324,6 +1330,74 @@ function buildHeatmapZones(workers = [], bookings = []) {
   }))
 }
 
+function workerDocTimestampMs(row = {}) {
+  const candidates = [
+    row.profileUpdatedAt,
+    row.updatedAt,
+    row.profileSubmittedAt,
+    row.resubmittedAt,
+    row.createdAt,
+  ]
+  for (const value of candidates) {
+    if (value == null || value === '') continue
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value?.toDate === 'function') {
+      try {
+        const d = value.toDate()
+        if (d instanceof Date && !Number.isNaN(d.getTime())) return d.getTime()
+      } catch {
+        /* ignore */
+      }
+    }
+    if (typeof value === 'object' && typeof value.seconds === 'number') {
+      return value.seconds * 1000
+    }
+    const parsed = Date.parse(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function portfolioSummaryText(row = {}) {
+  return String(row.description || row.about || row.jobDescription || '').trim()
+}
+
+/**
+ * Merge duplicate worker docs across `servicemen` + `workers` aliases.
+ * Prefer the freshest doc; on a tie keep the first-seen row (servicemen is listed first)
+ * and never let an empty/older about wipe a non-empty portfolio summary.
+ */
+function mergeWorkerAliasRows(existing, incoming) {
+  const existingTs = workerDocTimestampMs(existing)
+  const incomingTs = workerDocTimestampMs(incoming)
+  let primary
+  let secondary
+  if (incomingTs > existingTs) {
+    primary = incoming
+    secondary = existing
+  } else {
+    // existing wins on equal/older timestamps (servicemen processed first in aliases)
+    primary = existing
+    secondary = incoming
+  }
+  const merged = { ...secondary, ...primary }
+  const primaryAbout = portfolioSummaryText(primary)
+  const secondaryAbout = portfolioSummaryText(secondary)
+  const about = primaryAbout || secondaryAbout
+  if (about) {
+    merged.description = primary.description || secondary.description || about
+    merged.about = primary.about || secondary.about || about
+    merged.jobDescription = primary.jobDescription || secondary.jobDescription || about
+    const chosen = String(
+      merged.description || merged.about || merged.jobDescription || about,
+    ).trim()
+    merged.description = chosen
+    merged.about = chosen
+    merged.jobDescription = chosen
+  }
+  return merged
+}
+
 async function listCollection(name, filters = {}) {
   if (name === 'bookings') return listBookings(filters)
   if (name === 'adminUsers') return sortByDate(applyQueryFilters(await listAdminUsers(), filters), 'createdDate')
@@ -1338,7 +1412,16 @@ async function listCollection(name, filters = {}) {
     : []
   const byId = new Map()
   ;[...topLevelRows, ...groupRows].forEach((row) => {
-    byId.set(row.id, { ...(byId.get(row.id) || {}), ...row })
+    const existing = byId.get(row.id)
+    if (!existing) {
+      byId.set(row.id, row)
+      return
+    }
+    if (name === 'workers') {
+      byId.set(row.id, mergeWorkerAliasRows(existing, row))
+    } else {
+      byId.set(row.id, { ...existing, ...row })
+    }
   })
   const rows = [...byId.values()]
   const enrichedRows = name === 'toletListings' ? await enrichPropertyListingPhotos(rows) : rows
@@ -2174,6 +2257,7 @@ async function handleAdmin(path, method, body) {
 // status/approval/correction keys is a review decision and must NOT be counted as an edit.
 const WORKER_CONTENT_EDIT_KEYS = new Set([
   'name', 'fullName', 'email', 'phone', 'mobile', 'phoneNumber', 'gender', 'dateOfBirth', 'about',
+  'description', 'jobDescription',
   'address', 'areaName', 'area', 'city', 'profession', 'primaryProfession', 'primaryProfessionDetails',
   'professions', 'professionDetails', 'professionalDetails', 'services', 'skills', 'languages',
   'experienceYears', 'experience', 'teamSize', 'price', 'basePrice', 'amount', 'servicePrice',

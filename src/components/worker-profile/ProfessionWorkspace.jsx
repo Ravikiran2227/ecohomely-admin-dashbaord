@@ -136,6 +136,14 @@ function serviceChargeRows(source = {}) {
 }
 
 function getExperienceYears(worker, profession) {
+  const parseYears = (value) => {
+    if (value == null || value === '') return null
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    const match = String(value).match(/(\d+(\.\d+)?)/)
+    if (!match) return null
+    const n = Number(match[1])
+    return Number.isFinite(n) ? n : null
+  }
   return numberFromValue(firstText(
     profession?.experienceYears,
     profession?.experienceYear,
@@ -144,6 +152,7 @@ function getExperienceYears(worker, profession) {
     profession?.totalExperience,
     profession?.workExperience,
     profession?.experience,
+    profession?.experienceRange,
     worker?.experienceYears,
     worker?.experienceYear,
     worker?.yearsOfExperience,
@@ -151,8 +160,9 @@ function getExperienceYears(worker, profession) {
     worker?.totalExperience,
     worker?.workExperience,
     worker?.experience,
+    worker?.experienceRange,
     worker?.exp,
-  ))
+  )) || parseYears(worker?.experienceRange) || parseYears(profession?.experienceRange) || 0
 }
 
 function getProfessionVisual(professionName) {
@@ -1002,6 +1012,7 @@ export function ProfessionWorkspace({
     type === 'primary' ? worker.professionDescription : '',
     type === 'primary' ? worker.jobDescription : '',
     type === 'primary' ? worker.description : '',
+    type === 'primary' ? worker.about : '',
   )
   const quickFacts = [
     experienceYears > 0 ? { label: 'Experience', value: `${experienceYears}+ years` } : null,

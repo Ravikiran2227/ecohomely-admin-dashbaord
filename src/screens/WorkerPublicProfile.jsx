@@ -71,7 +71,12 @@ export default function WorkerPublicProfile() {
   const skills = Array.isArray(worker.skills) ? worker.skills : []
   const profileBadges = Array.isArray(worker.profileBadges) ? worker.profileBadges : []
   const profileHighlights = Array.isArray(worker.profileHighlights) ? worker.profileHighlights : []
-  const about = worker.about || primary?.description || ''
+  const about =
+    worker.description ||
+    worker.about ||
+    worker.jobDescription ||
+    primary?.description ||
+    ''
   const rating = worker.performance?.rating || worker.rating || worker.avgRating || ''
 
   return (

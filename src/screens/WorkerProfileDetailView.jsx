@@ -1407,12 +1407,17 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const planValue = rawPlanValue === '' || rawPlanValue === null || rawPlanValue === undefined ? null : Number(rawPlanValue)
   const planExpiryDays = worker.planExpiry ? Math.ceil((new Date(worker.planExpiry).getTime() - TODAY_MS) / (1000 * 60 * 60 * 24)) : null
   const planHealth = planExpiryDays == null ? '' : planExpiryDays < 0 ? 'Expired' : planExpiryDays <= 7 ? `${planExpiryDays} days left` : `Valid for ${planExpiryDays} days`
-  const profileOverviewDescription =
-    worker.description ||
-    worker.about ||
-    worker.jobDescription ||
-    primaryProfession?.description ||
-    ''
+  const profileOverviewDescription = (() => {
+    const candidates = [
+      String(worker.description || '').trim(),
+      String(worker.about || '').trim(),
+      String(worker.jobDescription || '').trim(),
+      String(primaryProfession?.description || '').trim(),
+    ].filter(Boolean)
+    if (!candidates.length) return ''
+    if (candidates.every((t) => t === candidates[0])) return candidates[0]
+    return candidates.reduce((best, t) => (t.length >= best.length ? t : best), '')
+  })()
   const profileLanguages = normalizeProfileLanguages(worker)
   const experienceYears = extractExperienceYears(primaryProfession, worker) || getExperienceYears(worker, primaryProfession)
   const experienceLabel = extractExperienceLabel(primaryProfession, worker) || String(experienceYears || 0)

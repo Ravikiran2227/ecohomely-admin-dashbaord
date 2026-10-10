@@ -30,6 +30,8 @@ const Assistance = lazy(() => import('./screens/Assistance'))
 const ToLet = lazy(() => import('./screens/ToLet'))
 const Reviews = lazy(() => import('./screens/Reviews'))
 const Plans = lazy(() => import('./screens/Plans'))
+const InstantServices = lazy(() => import('./screens/InstantServices'))
+const InstantBookings = lazy(() => import('./screens/InstantBookings'))
 const Payments = lazy(() => import('./screens/Payments'))
 const Referrals = lazy(() => import('./screens/Referrals'))
 const Cashbacks = lazy(() => import('./screens/Cashbacks'))
@@ -105,6 +107,8 @@ export default function App() {
               <Route path="/customers/:id"     element={<CustomerProfile />} />
               <Route path="/bookings"          element={<ProtectedRoute requiredPermission={PERMISSIONS.manageBookings}><BookingTracker /></ProtectedRoute>} />
               <Route path="/bookings/:id"      element={<ProtectedRoute requiredPermission={PERMISSIONS.manageBookings}><BookingDetailScreen /></ProtectedRoute>} />
+              <Route path="/instant-bookings"  element={<ProtectedRoute requiredPermission={PERMISSIONS.manageBookings}><InstantBookings /></ProtectedRoute>} />
+              <Route path="/instant-services"  element={<ProtectedRoute requiredPermission={PERMISSIONS.manageInstantServices}><InstantServices /></ProtectedRoute>} />
               <Route path="/assistance"        element={<Assistance />} />
               <Route path="/tolet/*"           element={<ToLet />} />
               <Route path="/reviews"           element={<Reviews />} />

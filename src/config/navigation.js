@@ -21,6 +21,7 @@ export const NAV_SECTIONS = [
     items: [
       { path: '/bookings', icon: 'calendar', label: 'Booking Tracker', isNew: true, summary: 'Monitor jobs, delays, and assignment flow.' },
       { path: '/assistance', icon: 'headphones', label: 'Assistance', isNew: true, summary: 'Help customers find workers quickly by location.' },
+      { path: '/instant-bookings', icon: 'calendar', label: 'Instant Bookings', isNew: true, summary: 'Assign partners to prepaid instant service bookings.' },
     ],
   },
   {
@@ -32,6 +33,7 @@ export const NAV_SECTIONS = [
   {
     label: 'Services',
     items: [
+      { path: '/instant-services', icon: 'creditcard', label: 'Instant Services', isNew: true, summary: 'Edit fixed-price instant packs, prices, and copy.' },
       { path: '/reviews', icon: 'star', label: 'Reviews & Ratings', summary: 'Track quality, ratings, and review moderation.' },
     ],
   },

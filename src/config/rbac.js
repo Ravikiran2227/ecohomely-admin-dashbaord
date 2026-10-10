@@ -13,6 +13,9 @@ export const PERMISSIONS = {
   viewSettings: 'view_settings',
   viewDashboard: 'view_dashboard',
   viewActivityLogs: 'view_activity_logs',
+  // Editing an instant pack changes what customers are charged, so it is kept
+  // apart from manageBookings, which Sub Admins already hold.
+  manageInstantServices: 'manage_instant_services',
 }
 
 export const ROLE_PERMISSIONS = {

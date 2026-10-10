@@ -86,6 +86,10 @@ const COLLECTION_ROUTES = {
   subscriptions: 'subscriptions',
   workers: 'workers',
   'coupon-redemptions': 'couponRedemptions',
+  // Instant Services: fixed-price packs sold by Ecohomely itself.
+  'instant-packs': 'instantServicePacks',
+  'instant-professions': 'instantServiceProfessions',
+  'instant-bookings': 'instantBookings',
 }
 
 const TO_LET_ROUTES = {
@@ -2633,6 +2637,15 @@ export async function firebaseRequest(path, options = {}) {
   if (collectionName) {
     const id = parts[1]
     const action = parts[2]
+    // Instant catalog documents are addressed by a human id (e.g. bathroom-single)
+    // that the app and the Razorpay function look up directly, so they are written
+    // at that id rather than an auto-generated one.
+    const isInstantCatalog = collectionName === 'instantServicePacks' || collectionName === 'instantServiceProfessions'
+    if (!id && method === 'POST' && isInstantCatalog) {
+      if (!body.id) throw Object.assign(new Error('An id is required'), { status: 400 })
+      const { id: documentId, ...rest } = body
+      return upsertRecord(collectionName, documentId, rest)
+    }
     if (!id) return method === 'POST' ? createRecord(collectionName, body) : listCollection(collectionName, queryOptions)
     if (collectionName === 'notifications' && action === 'read' && method === 'POST') {
       if (String(id).startsWith('worker-update-') && body.workerId) {

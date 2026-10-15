@@ -8,46 +8,87 @@ import ProtectedRoute from './components/ProtectedRoute'
 import { PERMISSIONS, ROLES } from './config/rbac'
 import { useAuth } from './context/authContextValue'
 
-const Login = lazy(() => import('./screens/Login'))
-const ForgotPassword = lazy(() => import('./screens/ForgotPassword'))
-const ResetPassword = lazy(() => import('./screens/ResetPassword'))
-const Dashboard = lazy(() => import('./screens/Dashboard'))
-const WorkerDashboard = lazy(() => import('./screens/WorkerDashboard'))
-const WorkerList = lazy(() => import('./screens/WorkerList'))
-const WorkerOnboarding = lazy(() => import('./screens/WorkerOnboarding'))
-const WorkerApproval = lazy(() => import('./screens/WorkerApproval'))
-const WorkerVerificationProfile = lazy(() => import('./screens/WorkerVerificationProfile'))
-const WorkerProfile = lazy(() => import('./screens/WorkerProfileDetailView'))
-const WorkerProfessionDetailScreen = lazy(() => import('./screens/WorkerProfessionDetailScreen'))
-const WorkerSecondaryProfession = lazy(() => import('./screens/WorkerSecondaryProfession'))
-const WorkerPublicProfile = lazy(() => import('./screens/WorkerPublicProfile'))
-const ProfileUpdates = lazy(() => import('./screens/ProfileUpdates'))
-const CustomerList = lazy(() => import('./screens/CustomerList'))
-const CustomerProfile = lazy(() => import('./screens/CustomerProfile'))
-const BookingTracker = lazy(() => import('./screens/BookingTracker'))
-const BookingDetailScreen = lazy(() => import('./screens/BookingDetailScreen'))
-const Assistance = lazy(() => import('./screens/Assistance'))
-const ToLet = lazy(() => import('./screens/ToLet'))
-const Reviews = lazy(() => import('./screens/Reviews'))
-const Plans = lazy(() => import('./screens/Plans'))
-const InstantServices = lazy(() => import('./screens/InstantServices'))
-const InstantBookings = lazy(() => import('./screens/InstantBookings'))
-const Payments = lazy(() => import('./screens/Payments'))
-const Referrals = lazy(() => import('./screens/Referrals'))
-const Cashbacks = lazy(() => import('./screens/Cashbacks'))
-const Coupons = lazy(() => import('./screens/Coupons'))
-const ActivityLogs = lazy(() => import('./screens/ActivityLogs'))
-const AccountDeletions = lazy(() => import('./screens/AccountDeletions'))
-const ControlVersions = lazy(() => import('./screens/ControlVersions'))
-const AreaManagement = lazy(() => import('./screens/AreaManagement'))
-const Announcements = lazy(() => import('./screens/Announcements'))
-const PushNotifications = lazy(() => import('./screens/Notifications'))
-const AdminNotifications = lazy(() => import('./screens/AdminNotifications'))
-const GPSHeatmap = lazy(() => import('./screens/GPSHeatmap'))
-const CityExpansion = lazy(() => import('./screens/CityExpansion'))
-const Flagged = lazy(() => import('./screens/Flagged'))
-const Settings = lazy(() => import('./screens/Settings'))
-const AdminManagement = lazy(() => import('./screens/AdminManagement'))
+/**
+ * Lazy screen that survives a deploy.
+ *
+ * Every chunk is content-hashed, so a deploy replaces all of their names. A tab that was
+ * opened before it is still holding the previous index.html and asks for names that are no
+ * longer there — and because the SPA rewrite answers anything it cannot find with
+ * index.html, the browser gets HTML where it expected a module and refuses to run it
+ * ("Expected a JavaScript-or-Wasm module script but the server responded with a MIME type
+ * of text/html"). The screen then never renders and the dashboard looks broken.
+ *
+ * Reloading picks up the current index.html and the chunk names that go with it. The
+ * timestamp guard means a genuinely broken chunk surfaces as an error instead of putting
+ * the page in a reload loop.
+ */
+const CHUNK_RELOAD_KEY = 'ecohomely:chunk-reload-at'
+const CHUNK_RELOAD_WINDOW_MS = 10000
+
+function lazyScreen(load) {
+  return lazy(() => load().catch((error) => {
+    let lastReload = 0
+    try {
+      lastReload = Number(window.sessionStorage.getItem(CHUNK_RELOAD_KEY) || 0)
+    } catch {
+      // Session storage can throw in private mode; treat it as never having reloaded.
+    }
+
+    if (Date.now() - lastReload > CHUNK_RELOAD_WINDOW_MS) {
+      try {
+        window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()))
+      } catch {
+        // Without storage the guard is gone, so reload at most this once per load.
+      }
+      window.location.reload()
+      // The reload takes over; resolving would render against a document on its way out.
+      return new Promise(() => {})
+    }
+
+    throw error
+  }))
+}
+
+const Login = lazyScreen(() => import('./screens/Login'))
+const ForgotPassword = lazyScreen(() => import('./screens/ForgotPassword'))
+const ResetPassword = lazyScreen(() => import('./screens/ResetPassword'))
+const Dashboard = lazyScreen(() => import('./screens/Dashboard'))
+const WorkerDashboard = lazyScreen(() => import('./screens/WorkerDashboard'))
+const WorkerList = lazyScreen(() => import('./screens/WorkerList'))
+const WorkerOnboarding = lazyScreen(() => import('./screens/WorkerOnboarding'))
+const WorkerApproval = lazyScreen(() => import('./screens/WorkerApproval'))
+const WorkerVerificationProfile = lazyScreen(() => import('./screens/WorkerVerificationProfile'))
+const WorkerProfile = lazyScreen(() => import('./screens/WorkerProfileDetailView'))
+const WorkerProfessionDetailScreen = lazyScreen(() => import('./screens/WorkerProfessionDetailScreen'))
+const WorkerSecondaryProfession = lazyScreen(() => import('./screens/WorkerSecondaryProfession'))
+const WorkerPublicProfile = lazyScreen(() => import('./screens/WorkerPublicProfile'))
+const ProfileUpdates = lazyScreen(() => import('./screens/ProfileUpdates'))
+const CustomerList = lazyScreen(() => import('./screens/CustomerList'))
+const CustomerProfile = lazyScreen(() => import('./screens/CustomerProfile'))
+const BookingTracker = lazyScreen(() => import('./screens/BookingTracker'))
+const BookingDetailScreen = lazyScreen(() => import('./screens/BookingDetailScreen'))
+const Assistance = lazyScreen(() => import('./screens/Assistance'))
+const ToLet = lazyScreen(() => import('./screens/ToLet'))
+const Reviews = lazyScreen(() => import('./screens/Reviews'))
+const Plans = lazyScreen(() => import('./screens/Plans'))
+const InstantServices = lazyScreen(() => import('./screens/InstantServices'))
+const InstantBookings = lazyScreen(() => import('./screens/InstantBookings'))
+const Payments = lazyScreen(() => import('./screens/Payments'))
+const Referrals = lazyScreen(() => import('./screens/Referrals'))
+const Cashbacks = lazyScreen(() => import('./screens/Cashbacks'))
+const Coupons = lazyScreen(() => import('./screens/Coupons'))
+const ActivityLogs = lazyScreen(() => import('./screens/ActivityLogs'))
+const AccountDeletions = lazyScreen(() => import('./screens/AccountDeletions'))
+const ControlVersions = lazyScreen(() => import('./screens/ControlVersions'))
+const AreaManagement = lazyScreen(() => import('./screens/AreaManagement'))
+const Announcements = lazyScreen(() => import('./screens/Announcements'))
+const PushNotifications = lazyScreen(() => import('./screens/Notifications'))
+const AdminNotifications = lazyScreen(() => import('./screens/AdminNotifications'))
+const GPSHeatmap = lazyScreen(() => import('./screens/GPSHeatmap'))
+const CityExpansion = lazyScreen(() => import('./screens/CityExpansion'))
+const Flagged = lazyScreen(() => import('./screens/Flagged'))
+const Settings = lazyScreen(() => import('./screens/Settings'))
+const AdminManagement = lazyScreen(() => import('./screens/AdminManagement'))
 
 function RouteFallback() {
   return (

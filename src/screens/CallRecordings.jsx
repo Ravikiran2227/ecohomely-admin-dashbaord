@@ -42,6 +42,7 @@ const STATUS_FILTERS = [
   { key: 'busy', label: 'Busy' },
   { key: 'rejected', label: 'Declined' },
   { key: 'recorded', label: 'With recording' },
+  { key: 'failed-recording', label: 'Recording failed' },
 ]
 
 const COLS = [
@@ -96,10 +97,47 @@ function describeParties(call) {
   }
 }
 
+/** Answered means the callee picked up — the backend stamps acceptedAt / connectedAt. */
+function wasAnswered(call) {
+  return Boolean(call.connectedAt || call.acceptedAt)
+}
+
+/**
+ * 'ended' covers both a real conversation and a caller who hung up mid-ring, and reporting
+ * every one of them as "Completed" made a call nobody answered look like a call that went
+ * fine — with the talk time blank for no apparent reason.
+ */
+function statusLabel(call) {
+  const status = String(call.status || '')
+  if (status === 'ended' && !wasAnswered(call)) return 'Not answered'
+  return STATUS_LABELS[status] || status || 'Unknown'
+}
+
+function statusColor(call) {
+  const status = String(call.status || '')
+  if (status === 'ended' && !wasAnswered(call)) return '#F59E0B'
+  return STATUS_COLORS[status] || '#64748B'
+}
+
+/**
+ * What became of the recording, so a failure is not reported as "no recording".
+ * Every failure so far has been Agora rejecting the start with a 401, which is a
+ * credentials problem on the backend, not something the call did.
+ */
+function recordingState(call) {
+  const files = call.recordingFiles || []
+  if (files.length) return 'ready'
+  if (call.recordingStatus === 'failed' || call.recordingStatus === 'stop_failed') return 'failed'
+  if (call.recordingStatus === 'starting' || call.recordingStatus === 'recording') return 'pending'
+  if (call.recordingPrefix) return 'ready'
+  return 'none'
+}
+
 function matchesStatusFilter(call, filterKey) {
   if (filterKey === 'all') return true
-  if (filterKey === 'recorded') return (call.recordingFiles || []).length > 0
-  if (filterKey === 'completed') return call.status === 'ended' || call.status === 'connected'
+  if (filterKey === 'recorded') return recordingState(call) === 'ready'
+  if (filterKey === 'failed-recording') return recordingState(call) === 'failed'
+  if (filterKey === 'completed') return wasAnswered(call) && (call.status === 'ended' || call.status === 'connected')
   return call.status === filterKey
 }
 
@@ -133,6 +171,7 @@ export default function CallRecordings() {
           id: entry.id,
           ...data,
           recordingStatus: recording.status || null,
+          recordingError: recording.error || '',
           recordingPrefix: recording.storagePathPrefix || null,
           recordingFiles: files,
         }
@@ -163,10 +202,18 @@ export default function CallRecordings() {
 
   const stats = useMemo(() => ({
     total: calls.length,
-    recorded: calls.filter((call) => (call.recordingFiles || []).length > 0).length,
-    missed: calls.filter((call) => call.status === 'missed').length,
-    busy: calls.filter((call) => call.status === 'busy').length,
+    recorded: calls.filter((call) => recordingState(call) === 'ready').length,
+    failed: calls.filter((call) => recordingState(call) === 'failed').length,
+    missed: calls.filter((call) => call.status === 'missed' || (call.status === 'ended' && !wasAnswered(call))).length,
   }), [calls])
+
+  // Every recording attempt failing is a backend problem, not 270 unlucky calls, and it is
+  // worth saying so here rather than leaving the column reading "No recording" throughout.
+  const recordingFault = useMemo(() => {
+    if (!stats.failed || stats.recorded) return ''
+    const sample = calls.find((call) => recordingState(call) === 'failed')
+    return sample?.recordingError || 'Agora rejected the recording request.'
+  }, [calls, stats.failed, stats.recorded])
 
   /**
    * Resolve a stored recording to a download URL. `files` entries are storage paths; a call
@@ -242,10 +289,28 @@ export default function CallRecordings() {
   }, [resolveFileUrl])
 
   function renderRecording(call) {
-    const files = call.recordingFiles || []
-    if (!files.length && !call.recordingPrefix) {
-      return <span className="text-xs font-semibold text-[var(--text-muted)]">No recording</span>
+    const state = recordingState(call)
+    if (state === 'failed') {
+      return (
+        <span
+          className="text-xs font-semibold text-red-400"
+          title={call.recordingError || 'The recording could not be started.'}
+        >
+          Recording failed
+        </span>
+      )
     }
+    if (state === 'pending') {
+      return <span className="text-xs font-semibold text-[var(--text-muted)]">Recording in progress</span>
+    }
+    if (state === 'none') {
+      return (
+        <span className="text-xs font-semibold text-[var(--text-muted)]">
+          {wasAnswered(call) ? 'No recording' : 'Not answered'}
+        </span>
+      )
+    }
+    const files = call.recordingFiles || []
     // One entry per stored file; a prefix-only call gets a single lazily-resolved entry.
     const entries = files.length ? files : [null]
     return (
@@ -307,9 +372,21 @@ export default function CallRecordings() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="p-5"><div className="ui-eyebrow">Calls</div><div className="mt-2 text-3xl font-black">{stats.total}</div></Card>
         <Card className="p-5"><div className="ui-eyebrow">Recorded</div><div className="mt-2 text-3xl font-black text-emerald-400">{stats.recorded}</div></Card>
-        <Card className="p-5"><div className="ui-eyebrow">Missed</div><div className="mt-2 text-3xl font-black text-red-400">{stats.missed}</div></Card>
-        <Card className="p-5"><div className="ui-eyebrow">Busy</div><div className="mt-2 text-3xl font-black text-amber-400">{stats.busy}</div></Card>
+        <Card className="p-5"><div className="ui-eyebrow">Unanswered</div><div className="mt-2 text-3xl font-black text-amber-400">{stats.missed}</div></Card>
+        <Card className="p-5"><div className="ui-eyebrow">Recording failed</div><div className="mt-2 text-3xl font-black text-red-400">{stats.failed}</div></Card>
       </div>
+
+      {recordingFault ? (
+        <Card className="p-4">
+          <div className="text-sm font-semibold text-red-400">
+            No call has recorded successfully — every attempt was rejected before it started.
+          </div>
+          <div className="mt-1 text-xs font-semibold text-[var(--text-muted)]">
+            Agora reported: {recordingFault}. This is the recording credentials on the backend
+            (AGORA_CUSTOMER_ID / AGORA_CUSTOMER_SECRET), not the calls themselves.
+          </div>
+        </Card>
+      ) : null}
 
       <Card className="p-5">
         <div className="grid gap-4">
@@ -350,7 +427,6 @@ export default function CallRecordings() {
         <DataTable cols={COLS}>
           {visibleCalls.map((call) => {
             const { fromName, fromRole, toName, toRole } = describeParties(call)
-            const status = String(call.status || '')
             return (
               <TableRow key={call.id}>
                 <TD>
@@ -366,10 +442,7 @@ export default function CallRecordings() {
                   <div className="text-[11px] font-semibold text-[var(--text-muted)]">{toRole}</div>
                 </TD>
                 <TD>
-                  <Badge
-                    label={STATUS_LABELS[status] || status || 'Unknown'}
-                    color={STATUS_COLORS[status] || '#64748B'}
-                  />
+                  <Badge label={statusLabel(call)} color={statusColor(call)} />
                 </TD>
                 <TD>{formatDuration(call)}</TD>
                 <TD>{renderRecording(call)}</TD>

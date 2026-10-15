@@ -2042,6 +2042,69 @@ app.use((req, res) => {
 
 
 // Function to send notification when serviceman account is approved
+// Must match APPROVAL_CHANNEL_ID in the partner app's utils/approvalNotification.js.
+// Android freezes a channel's sound at creation, so a sound change needs a new id here too.
+const APPROVAL_CHANNEL_ID = "profile-approved-v1";
+
+/**
+ * Tell a serviceman their profile was approved, over FCM.
+ *
+ * The dashboard approves by writing to Firestore directly, so this trigger is the only
+ * thing that can notify the partner. The notification block means Android renders it (with
+ * the channel's one-shot "approved" sound) while the app is backgrounded or killed; the
+ * data block lets a foregrounded app display it itself and refresh its cached profile.
+ *
+ * Returns true when a push went out, so the caller can skip the Expo fallback.
+ */
+async function sendProfileApprovedPush(servicemanId, servicemanData) {
+  const fcmToken = servicemanData && servicemanData.fcmToken;
+  if (!fcmToken) {
+    console.log("[APPROVAL] no fcmToken for serviceman", servicemanId);
+    return false;
+  }
+  const title = "Profile approved";
+  const body = "Your profile has been approved. You can now receive bookings.";
+  try {
+    await admin.messaging(adminApp).send({
+      token: fcmToken,
+      notification: { title, body },
+      data: {
+        type: "profile_approved",
+        servicemanId: String(servicemanId),
+        channelId: APPROVAL_CHANNEL_ID,
+        title,
+        body,
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: APPROVAL_CHANNEL_ID,
+          sound: "approved",
+          defaultSound: false,
+          visibility: "public",
+        },
+      },
+      apns: {
+        headers: { "apns-priority": "10", "apns-push-type": "alert" },
+        payload: {
+          aps: {
+            alert: { title, body },
+            // Bundled via the expo-notifications `sounds` array in the partner app.
+            sound: "approved_ios.wav",
+            "interruption-level": "time-sensitive",
+          },
+        },
+      },
+    });
+    console.log("[APPROVAL] sent to serviceman", servicemanId);
+    return true;
+  } catch (error) {
+    // Never fail the approval over a push: fall back to Expo.
+    console.error("[APPROVAL] send failed:", (error && error.message) || error);
+    return false;
+  }
+}
+
 exports.onServicemanApproved = functions.firestore
   .document('servicemen/{servicemanId}')
   .onUpdate(async (change, context) => {
@@ -2074,8 +2137,16 @@ exports.onServicemanApproved = functions.firestore
           priority: 'high'
         });
 
+        // Preferred path: FCM on the partner app's own approval channel, which plays the
+        // one-shot "approved" sound and carries type 'profile_approved' — the type the app
+        // keys its approval handling off, including dropping its cached profile so the
+        // approved values are what the next Profile open paints. The Expo push below is the
+        // fallback for an install that has no fcmToken yet; sending both would show two
+        // notifications for one approval.
+        const approvalSent = await sendProfileApprovedPush(servicemanId, servicemanData);
+
         // Send Expo push notification
-        const expoPushToken = servicemanData.expoPushToken;
+        const expoPushToken = approvalSent ? null : servicemanData.expoPushToken;
         if (expoPushToken && Expo.isExpoPushToken(expoPushToken)) {
           try {
             const messages = [{

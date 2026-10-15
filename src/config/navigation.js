@@ -22,6 +22,7 @@ export const NAV_SECTIONS = [
       { path: '/bookings', icon: 'calendar', label: 'Booking Tracker', isNew: true, summary: 'Monitor jobs, delays, and assignment flow.' },
       { path: '/assistance', icon: 'headphones', label: 'Assistance', isNew: true, summary: 'Help customers find workers quickly by location.' },
       { path: '/instant-bookings', icon: 'calendar', label: 'Instant Bookings', isNew: true, summary: 'Assign partners to prepaid instant service bookings.' },
+      { path: '/call-recordings', icon: 'phone', label: 'Call Recordings', isNew: true, summary: 'Review in-app calls and play, download or share recordings.' },
     ],
   },
   {

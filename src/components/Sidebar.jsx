@@ -132,17 +132,27 @@ export default function Sidebar({ collapsed, onCollapse }) {
     }
 
     loadBadgeCounts()
-    const timer = window.setInterval(loadBadgeCounts, 60000)
+
+    // These five lists are most of the database, and the poll was running whether or not
+    // anyone was looking at the tab — on a dashboard left open in a background tab all day
+    // that is a full read of the data every minute for nothing. Poll only while the tab is
+    // visible, and refresh on the way back so the badges are current the moment it is.
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') loadBadgeCounts()
+    }
+    const timer = window.setInterval(refreshIfVisible, 60000)
     const onProfileUpdatesChanged = () => loadBadgeCounts()
     const onAdminNotificationsChanged = () => loadBadgeCounts()
     window.addEventListener(PROFILE_UPDATES_CHANGED_EVENT, onProfileUpdatesChanged)
     window.addEventListener(ADMIN_NOTIFICATIONS_CHANGED_EVENT, onAdminNotificationsChanged)
+    document.addEventListener('visibilitychange', refreshIfVisible)
 
     return () => {
       cancelled = true
       window.clearInterval(timer)
       window.removeEventListener(PROFILE_UPDATES_CHANGED_EVENT, onProfileUpdatesChanged)
       window.removeEventListener(ADMIN_NOTIFICATIONS_CHANGED_EVENT, onAdminNotificationsChanged)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
     }
   }, [])
 

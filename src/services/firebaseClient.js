@@ -206,6 +206,7 @@ async function createAdminUser(payload = {}) {
   const collectionName = adminCollectionForRole(payload.role)
   const body = normalizeAdminPayload(payload, { create: true })
   const recordRef = await addDoc(collection(db, collectionName), body)
+  invalidateListCache('adminUsers')
   return { id: recordRef.id, ...body, collectionName }
 }
 
@@ -371,16 +372,19 @@ async function updateAdminUser(id, payload = {}) {
     delete nextBody.collectionName
     const nextRef = await addDoc(collection(db, nextCollectionName), nextBody)
     await deleteDoc(doc(db, current.alias, id))
+    invalidateListCache('adminUsers')
     return { id: nextRef.id, ...nextBody, collectionName: nextCollectionName }
   }
 
   await setDoc(doc(db, current.alias, id), updates, { merge: true })
+  invalidateListCache('adminUsers')
   return { ...current.data, ...updates, id, collectionName: current.alias }
 }
 
 async function deleteAdminUser(id) {
   const current = await findAdminRecord(id)
   await deleteDoc(doc(db, current.alias, id))
+  invalidateListCache('adminUsers')
   return null
 }
 
@@ -1403,7 +1407,93 @@ function mergeWorkerAliasRows(existing, incoming) {
   return merged
 }
 
+/**
+ * Short-lived cache in front of listCollection, with in-flight de-duplication.
+ *
+ * None of these reads is paginated — a list means downloading the whole collection, and
+ * several mean downloading more than one (workers is servicemen + workers + two collection
+ * groups; bookings pulls customers and workers in as well, just to label rows). On top of
+ * that the sidebar asks for complaints, customers, workers, bookings and deletions on mount
+ * and again every minute, while whichever screen is open asks for the same lists itself. So
+ * the same collections were being pulled down several times over for one render.
+ *
+ * De-duplicating in flight is what makes a cold load fast: the sidebar's five calls and the
+ * screen's own calls collapse into one read each. The TTL only covers what follows, and is
+ * deliberately short — writes clear the cache (see invalidateListCache), so an edit is still
+ * visible immediately rather than up to a TTL later.
+ */
+const LIST_CACHE_TTL_MS = 45000
+const listCache = new Map()
+const listInFlight = new Map()
+
+function listCacheKey(name, filters) {
+  try {
+    const keys = Object.keys(filters || {}).sort()
+    if (!keys.length) return name
+    return `${name}:${JSON.stringify(keys.map((key) => [key, filters[key]]))}`
+  } catch {
+    // An unserialisable filter must not be served another call's rows.
+    return `${name}:${Math.random()}`
+  }
+}
+
+/**
+ * Drop cached rows. Called after every write so the next read is authoritative.
+ * `name` omitted clears everything, which is what a write of unknown scope needs.
+ */
+export function invalidateListCache(name) {
+  if (!name) {
+    listCache.clear()
+    return
+  }
+  // Bookings rows carry customer and worker names, so those lists feed more than their own
+  // screen; clearing by prefix keeps a stale label from surviving the record it came from.
+  for (const key of [...listCache.keys()]) {
+    if (key === name || key.startsWith(`${name}:`)) listCache.delete(key)
+  }
+  if (name === 'customers' || name === 'workers') {
+    for (const key of [...listCache.keys()]) {
+      if (key === 'bookings' || key.startsWith('bookings:')) listCache.delete(key)
+    }
+  }
+}
+
+/**
+ * Entries hold whole collections, and a filtered call gets a key of its own, so a long
+ * session could otherwise accumulate several copies of the data it has finished with.
+ * Anything well past its TTL can never be served again, so drop it.
+ */
+function pruneListCache() {
+  const cutoff = Date.now() - LIST_CACHE_TTL_MS * 4
+  for (const [key, entry] of listCache) {
+    if (entry.at < cutoff) listCache.delete(key)
+  }
+}
+
 async function listCollection(name, filters = {}) {
+  const key = listCacheKey(name, filters)
+
+  const cached = listCache.get(key)
+  if (cached && Date.now() - cached.at < LIST_CACHE_TTL_MS) return cached.rows
+
+  const inFlight = listInFlight.get(key)
+  if (inFlight) return inFlight
+
+  const request = loadCollection(name, filters)
+    .then((rows) => {
+      pruneListCache()
+      listCache.set(key, { at: Date.now(), rows })
+      return rows
+    })
+    .finally(() => {
+      listInFlight.delete(key)
+    })
+
+  listInFlight.set(key, request)
+  return request
+}
+
+async function loadCollection(name, filters = {}) {
   if (name === 'bookings') return listBookings(filters)
   if (name === 'adminUsers') return sortByDate(applyQueryFilters(await listAdminUsers(), filters), 'createdDate')
   if (name === 'controlVersions') return listVersionControlDocuments()
@@ -1412,8 +1502,10 @@ async function listCollection(name, filters = {}) {
 
   const topLevelRows = await Promise.all(aliasesFor(name).map((alias) => getDocs(collection(db, alias))))
     .then((snapshots) => snapshots.flatMap((snapshot) => snapshot.docs.map(docToJson)))
+  // Awaited one after the other, these two full-collection scans ran back to back for no
+  // reason — neither depends on the other.
   const groupRows = name === 'workers'
-    ? [...await safeCollectionGroup('servicemen'), ...await safeCollectionGroup('workers')]
+    ? (await Promise.all([safeCollectionGroup('servicemen'), safeCollectionGroup('workers')])).flat()
     : []
   const byId = new Map()
   ;[...topLevelRows, ...groupRows].forEach((row) => {
@@ -1619,6 +1711,7 @@ async function findRecord(name, id, label = 'Record') {
 async function createRecord(name, payload = {}) {
   const body = withTimestamps(payload, { create: true })
   const recordRef = await addDoc(collection(db, aliasesFor(name)[0]), body)
+  invalidateListCache(name)
   return { id: recordRef.id, ...body }
 }
 
@@ -1626,6 +1719,7 @@ async function updateRecord(name, id, payload = {}) {
   const current = await findRecord(name, id)
   const updates = withTimestamps(payload)
   await setDoc(current.ref, updates, { merge: true })
+  invalidateListCache(name)
   return { ...current.data, ...updates, id }
 }
 
@@ -1643,6 +1737,7 @@ async function updateWorkerRecordEverywhere(id, payload = {}) {
     }),
   )
 
+  invalidateListCache('workers')
   return { ...current.data, ...updates, id }
 }
 
@@ -1864,6 +1959,7 @@ async function deleteRecord(name, id) {
     await purgeRecordStorageAssets(current.data, name)
   }
   await deleteDoc(current.ref)
+  invalidateListCache(name)
   return null
 }
 

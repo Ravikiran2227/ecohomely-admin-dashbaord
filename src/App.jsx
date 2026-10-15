@@ -78,6 +78,7 @@ const Referrals = lazyScreen(() => import('./screens/Referrals'))
 const Cashbacks = lazyScreen(() => import('./screens/Cashbacks'))
 const Coupons = lazyScreen(() => import('./screens/Coupons'))
 const ActivityLogs = lazyScreen(() => import('./screens/ActivityLogs'))
+const CallRecordings = lazyScreen(() => import('./screens/CallRecordings'))
 const AccountDeletions = lazyScreen(() => import('./screens/AccountDeletions'))
 const ControlVersions = lazyScreen(() => import('./screens/ControlVersions'))
 const AreaManagement = lazyScreen(() => import('./screens/AreaManagement'))
@@ -169,6 +170,7 @@ export default function App() {
               <Route path="/cashbacks"         element={<Cashbacks />} />
               <Route path="/coupons"           element={<Coupons />} />
               <Route path="/logs"              element={<ProtectedRoute requiredPermission={PERMISSIONS.viewActivityLogs}><ActivityLogs /></ProtectedRoute>} />
+              <Route path="/call-recordings"   element={<ProtectedRoute requiredRoles={[ROLES.SUPER_ADMIN, ROLES.ADMIN]}><CallRecordings /></ProtectedRoute>} />
               <Route path="/account-deletions"  element={<ProtectedRoute requiredRoles={[ROLES.SUPER_ADMIN, ROLES.ADMIN]}><AccountDeletions /></ProtectedRoute>} />
               <Route path="/control-versions"  element={<ProtectedRoute requiredRoles={[ROLES.SUPER_ADMIN, ROLES.ADMIN]}><ControlVersions /></ProtectedRoute>} />
               <Route path="/areas"             element={<AreaManagement />} />

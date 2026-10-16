@@ -273,7 +273,7 @@ function correctionDetails(worker = {}) {
         value: formatCorrectionDetailValue(key, currentValues[key]),
         changed: true,
       }
-    }).filter((item) => item.label)
+    }).filter((item) => item.label && item.value && item.value !== 'Not provided')
   }
   return []
 }
@@ -614,7 +614,7 @@ export default function ProfileUpdates() {
                       type="button"
                       disabled={busy}
                       onClick={(event) => openCorrection(row, event)}
-                      className="rounded-xl border border-[#f59e0b] px-3 py-2 text-sm font-bold text-[#b45309] transition hover:bg-[color-mix(in_srgb,#f59e0b_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-xl border border-[var(--brand-500)] px-3 py-2 text-sm font-bold text-[var(--brand-500)] transition hover:bg-[color-mix(in_srgb,var(--brand-500)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Mark for Correction
                     </button>
@@ -680,7 +680,7 @@ export default function ProfileUpdates() {
                       key={key}
                       className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
                         checked
-                          ? 'border-[#f59e0b] bg-[color-mix(in_srgb,#f59e0b_12%,transparent)] text-[var(--text-main)]'
+                          ? 'border-[var(--brand-500)] bg-[color-mix(in_srgb,var(--brand-500)_12%,transparent)] text-[var(--text-main)]'
                           : 'border-[var(--border-main)] bg-[var(--bg-main)] text-[var(--text-main)]'
                       }`}
                     >
@@ -717,7 +717,7 @@ export default function ProfileUpdates() {
                 type="button"
                 disabled={sendingCorrection || !correctionFields.length}
                 onClick={sendCorrection}
-                className="rounded-xl bg-[#f59e0b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#d97706] disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-xl bg-[var(--brand-500)] px-4 py-2 text-sm font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {sendingCorrection ? 'Sending…' : 'Send correction'}
               </button>

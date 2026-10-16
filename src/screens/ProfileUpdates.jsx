@@ -255,8 +255,48 @@ function correctionDetails(worker = {}) {
       }
     }).filter((item) => item.label)
   }
+
+  // Self-update (no admin correction request): show the fields the partner actually changed.
+  const changed = [
+    worker.changedFields,
+    worker.pendingChangedFields,
+    worker.lastResubmittedFields,
+    worker.pendingChangedFieldKeys,
+    worker.changedFieldKeys,
+  ].find((value) => Array.isArray(value) && value.length) || []
+  if (changed.length) {
+    return changed.map((field) => {
+      const key = normalizeCorrectionKey(field)
+      return {
+        key,
+        label: correctionFieldLabel(field),
+        value: formatCorrectionDetailValue(key, currentValues[key]),
+        changed: true,
+      }
+    }).filter((item) => item.label)
+  }
   return []
 }
+
+/** Fields the admin can send back for correction (keys the partner app understands). */
+const CORRECTION_FIELD_OPTIONS = [
+  ['name', 'Full name'],
+  ['phone', 'Phone number'],
+  ['email', 'Email'],
+  ['image', 'Profile photo'],
+  ['address', 'Home address'],
+  ['areaName', 'Service area'],
+  ['dateOfBirth', 'Date of birth'],
+  ['profession', 'Profession'],
+  ['services', 'Services'],
+  ['description', 'Job description'],
+  ['experienceRange', 'Experience'],
+  ['minimalVisitCharge', 'Minimal visit charge'],
+  ['media', 'Work photos / media'],
+  ['documents', 'Certificates (uploads)'],
+  ['aadharCard', 'Aadhaar card'],
+  ['drivingLicense', 'Driving license'],
+]
 
 function hasProfileUpdate(worker = {}) {
   // Show a worker here only once they have actually resubmitted corrections (the partner app sets
@@ -287,6 +327,52 @@ export default function ProfileUpdates() {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [busyId, setBusyId] = useState('')
+  // Mark-for-Correction popup state.
+  const [correctionRow, setCorrectionRow] = useState(null)
+  const [correctionFields, setCorrectionFields] = useState([])
+  const [correctionNote, setCorrectionNote] = useState('')
+  const [sendingCorrection, setSendingCorrection] = useState(false)
+
+  function openCorrection(row, event) {
+    if (event) event.stopPropagation()
+    setCorrectionRow(row)
+    // Seed with whatever the serviceman just changed, so the admin starts from the relevant set.
+    const seed = (row.corrections || [])
+      .map((item) => normalizeCorrectionKey(item.key))
+      .filter((key) => CORRECTION_FIELD_OPTIONS.some(([optionKey]) => optionKey === key))
+    setCorrectionFields([...new Set(seed)])
+    setCorrectionNote('')
+  }
+
+  function toggleCorrectionField(key) {
+    setCorrectionFields((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]))
+  }
+
+  async function sendCorrection() {
+    if (!correctionRow || sendingCorrection) return
+    if (!correctionFields.length) {
+      window.alert('Select at least one field to send back for correction.')
+      return
+    }
+    setSendingCorrection(true)
+    try {
+      await workersApi.requestCorrection(correctionRow.id, {
+        items: correctionFields,
+        correctionFields,
+        note: correctionNote.trim() || `Correction requested for: ${correctionFields.map((key) => correctionFieldLabel(key)).join(', ')}`,
+        correctionReason: correctionNote.trim(),
+        requestedBy: currentUser?.name || currentUser?.displayName || currentUser?.username || 'Admin',
+        requestedByRole: currentUser?.role || null,
+      })
+      dispatchProfileUpdatesChanged()
+      setCorrectionRow(null)
+      setCorrectionFields([])
+      setCorrectionNote('')
+      await load()
+    } finally {
+      setSendingCorrection(false)
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -524,6 +610,14 @@ export default function ProfileUpdates() {
                     >
                       View full profile
                     </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={(event) => openCorrection(row, event)}
+                      className="rounded-xl border border-[#f59e0b] px-3 py-2 text-sm font-bold text-[#b45309] transition hover:bg-[color-mix(in_srgb,#f59e0b_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Mark for Correction
+                    </button>
                     <div className="ml-auto flex gap-2">
                       <button
                         type="button"
@@ -559,6 +653,78 @@ export default function ProfileUpdates() {
           </div>
         )}
       </section>
+
+      {correctionRow && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"
+          onClick={() => { if (!sendingCorrection) setCorrectionRow(null) }}
+        >
+          <div
+            className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-[var(--border-main)] bg-[var(--card-bg)] shadow-[var(--shadow-soft)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-[var(--border-main)] p-5">
+              <h3 className="text-lg font-extrabold text-[var(--text-main)]">Mark for Correction</h3>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">
+                {correctionRow.name} — pick the fields to send back and add a note.
+              </p>
+            </div>
+
+            <div className="overflow-y-auto p-5">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Fields to correct</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {CORRECTION_FIELD_OPTIONS.map(([key, label]) => {
+                  const checked = correctionFields.includes(key)
+                  return (
+                    <label
+                      key={key}
+                      className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                        checked
+                          ? 'border-[#f59e0b] bg-[color-mix(in_srgb,#f59e0b_12%,transparent)] text-[var(--text-main)]'
+                          : 'border-[var(--border-main)] bg-[var(--bg-main)] text-[var(--text-main)]'
+                      }`}
+                    >
+                      <input type="checkbox" checked={checked} onChange={() => toggleCorrectionField(key)} />
+                      <span>{label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+
+              <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">Note to partner (optional)</p>
+              <textarea
+                value={correctionNote}
+                onChange={(event) => setCorrectionNote(event.target.value)}
+                rows={3}
+                placeholder="e.g. Your Aadhaar photo is blurry — please re-upload a clear copy."
+                className="mt-2 w-full rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] p-3 text-sm font-semibold text-[var(--text-main)] outline-none transition focus:border-[var(--brand-500)]"
+              />
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                {correctionFields.length} field{correctionFields.length === 1 ? '' : 's'} selected. The partner is notified and their app reopens the correction screen.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-[var(--border-main)] p-5">
+              <button
+                type="button"
+                disabled={sendingCorrection}
+                onClick={() => setCorrectionRow(null)}
+                className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-4 py-2 text-sm font-bold text-[var(--text-main)] transition hover:border-[var(--brand-500)] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={sendingCorrection || !correctionFields.length}
+                onClick={sendCorrection}
+                className="rounded-xl bg-[#f59e0b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#d97706] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sendingCorrection ? 'Sending…' : 'Send correction'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

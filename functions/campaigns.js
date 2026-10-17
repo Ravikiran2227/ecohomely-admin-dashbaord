@@ -624,9 +624,13 @@ function normalizeIncoming(body) {
  * Notifications screen already calls, which until now fell through to a client-side stub
  * that wrote fake `delivered` counts and never sent anything.
  *
- * Set CAMPAIGN_API_KEY to require an `x-campaign-key` header. Left unset the route is open,
- * like every other route on this app — but this one can push to every user at once, so it
- * is worth setting.
+ * Requires an `x-campaign-key` header matching CAMPAIGN_API_KEY, and rejects everything
+ * while that is unset — this route can push to every user at once, so it must not be the
+ * one route that opens itself up by being misconfigured.
+ *
+ * firebase-functions v6 reads process.env from `functions/.env` at deploy time, so the key
+ * goes there (the file is gitignored), NOT through `firebase functions:config:set`, which
+ * populates functions.config() instead and would leave this permanently rejecting.
  */
 function registerCampaignRoutes(app, { db, messaging }) {
   app.post("/notifications/campaigns/send", async (req, res) => {

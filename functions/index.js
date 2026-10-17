@@ -2034,6 +2034,32 @@ app.post("/chat-history/sync-to-sheet", async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Campaigns: offers / announcements / festival wishes (admin-triggered) and
+// birthday wishes (automatic). See functions/campaigns.js.
+//
+// admin is initialized here as a NAMED app, so messaging must be scoped to it —
+// admin.messaging() alone would reach for a [DEFAULT] app that does not exist.
+// ---------------------------------------------------------------------------
+const {
+  registerCampaignRoutes,
+  createCampaignSchedulers,
+} = require("./campaigns");
+
+const campaignMessaging = admin.messaging(adminApp);
+
+registerCampaignRoutes(app, { db, messaging: campaignMessaging });
+
+const campaignSchedulers = createCampaignSchedulers({
+  functions,
+  db,
+  messaging: campaignMessaging,
+  timeZone: "Asia/Kolkata",
+});
+
+exports.sendBirthdayWishes = campaignSchedulers.sendBirthdayWishes;
+exports.dispatchCampaigns = campaignSchedulers.dispatchCampaigns;
+
 // JSON 404 to avoid HTML error pages
 app.use((req, res) => {
   console.log("[404]", req.method, req.path);
@@ -2294,32 +2320,6 @@ exports.registerExpoPushToken = functions.https.onCall(async (data, context) => 
     throw error;
   }
 });
-
-// ---------------------------------------------------------------------------
-// Campaigns: offers / announcements / festival wishes (admin-triggered) and
-// birthday wishes (automatic). See functions/campaigns.js.
-//
-// admin is initialized here as a NAMED app, so messaging must be scoped to it —
-// admin.messaging() alone would reach for a [DEFAULT] app that does not exist.
-// ---------------------------------------------------------------------------
-const {
-  registerCampaignRoutes,
-  createCampaignSchedulers,
-} = require("./campaigns");
-
-const campaignMessaging = admin.messaging(adminApp);
-
-registerCampaignRoutes(app, { db, messaging: campaignMessaging });
-
-const campaignSchedulers = createCampaignSchedulers({
-  functions,
-  db,
-  messaging: campaignMessaging,
-  timeZone: "Asia/Kolkata",
-});
-
-exports.sendBirthdayWishes = campaignSchedulers.sendBirthdayWishes;
-exports.dispatchCampaigns = campaignSchedulers.dispatchCampaigns;
 
 // Export the Express app as a Cloud Function
 exports.app = functions.https.onRequest(app);

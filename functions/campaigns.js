@@ -328,7 +328,11 @@ async function pruneInvalidTokens(db, invalidTokens, recipients) {
       const patch = {};
       if (dead.has(r.fcmToken)) patch.fcmToken = null;
       if (dead.has(r.expoPushToken)) patch.expoPushToken = null;
-      return db.collection("users").doc(r.uid).set(patch, { merge: true }).catch(() => null);
+      // r.source is the collection the recipient was read from ("users" or "servicemen").
+      // Hardcoding "users" both created a junk doc under the wrong id and left the real
+      // dead token in place, so every later campaign retried it.
+      return db.collection(r.source || "users").doc(r.uid)
+        .set(patch, { merge: true }).catch(() => null);
     });
   await Promise.all(writes);
   return writes.length;
@@ -627,8 +631,10 @@ function normalizeIncoming(body) {
 function registerCampaignRoutes(app, { db, messaging }) {
   app.post("/notifications/campaigns/send", async (req, res) => {
     try {
+      // Fail closed. An unset CAMPAIGN_API_KEY must not leave a "push to every user"
+      // endpoint open — this route is registered before the 404 handler, so it answers.
       const requiredKey = process.env.CAMPAIGN_API_KEY;
-      if (requiredKey && req.get("x-campaign-key") !== requiredKey) {
+      if (!requiredKey || req.get("x-campaign-key") !== requiredKey) {
         return res.status(401).json({ success: false, error: "Invalid campaign key" });
       }
 

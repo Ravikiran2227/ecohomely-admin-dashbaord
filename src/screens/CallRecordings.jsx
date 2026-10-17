@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { collection, doc, getDocs, limit, orderBy, query, updateDoc } from 'firebase/firestore'
-import { deleteObject, getDownloadURL, listAll, ref as storageRef } from 'firebase/storage'
+import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore'
+import { getDownloadURL, listAll, ref as storageRef } from 'firebase/storage'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import { Card } from '../components/Card'
@@ -288,50 +288,6 @@ export default function CallRecordings() {
     }
   }, [resolveFileUrl])
 
-  /**
-   * Permanently delete a recording: remove the Storage object(s), then drop the file from the
-   * call doc's recording.files (clearing the prefix/status when nothing is left).
-   */
-  const handleDelete = useCallback(async (call, filePath, fileId) => {
-    if (!window.confirm('Delete this recording permanently? This cannot be undone.')) return
-    setBusyFileId(fileId)
-    try {
-      if (filePath) {
-        await deleteObject(storageRef(storage, filePath)).catch((e) => {
-          if (e?.code !== 'storage/object-not-found') throw e
-        })
-      } else if (call.recordingPrefix) {
-        // Prefix-only call: delete every file in the recording folder.
-        const folder = await listAll(storageRef(storage, call.recordingPrefix))
-        await Promise.all(folder.items.map((item) => deleteObject(item).catch(() => null)))
-      }
-
-      const remaining = (call.recordingFiles || []).filter((entry) => entry !== filePath)
-      const clearAll = !filePath || remaining.length === 0
-      const update = { 'recording.files': remaining }
-      if (clearAll) {
-        update['recording.storagePathPrefix'] = null
-        update['recording.status'] = 'deleted'
-      }
-      await updateDoc(doc(db, CALLS_COLLECTION, call.id), update)
-
-      if (playing?.fileId === fileId) setPlaying(null)
-      setCalls((prev) => prev.map((entry) => (entry.id === call.id
-        ? {
-          ...entry,
-          recordingFiles: remaining,
-          recordingPrefix: clearAll ? null : entry.recordingPrefix,
-          recordingStatus: clearAll ? 'deleted' : entry.recordingStatus,
-        }
-        : entry)))
-    } catch (e) {
-      console.error('CallRecordings: delete failed', e)
-      window.alert(e?.message || 'Could not delete this recording.')
-    } finally {
-      setBusyFileId(null)
-    }
-  }, [playing])
-
   function renderRecording(call) {
     const state = recordingState(call)
     if (state === 'failed') {
@@ -384,10 +340,6 @@ export default function CallRecordings() {
                 <Btn v="outline" size="xs" disabled={isBusy} onClick={() => handleShare(call, filePath, fileId)}>
                   <Icon n={justCopied ? 'check' : 'send'} sz={12} />
                   {justCopied ? 'Link copied' : 'Share'}
-                </Btn>
-                <Btn v="danger" size="xs" disabled={isBusy} onClick={() => handleDelete(call, filePath, fileId)}>
-                  <Icon n="trash" sz={12} />
-                  Delete
                 </Btn>
               </div>
               {isPlaying ? (

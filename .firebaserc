@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "ecohomely-app"
+    "default": "ecohomely-app",
+    "prod": "ecohomely-app",
+    "dev": "ecohomely-dev-4e198"
   }
 }

@@ -63,6 +63,18 @@ function formatCurrency(value) {
   return `₹${Number(value || 0).toLocaleString('en-IN')}`
 }
 
+// Partner app stores visit/inspection charges as { type: 'free' | 'paid', amount }.
+function formatChargeSetting(setting, fallbackAmount) {
+  if (setting && typeof setting === 'object') {
+    const type = String(setting.type || '').toLowerCase()
+    const amount = Number(setting.amount)
+    if (type === 'free') return 'Free'
+    if (type === 'paid' && Number.isFinite(amount) && amount > 0) return formatCurrency(amount)
+  }
+  const fallback = Number(fallbackAmount)
+  return Number.isFinite(fallback) && fallback > 0 ? formatCurrency(fallback) : undefined
+}
+
 function formatPlanExpiry(value) {
   if (!value) return 'Not scheduled'
   const parsed = new Date(value)
@@ -571,6 +583,8 @@ function scopedWorkerForProfession(worker = {}, type = 'primary') {
     fullService: fullServicePackagePrice || secondary.fullService || null,
     packagePrice: fullServicePackagePrice || secondary.packagePrice || worker?.secondaryPackagePrice || 0,
     serviceCharges,
+    visitCharge: secondary.visitCharge || worker?.secondaryVisitCharge || null,
+    inspectionCharge: secondary.inspectionCharge || worker?.secondaryInspectionCharge || null,
     minimalVisitIncludes: secondary.minimalVisitIncludes || secondary.minimumVisitIncludes || worker?.secondaryMinimalVisitIncludes || [],
     fullServiceIncludes: secondary.fullServiceIncludes || secondary.packageIncludes || secondary.fullServicePackage?.includes || worker?.secondaryFullServiceIncludes || [],
     additionalFullServicePackages: secondary.additionalFullServicePackages || worker?.secondaryAdditionalFullServicePackages || [],
@@ -666,6 +680,8 @@ function buildProfessionInfoRows(profession = {}, worker = {}, reviewCards = [])
       worker.minimalVisitCharge,
       worker.price,
     ) || undefined },
+    { label: 'Visit Charge', value: formatChargeSetting(worker.visitCharge, worker.minimalVisitCharge) },
+    { label: 'Inspection Charge', value: formatChargeSetting(worker.inspectionCharge) },
     { label: 'Full Service Package Price', value: resolveFullServicePackagePrice(profession, worker) },
     { label: 'Service Included Charges', value: serviceCharges.length ? serviceCharges.map((item) => `${item.service}: ${formatCurrency(item.charge)}`).join(', ') : '' },
     { label: 'Brand Certification', value: getProfessionField(profession, worker, ['brandCertification', 'brandCertificate', 'certification', 'brand.certification']) },

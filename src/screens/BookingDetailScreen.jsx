@@ -24,6 +24,17 @@ import {
   statusColor,
 } from '../utils/bookingTrackerData'
 
+// Customer app saves the chosen item as { type: 'service' | 'package', name, price }.
+function selectedServiceLabel(booking) {
+  const selection = booking?.selectedService
+  const name = selection && typeof selection === 'object' ? String(selection.name || '').trim() : ''
+  if (!name) return ''
+  const kind = selection.type === 'package' ? 'Package' : 'Service'
+  const price = Number(selection.price)
+  const priceText = Number.isFinite(price) && price > 0 ? ` · ₹${price.toLocaleString('en-IN')}` : ''
+  return `${name} (${kind}${priceText})`
+}
+
 export default function BookingDetailScreen() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -358,6 +369,8 @@ export default function BookingDetailScreen() {
           <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
             <InfoRow label="Service" value={booking.service} />
             <InfoRow label="Sub-service" value={booking.category || booking.service} />
+            <InfoRow label="Selected Service / Package" value={selectedServiceLabel(booking)} />
+            <InfoRow label="Scheduled For" value={booking.scheduledDate ? formatDateTime(booking.scheduledDate) : ''} />
             <InfoRow label="Address" value={booking.address} className="sm:col-span-2" />
             <InfoRow label="Landmark" value={booking.landmark} className="sm:col-span-2" />
           </div>

@@ -1400,7 +1400,16 @@ function WorkerProfileDetailViewContent({ workerId }) {
   const hiddenDocumentCards = documentCards.filter(documentLooksHidden)
   const visibleDocumentCards = documentCards.filter((document) => !documentLooksHidden(document))
   const isVerified = isAdminApprovedWorker(worker)
-  const workerStatus = isSuspended ? 'Suspended' : (worker.availability === 'Available' ? 'Active' : worker.availability)
+  const workerIsOnline = worker.isOnline === true
+    || worker.active === true
+    || worker.online === true
+    || ['available', 'online', 'active'].includes(String(worker.availability || '').toLowerCase())
+  const workerStatus = isSuspended ? 'Suspended' : (workerIsOnline ? 'Active' : 'Inactive')
+  const workerStatusClass = isSuspended
+    ? 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400'
+    : workerIsOnline
+      ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+      : 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'
   const activePlan = worker.planType || worker.planName || worker.subscriptionPlan || ''
   const planExpiryLabel = worker.planExpiry ? formatDate(worker.planExpiry) : ''
   const rawPlanValue = worker.planValue ?? worker.planPrice ?? worker.subscriptionAmount ?? worker.subscription?.amount ?? ''
@@ -1997,7 +2006,7 @@ function WorkerProfileDetailViewContent({ workerId }) {
                     ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
                     : 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'}
                 />
-                <StatusChip label={workerStatus} className={isSuspended ? 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'} />
+                <StatusChip label={workerStatus} className={workerStatusClass} />
                 <MembershipBadge badge={membershipBadge} />
               </div>
             </div>

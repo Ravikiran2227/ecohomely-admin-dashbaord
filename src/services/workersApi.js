@@ -704,8 +704,19 @@ export function normalizeWorker(worker = {}) {
   const documents = normalizeDocuments(worker)
   const approvalStatus = normalizeApprovalStatus(worker)
   const rejoinedAfterSuspend = isRejoinedAfterSuspend(worker)
-  const availability = firstValue(worker.availability, toBoolean(worker.isOnline) || worker.active === true ? 'Available' : '')
-    || (worker.active === false || worker.isOnline === false ? 'Offline' : 'Offline')
+  // The partner app writes all three availability fields. Prefer the explicit
+  // boolean toggle so stale availability text cannot leave the admin badge wrong.
+  const hasOnlineToggle = typeof worker.isOnline === 'boolean'
+    || typeof worker.active === 'boolean'
+    || typeof worker.online === 'boolean'
+  const onlineToggle = typeof worker.isOnline === 'boolean'
+    ? worker.isOnline
+    : typeof worker.active === 'boolean'
+      ? worker.active
+      : worker.online
+  const availability = hasOnlineToggle
+    ? (onlineToggle ? 'Available' : 'Offline')
+    : (firstValue(worker.availability, '') || 'Offline')
   const verificationVersions = normalizeVerificationVersions(worker, approvalStatus)
 
   return {

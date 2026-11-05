@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore'
-import { getDownloadURL, listAll, ref as storageRef } from 'firebase/storage'
+import { collection, doc, getDocs, limit, orderBy, query, updateDoc } from 'firebase/firestore'
+import { deleteObject, getDownloadURL, listAll, ref as storageRef } from 'firebase/storage'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import { Card } from '../components/Card'
@@ -133,6 +133,14 @@ function recordingState(call) {
   return 'none'
 }
 
+// Mix-mode cloud recording emits HLS (.m3u8 + .ts segments) alongside the mp4. Only the
+// mp4/m4a is directly playable in an <audio> element — a .ts/.m3u8 entry is why a recording
+// that was "saved" would not play. Always resolve to the playable file.
+const PLAYABLE_RE = /\.(mp4|m4a|aac|mp3|wav|ogg)$/i
+function pickPlayablePath(paths) {
+  return (paths || []).filter(Boolean).find((p) => PLAYABLE_RE.test(p)) || null
+}
+
 function matchesStatusFilter(call, filterKey) {
   if (filterKey === 'all') return true
   if (filterKey === 'recorded') return recordingState(call) === 'ready'
@@ -220,11 +228,16 @@ export default function CallRecordings() {
    * that only recorded a prefix has its folder listed instead.
    */
   const resolveFileUrl = useCallback(async (call, filePath) => {
-    if (filePath) return getDownloadURL(storageRef(storage, filePath))
+    // Prefer a directly-playable file. If the clicked entry is an HLS segment, fall back to a
+    // playable sibling on the same call so Play/Download still get the mp4.
+    const sibling = pickPlayablePath(call.recordingFiles)
+    const target = filePath && PLAYABLE_RE.test(filePath) ? filePath : sibling || filePath
+    if (target) return getDownloadURL(storageRef(storage, target))
     if (!call.recordingPrefix) throw new Error('This call has no stored recording.')
     const folder = await listAll(storageRef(storage, call.recordingPrefix))
     if (!folder.items.length) throw new Error('The recording folder is empty.')
-    return getDownloadURL(folder.items[0])
+    const chosen = folder.items.find((item) => PLAYABLE_RE.test(item.name)) || folder.items[0]
+    return getDownloadURL(chosen)
   }, [])
 
   const handlePlay = useCallback(async (call, filePath, fileId) => {
@@ -288,6 +301,50 @@ export default function CallRecordings() {
     }
   }, [resolveFileUrl])
 
+  /**
+   * Permanently delete a recording: remove the Storage object(s), then drop the file from the
+   * call doc's recording.files (clearing the prefix/status when nothing is left).
+   */
+  const handleDelete = useCallback(async (call, filePath, fileId) => {
+    if (!window.confirm('Delete this recording permanently? This cannot be undone.')) return
+    setBusyFileId(fileId)
+    try {
+      if (filePath) {
+        await deleteObject(storageRef(storage, filePath)).catch((e) => {
+          if (e?.code !== 'storage/object-not-found') throw e
+        })
+      } else if (call.recordingPrefix) {
+        // Prefix-only call: delete every file in the recording folder.
+        const folder = await listAll(storageRef(storage, call.recordingPrefix))
+        await Promise.all(folder.items.map((item) => deleteObject(item).catch(() => null)))
+      }
+
+      const remaining = (call.recordingFiles || []).filter((entry) => entry !== filePath)
+      const clearAll = !filePath || remaining.length === 0
+      const update = { 'recording.files': remaining }
+      if (clearAll) {
+        update['recording.storagePathPrefix'] = null
+        update['recording.status'] = 'deleted'
+      }
+      await updateDoc(doc(db, CALLS_COLLECTION, call.id), update)
+
+      if (playing?.fileId === fileId) setPlaying(null)
+      setCalls((prev) => prev.map((entry) => (entry.id === call.id
+        ? {
+          ...entry,
+          recordingFiles: remaining,
+          recordingPrefix: clearAll ? null : entry.recordingPrefix,
+          recordingStatus: clearAll ? 'deleted' : entry.recordingStatus,
+        }
+        : entry)))
+    } catch (e) {
+      console.error('CallRecordings: delete failed', e)
+      window.alert(e?.message || 'Could not delete this recording.')
+    } finally {
+      setBusyFileId(null)
+    }
+  }, [playing])
+
   function renderRecording(call) {
     const state = recordingState(call)
     if (state === 'failed') {
@@ -311,8 +368,10 @@ export default function CallRecordings() {
       )
     }
     const files = call.recordingFiles || []
-    // One entry per stored file; a prefix-only call gets a single lazily-resolved entry.
-    const entries = files.length ? files : [null]
+    // Show a single playable entry when the recording has one (the rest are HLS segments that
+    // can't play); otherwise fall back to the folder listing (null) which resolves the mp4.
+    const playable = pickPlayablePath(files)
+    const entries = playable ? [playable] : [null]
     return (
       <div className="grid gap-2">
         {entries.map((filePath, index) => {
@@ -340,6 +399,10 @@ export default function CallRecordings() {
                 <Btn v="outline" size="xs" disabled={isBusy} onClick={() => handleShare(call, filePath, fileId)}>
                   <Icon n={justCopied ? 'check' : 'send'} sz={12} />
                   {justCopied ? 'Link copied' : 'Share'}
+                </Btn>
+                <Btn v="danger" size="xs" disabled={isBusy} onClick={() => handleDelete(call, filePath, fileId)}>
+                  <Icon n="trash" sz={12} />
+                  Delete
                 </Btn>
               </div>
               {isPlaying ? (

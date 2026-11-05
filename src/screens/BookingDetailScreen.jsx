@@ -24,6 +24,31 @@ import {
   statusColor,
 } from '../utils/bookingTrackerData'
 
+const rupees = (value) => `₹${Number(value).toLocaleString('en-IN')}`
+
+// Customer app stores the picked items as selectedServices (one or more); older bookings
+// a single selectedService. Each is { type: 'service' | 'package', name, price }.
+function selectedServicesLabel(booking) {
+  const list = Array.isArray(booking?.selectedServices) && booking.selectedServices.length
+    ? booking.selectedServices
+    : booking?.selectedService ? [booking.selectedService] : []
+  return list
+    .filter((item) => item && typeof item === 'object' && String(item.name || '').trim())
+    .map((item) => {
+      const price = Number(item.price)
+      const kind = item.type === 'package' ? ' (Package)' : ''
+      return `${String(item.name).trim()}${kind}${Number.isFinite(price) && price > 0 ? ` · ${rupees(price)}` : ''}`
+    })
+    .join('\n')
+}
+
+function visitChargeLabel(booking) {
+  if (booking?.visitCharge == null) return ''
+  const amount = Number(booking.visitCharge?.amount ?? booking.visitCharge)
+  if (!Number.isFinite(amount)) return ''
+  return amount > 0 ? rupees(amount) : 'Free'
+}
+
 export default function BookingDetailScreen() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -358,6 +383,9 @@ export default function BookingDetailScreen() {
           <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
             <InfoRow label="Service" value={booking.service} />
             <InfoRow label="Sub-service" value={booking.category || booking.service} />
+            <InfoRow label="Selected Services / Packages" value={selectedServicesLabel(booking)} />
+            <InfoRow label="Visit Charge" value={visitChargeLabel(booking)} />
+            <InfoRow label="Scheduled For" value={booking.scheduledDate ? formatDateTime(booking.scheduledDate) : ''} />
             <InfoRow label="Address" value={booking.address} className="sm:col-span-2" />
             <InfoRow label="Landmark" value={booking.landmark} className="sm:col-span-2" />
           </div>

@@ -16,16 +16,7 @@ import {
 } from 'firebase/firestore'
 import { ROLE_PERMISSIONS, PERMISSIONS, ROLES, getPermissionsForRole } from '../config/rbac'
 import { lockWorkerAccountCreatedFields } from '../utils/workerAccountCreated'
-
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyA0BSrwXFoBeMvdN4efvfJqHRQarNbZap4',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'ecohomely-app.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'ecohomely-app',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'ecohomely-app.firebasestorage.app',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '820094665311',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:820094665311:web:51105fe59b5fc6a40211ea',
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-4LNYHCBKVK',
-}
+import { firebaseConfig } from '../config/env'
 
 const app = initializeApp(firebaseConfig)
 export const db = initializeFirestore(app, {

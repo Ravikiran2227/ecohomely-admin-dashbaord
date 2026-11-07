@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { doc, initializeFirestore, setDoc } from 'firebase/firestore'
+import { resolveEnvFromProcess } from '../config/resolveEnv.js'
 
 /*
  * One-off seed for the Instant Services catalog.
@@ -12,15 +13,11 @@ import { doc, initializeFirestore, setDoc } from 'firebase/firestore'
  * documents, so the price can never be changed in one place only.
  */
 
-const firebaseConfig = {
-  apiKey: 'AIzaSyA0BSrwXFoBeMvdN4efvfJqHRQarNbZap4',
-  authDomain: 'ecohomely-app.firebaseapp.com',
-  projectId: 'ecohomely-app',
-  storageBucket: 'ecohomely-app.firebasestorage.app',
-  messagingSenderId: '820094665311',
-  appId: '1:820094665311:web:51105fe59b5fc6a40211ea',
-}
-const app = initializeApp(firebaseConfig)
+// Which Firebase project this writes to comes from APP_ENV; unset means production.
+const { name: appEnv, config: env } = resolveEnvFromProcess()
+console.log(`[env] ${appEnv} — project ${env.firebase.projectId}`)
+
+const app = initializeApp(env.firebase)
 const db = initializeFirestore(app, { experimentalForceLongPolling: true, useFetchStreams: false })
 
 const force = process.argv.slice(2).includes('--force')

@@ -208,6 +208,22 @@ function documentText(document = {}) {
   return `${document.key || ''} ${document.name || ''} ${document.fileName || ''} ${document.path || ''} ${document.url || ''}`.toLowerCase()
 }
 
+function documentTimestamp(document = {}) {
+  const raw = document.updatedAt ?? document.uploadedAt ?? document.lastModified
+    ?? document.modifiedAt ?? document.createdAt ?? document.timestamp ?? document.time ?? null
+  if (raw == null) return 0
+  // Firestore timestamp ({ seconds }) or { _seconds }
+  if (typeof raw === 'object') {
+    const seconds = raw.seconds ?? raw._seconds
+    if (typeof seconds === 'number') return seconds * 1000
+    if (typeof raw.toMillis === 'function') return raw.toMillis()
+    return 0
+  }
+  if (typeof raw === 'number') return raw < 1e12 ? raw * 1000 : raw
+  const parsed = Date.parse(raw)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
 function documentHasAsset(document = {}) {
   return Boolean(
     document.url
@@ -265,7 +281,12 @@ function normalizeProofDocuments(documents = []) {
     if (!kind || !byKind.has(kind)) return
     const slot = byKind.get(kind)
     const hasFile = Boolean(document.url || document.path || document.filePath || document.fileName)
-    const shouldReplace = hasFile && (!slot.url || slot.status === 'Missing')
+    if (!hasFile) return
+    const slotEmpty = !slot.url || slot.status === 'Missing'
+    // When multiple documents match the same slot (e.g. a re-uploaded Driving
+    // License), prefer the newest one instead of keeping the first match.
+    const isNewer = documentTimestamp(document) >= documentTimestamp(slot)
+    const shouldReplace = slotEmpty || isNewer
     if (shouldReplace) {
       byKind.set(kind, {
         ...document,

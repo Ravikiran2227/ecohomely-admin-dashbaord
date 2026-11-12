@@ -1,9 +1,11 @@
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, Eye, FileText, Image, PencilLine, Plus, Trash2, Users } from 'lucide-react'
+import { AlertTriangle, Eye, FileText, History, Image, PencilLine, Plus, Trash2, Users } from 'lucide-react'
 import Btn from '../Btn'
 import { Stars } from './ProfessionWorkspace'
 import { formatCurrency, getBookingBadge, getDocumentBadge } from '../../utils/workerProfileDetail'
+import { formatVersionDate } from '../../utils/workerProfileVersions'
+import { listDocumentVersions } from '../../services/firebaseClient'
 
 export function SidebarActionButton({ children, icon, tone = 'secondary', onClick }) {
   const ActionIcon = icon
@@ -151,8 +153,128 @@ function DocumentPreviewModal({ document, onClose }) {
   )
 }
 
+function formatFileSize(bytes = 0) {
+  if (!bytes) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function VersionPreview({ version }) {
+  if (!version) {
+    return (
+      <div className="flex h-72 items-center justify-center rounded-2xl border border-dashed border-[var(--border-main)] bg-[var(--bg-main)] text-sm font-semibold text-[var(--text-muted)]">
+        No version selected
+      </div>
+    )
+  }
+  const pdf = /\.pdf(\?|#|$)/i.test(version.url || version.name || '')
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[var(--border-main)] bg-black/20">
+      {version.isImage ? (
+        <img src={version.url} alt={version.name} loading="lazy" decoding="async" className="h-72 w-full object-contain bg-black/25" />
+      ) : pdf ? (
+        <iframe title={version.name} src={version.url} className="h-72 w-full bg-white" />
+      ) : (
+        <div className="flex h-72 flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
+          <FileText className="h-10 w-10" />
+          <a href={version.url} target="_blank" rel="noreferrer" className="text-sm font-bold text-brand-600 dark:text-brand-300">Open file</a>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VersionPane({ label, versions, index, onChange }) {
+  const version = versions[index]
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">{label}</span>
+        {version?.uploadedAt === versions[0]?.uploadedAt && (
+          <span className="rounded-full border border-brand-500/30 bg-brand-500/10 px-2 py-0.5 text-[10px] font-black uppercase text-brand-600 dark:text-brand-300">Latest</span>
+        )}
+      </div>
+      <select
+        value={index}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-full rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-semibold text-[var(--text-main)]"
+      >
+        {versions.map((item, idx) => (
+          <option key={item.path || idx} value={idx}>
+            {`v${versions.length - idx} · ${formatVersionDate(item.uploadedAt)}`}
+          </option>
+        ))}
+      </select>
+      <VersionPreview version={version} />
+      <div className="rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--text-muted)]">
+        <div className="font-bold text-[var(--text-main)]">Uploaded: {formatVersionDate(version?.uploadedAt)}</div>
+        <div className="mt-0.5 truncate">{version?.name}{version?.size ? ` · ${formatFileSize(version.size)}` : ''}</div>
+        {version?.url && <a href={version.url} target="_blank" rel="noreferrer" className="mt-1 inline-block font-bold text-brand-600 dark:text-brand-300">Open original</a>}
+      </div>
+    </div>
+  )
+}
+
+function DocumentVersionHistoryModal({ document, onClose }) {
+  const [versions, setVersions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [indexA, setIndexA] = useState(0)
+  const [indexB, setIndexB] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    const source = (document.url || document.path || document.filePath || document.storagePath)
+      ? document
+      : (Array.isArray(document.gallery) && document.gallery[0]) || document
+    listDocumentVersions(source)
+      .then((result) => {
+        if (!active) return
+        setVersions(result)
+        setIndexA(0)
+        setIndexB(result.length > 1 ? 1 : 0)
+      })
+      .finally(() => active && setLoading(false))
+    return () => { active = false }
+  }, [document])
+
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] border border-[var(--border-main)] bg-[var(--card-bg)] shadow-[0_24px_80px_rgba(15,23,42,0.35)]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-main)] px-5 py-4">
+          <div className="min-w-0">
+            <div className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Version history</div>
+            <div className="mt-1 truncate text-lg font-black text-[var(--text-main)]">{document.name || document.fileName || 'Document'}</div>
+          </div>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3 py-2 text-sm font-semibold text-[var(--text-main)] hover:bg-[var(--card-hover)]">Close</button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-5">
+          {loading ? (
+            <div className="flex h-64 items-center justify-center text-sm font-semibold text-[var(--text-muted)]">Loading versions…</div>
+          ) : versions.length === 0 ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-2 text-center text-[var(--text-muted)]">
+              <History className="h-10 w-10" />
+              <div className="text-sm font-semibold">No version history found for this document.</div>
+            </div>
+          ) : (
+            <>
+              <div className="mb-4 text-sm text-[var(--text-muted)]">{versions.length} version{versions.length > 1 ? 's' : ''} found. Select any two to compare side by side.</div>
+              <div className="flex flex-col gap-5 sm:flex-row">
+                <VersionPane label="Version A" versions={versions} index={indexA} onChange={setIndexA} />
+                <VersionPane label="Version B" versions={versions} index={indexB} onChange={setIndexB} />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>,
+    globalThis.document.body,
+  )
+}
+
 export const DocumentCard = memo(function DocumentCard({ document, onEdit, onDelete }) {
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0)
   const gallery = Array.isArray(document.gallery) ? document.gallery : []
   const activeGalleryItem = gallery[activeGalleryIndex] || document
@@ -214,8 +336,19 @@ export const DocumentCard = memo(function DocumentCard({ document, onEdit, onDel
         >
           Delete Image
         </button>
+        {(previewUrl || document.path || document.filePath || document.storagePath) && (
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-main)] bg-[var(--bg-main)] px-3.5 py-2 text-sm font-bold text-[var(--text-main)] transition-colors hover:bg-[var(--card-hover)]"
+          >
+            <History className="h-4 w-4" />
+            Version History
+          </button>
+        )}
       </div>
       {previewOpen && <DocumentPreviewModal document={gallery.length ? document : previewDocument} onClose={() => setPreviewOpen(false)} />}
+      {historyOpen && <DocumentVersionHistoryModal document={document} onClose={() => setHistoryOpen(false)} />}
     </div>
   )
 })

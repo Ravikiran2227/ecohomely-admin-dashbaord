@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { deleteObject, getDownloadURL, getStorage, list, listAll, ref as storageRef } from 'firebase/storage'
+import { deleteObject, getDownloadURL, getMetadata, getStorage, list, listAll, ref as storageRef } from 'firebase/storage'
 import {
   addDoc,
   collection,
@@ -597,6 +597,60 @@ function isImagePath(path = '') {
 
 function isVideoPath(path = '') {
   return /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(path)
+}
+
+// Extract the Firebase Storage object path from a document record or a download URL.
+function storagePathFromDocument(document = {}) {
+  const direct = document.path || document.filePath || document.fullPath || document.storagePath
+  if (direct) return String(direct).replace(/^gs:\/\/[^/]+\//, '')
+  const url = document.url || document.src || document.downloadUrl || document.downloadURL || document.fileUrl || ''
+  const match = String(url).match(/\/o\/([^?]+)/)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
+// The partner app uploads every version as `<field>_<epoch>.<ext>` and never
+// deletes the old file, so the whole history lives in the same Storage folder.
+function versionBaseFromName(fileName = '') {
+  const noExt = String(fileName).replace(/\.[^.]+$/, '')
+  return noExt.replace(/[_-]\d{10,}$/, '') // strip trailing _<epoch ms>
+}
+
+function timestampFromName(fileName = '') {
+  const match = String(fileName).match(/[_-](\d{10,})(?:\.[^.]+)?$/)
+  return match ? Number(match[1]) : 0
+}
+
+// List all uploaded versions of a single document (newest first) with the
+// upload time taken from Storage metadata (falling back to the filename epoch).
+export async function listDocumentVersions(document = {}) {
+  const path = storagePathFromDocument(document)
+  if (!path || !path.includes('/')) return []
+  const folder = path.slice(0, path.lastIndexOf('/'))
+  const fileName = path.slice(path.lastIndexOf('/') + 1)
+  const base = versionBaseFromName(fileName)
+  try {
+    const listing = await listAll(storageRef(storage, folder))
+    const matches = listing.items.filter((item) => item.name === fileName || versionBaseFromName(item.name) === base)
+    const versions = await Promise.all(matches.map(async (item) => {
+      const [url, meta] = await Promise.all([
+        getDownloadURL(item).catch(() => ''),
+        getMetadata(item).catch(() => null),
+      ])
+      const metaTs = meta?.timeCreated ? Date.parse(meta.timeCreated) : 0
+      return {
+        name: item.name,
+        path: item.fullPath,
+        url,
+        isImage: isImagePath(item.name),
+        isVideo: isVideoPath(item.name),
+        uploadedAt: metaTs || timestampFromName(item.name) || 0,
+        size: Number(meta?.size) || 0,
+      }
+    }))
+    return versions.filter((version) => version.url).sort((a, b) => b.uploadedAt - a.uploadedAt)
+  } catch {
+    return []
+  }
 }
 
 function documentLabelFromPath(path = '') {

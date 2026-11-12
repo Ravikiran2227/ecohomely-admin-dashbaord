@@ -114,6 +114,9 @@ function canonicalDocumentKind(document = {}) {
   const explicitWorkPhoto = /previous|work[-_ ]?photo|portfolio/.test(directLabel)
   if (explicitWorkPhoto) return 'previousWorkPhotos'
   if (/aadhaar|aadhar|adhaar|adhar/.test(text)) return 'aadhaar'
+  if (/licen[cs]e|driving|driver|(^|[-_ ])dl([-_ ]|$)/.test(text)) {
+    return /back|rear|reverse/.test(text) ? 'drivingLicenseBack' : 'drivingLicense'
+  }
   if (/\bpan\b|pan[-_ ]?card|pancard/.test(text)) return 'pan'
   if (/experience/.test(text)) return 'experienceLetter'
   if (/govt|government|skill/.test(text)) return 'govtSkillCertificate'
@@ -127,6 +130,8 @@ function canonicalDocumentKind(document = {}) {
 function documentDisplayName(kind, fallback) {
   const names = {
     aadhaar: 'Aadhaar',
+    drivingLicense: 'Driving License',
+    drivingLicenseBack: 'Driving License (Back)',
     pan: 'PAN Card',
     experienceLetter: 'Experience Letter',
     govtSkillCertificate: 'Govt Skill Certificate',
@@ -452,6 +457,49 @@ function documentHasAsset(document = {}) {
   return Boolean(document.url || document.src || document.path || document.filePath || document.downloadUrl || document.downloadURL || document.fileUrl || document.storagePath)
 }
 
+// Identity documents that have a single current file per worker in Firestore.
+// When Firestore already provides one of these, stale files still sitting in
+// Firebase Storage (the partner app uploads with a timestamped name and never
+// deletes the old file) must not override or duplicate it.
+const SINGLE_SLOT_KINDS = new Set(['aadhaar', 'drivingLicense', 'drivingLicenseBack', 'pan', 'photo', 'experienceLetter', 'govtSkillCertificate'])
+
+function documentTimestamp(document = {}) {
+  const raw = document.updatedAt ?? document.uploadedAt ?? document.lastModified
+    ?? document.modifiedAt ?? document.createdAt ?? document.timeCreated ?? document.timestamp ?? null
+  if (raw == null) return 0
+  if (typeof raw === 'object') {
+    const seconds = raw.seconds ?? raw._seconds
+    if (typeof seconds === 'number') return seconds * 1000
+    if (typeof raw.toMillis === 'function') return raw.toMillis()
+    return 0
+  }
+  if (typeof raw === 'number') return raw < 1e12 ? raw * 1000 : raw
+  const parsed = Date.parse(raw)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+// Collapse identity documents (Aadhaar, Driving License front/back, etc.) to a
+// single newest file per kind, so an old copy never shows beside the updated one.
+// Non-identity kinds (work photos, certificates) are left untouched.
+function dedupeSingleSlotDocuments(documents = []) {
+  const newestByKind = new Map()
+  const others = []
+  documents.filter(Boolean).forEach((document) => {
+    const kind = canonicalDocumentKind(document)
+    if (!SINGLE_SLOT_KINDS.has(kind)) {
+      others.push(document)
+      return
+    }
+    const existing = newestByKind.get(kind)
+    // On a tie the later entry wins; normalizeDocuments lists the current
+    // top-level field after any stale array entry, so the live value is kept.
+    if (!existing || documentTimestamp(document) >= documentTimestamp(existing)) {
+      newestByKind.set(kind, document)
+    }
+  })
+  return [...others, ...newestByKind.values()]
+}
+
 function documentWithUploadStatus(document = {}) {
   return {
     ...document,
@@ -480,7 +528,7 @@ function withRequiredDocumentCards(documents = [], worker = {}) {
   ].map(mediaAssetFromValue).filter(Boolean)
     .filter((document) => !isDuplicateOfAnyDocument(document, documents))
 
-  const unique = uniqueDocuments(documents).map(documentWithUploadStatus)
+  const unique = dedupeSingleSlotDocuments(uniqueDocuments(documents)).map(documentWithUploadStatus)
   const byKind = new Map(unique.map((document) => [canonicalDocumentKind(document), document]))
   const aadhaarDocument = directAadhaarDocument(documents, worker)
   if (aadhaarDocument) byKind.set('aadhaar', documentWithUploadStatus(aadhaarDocument))
@@ -1307,9 +1355,18 @@ function WorkerProfileDetailViewContent({ workerId }) {
           })),
         ]).then(async ([profileUrl, aadhaarDocumentUrl, storageFiles, documents]) => {
           const documentKeys = new Set(documents.map((document) => `${document.key || ''}:${document.url || document.path || ''}`))
+          // Identity kinds already present in Firestore (the authoritative, current
+          // files). Stale Storage files of these kinds must be dropped so a
+          // re-uploaded Driving License/Aadhaar/etc. is not reverted to an old copy.
+          const firestoreKinds = new Set(documents.map((document) => canonicalDocumentKind(document)).filter(Boolean))
           const mergedDocuments = uniqueDocuments([
             ...documents,
-            ...(storageFiles.documents || []).filter((document) => !documentKeys.has(`${document.key || ''}:${document.url || document.path || ''}`)),
+            ...(storageFiles.documents || [])
+              .filter((document) => !documentKeys.has(`${document.key || ''}:${document.url || document.path || ''}`))
+              .filter((document) => {
+                const kind = canonicalDocumentKind(document)
+                return !(SINGLE_SLOT_KINDS.has(kind) && firestoreKinds.has(kind))
+              }),
           ])
           const existingMedia = [
             ...(Array.isArray(data.professionMedia) ? data.professionMedia : []),

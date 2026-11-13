@@ -103,6 +103,42 @@ function DetailCell({ label, value }) {
   )
 }
 
+// MPIN is a login credential stored in plain text on the customer record. It is
+// masked by default and only revealed on an explicit admin action.
+function MpinInfoRow({ value }) {
+  const [revealed, setRevealed] = useState(false)
+  const pin = value === 0 ? '0' : (value ? String(value) : '')
+  const hasPin = pin.trim() !== ''
+  return (
+    <div className="flex items-center gap-3 mb-4 last:mb-0" style={{ minHeight: 40 }}>
+      <div className="shrink-0 flex items-center justify-center" style={{ marginRight: 8 }}>
+        <Icon name="lock" size={18} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex flex-col gap-1">
+          <span className="block text-[14px] font-semibold text-[var(--text-muted)] leading-tight truncate" style={{ letterSpacing: 0.5 }}>MPIN</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[16px] font-normal text-[var(--text-main)] leading-snug" style={{ minHeight: 20, letterSpacing: hasPin && !revealed ? 3 : 1 }}>
+              {hasPin ? (revealed ? pin : '•'.repeat(pin.length)) : 'Not set'}
+            </span>
+            {hasPin && (
+              <button
+                type="button"
+                onClick={() => setRevealed((prev) => !prev)}
+                className="inline-flex items-center gap-1 rounded-md border border-[var(--border-main)] bg-[var(--card-bg)] px-2 py-0.5 text-xs font-semibold text-brand-600 transition-colors hover:bg-[var(--bg-main)] dark:text-brand-300"
+                aria-label={revealed ? 'Hide MPIN' : 'Show MPIN'}
+              >
+                <Icon name="eye" size={13} />
+                {revealed ? 'Hide' : 'Show'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CustomerProfile() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -534,6 +570,7 @@ export default function CustomerProfile() {
                     <InfoRow label="Phone" value={cur.phone} icon="phone" />
                     <InfoRow label="Email" value={cur.email} icon="message" />
                     <InfoRow label="Area" value={cur.area} icon="mappin" />
+                    <MpinInfoRow value={cur.mpin ?? cur.mPin ?? cur.security?.mpin} />
                   </>
                 )}
               </div>

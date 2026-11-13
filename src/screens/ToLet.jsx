@@ -8,6 +8,7 @@ import { Card } from '../components/Card'
 import Icon from '../components/Icon'
 import EnquiryEditorModal from '../components/tolet/EnquiryEditorModal'
 import ListingEditorModal from '../components/tolet/ListingEditorModal'
+import ListingVersionsModal from '../components/tolet/ListingVersionsModal'
 import { useAuth } from '../context/authContextValue'
 import { ensureStoredCustomer, loadCustomers } from '../utils/customerStorage'
 import { findRegisteredCustomer } from '../utils/toLetProfiles'
@@ -250,6 +251,48 @@ function toListingForm(listing) {
   }
 }
 
+const MAX_LISTING_VERSIONS = 20
+
+// Fingerprint of the editable listing content, tolerant of the dashboard vs app
+// field names (rent/monthlyRent, area/locality, deposit/securityDeposit, …) so a
+// no-op save does not create a spurious version.
+function listingFormSignature(form = {}) {
+  return JSON.stringify([
+    form.propertyType,
+    form.bedrooms,
+    form.bathrooms,
+    form.furnishing,
+    form.monthlyRent ?? form.rent,
+    form.securityDeposit ?? form.deposit,
+    form.maintenance,
+    form.city,
+    form.locality ?? form.area,
+    form.fullAddress ?? form.address,
+    form.availableFrom,
+    form.preferredTenant ?? form.tenantPreference,
+    form.additionalNotes ?? form.description,
+  ].map((value) => String(value ?? '')))
+}
+
+// Snapshot the listing content being replaced by an admin edit, mirroring the
+// customer app's versionHistory so both edit paths feed one history.
+function appendAdminListingVersion(existingListing, newForm) {
+  const history = Array.isArray(existingListing?.versionHistory) ? existingListing.versionHistory : []
+  const existingForm = existingListing?.form || {}
+  if (listingFormSignature(existingForm) === listingFormSignature(newForm)) return history
+  const snapshot = {
+    version: history.length + 1,
+    form: existingForm,
+    photoUrls: Array.isArray(existingListing?.photoUrls) ? existingListing.photoUrls : [],
+    videoUrl: existingListing?.videoUrl || null,
+    approvalStatus: existingListing?.approvalStatus || null,
+    liveStatus: existingListing?.liveStatus || null,
+    editSource: 'admin_edit',
+    savedAt: new Date().toISOString(),
+  }
+  return [...history, snapshot].slice(-MAX_LISTING_VERSIONS)
+}
+
 function parsePhotoInput(value = '') {
   const seen = new Set()
   return String(value || '')
@@ -343,6 +386,7 @@ export default function ToLet() {
   const [activity, setActivity] = useState([])
   const [rejectModal, setRejectModal] = useState({ isOpen: false, listingId: null, reason: REJECT_REASONS[0], note: '' })
   const [listingEditor, setListingEditor] = useState({ isOpen: false, mode: 'create', listingId: null, form: LISTING_FORM_DEFAULTS })
+  const [versionsModal, setVersionsModal] = useState({ isOpen: false, listing: null })
   const [enquiryEditor, setEnquiryEditor] = useState({ isOpen: false, mode: 'create', enquiryId: null, form: ENQUIRY_FORM_DEFAULTS })
   const [listingFilters, setListingFilters] = useState({ search: '', status: 'All', propertyType: 'All' })
 
@@ -483,6 +527,12 @@ export default function ToLet() {
     setListingEditor({ isOpen: true, mode: 'edit', listingId, form: toListingForm(listing) })
   }
 
+  function openListingVersions(listingId) {
+    const listing = listingsState.find((item) => item.id === listingId)
+    if (!listing) return
+    setVersionsModal({ isOpen: true, listing })
+  }
+
   function closeListingEditor() {
     setListingEditor({ isOpen: false, mode: 'create', listingId: null, form: LISTING_FORM_DEFAULTS })
   }
@@ -560,6 +610,11 @@ export default function ToLet() {
       manualStatus: form.manualStatus || null,
       rejectReason: form.approvalStatus === 'Rejected' ? (existingListing?.rejectReason || REJECT_REASONS[0]) : null,
       rejectNote: form.approvalStatus === 'Rejected' ? (existingListing?.rejectNote || '') : null,
+    }
+
+    // Record a version snapshot when an admin edit changes the listing content.
+    if (listingEditor.mode === 'edit' && existingListing) {
+      nextListing.versionHistory = appendAdminListingVersion(existingListing, nextListing.form)
     }
 
     try {
@@ -1045,6 +1100,7 @@ export default function ToLet() {
     onActivate: handleActivate,
     onForceExpire: handleForceExpire,
     onDelete: handleDelete,
+    onViewVersions: openListingVersions,
     onCloseDetail: () => navigate('/tolet/listings'),
   }
 
@@ -1276,6 +1332,13 @@ export default function ToLet() {
         onClose={closeListingEditor}
         onSave={saveListingEditor}
       />
+
+      {versionsModal.isOpen && (
+        <ListingVersionsModal
+          listing={versionsModal.listing}
+          onClose={() => setVersionsModal({ isOpen: false, listing: null })}
+        />
+      )}
 
       <EnquiryEditorModal
         editor={enquiryEditor}

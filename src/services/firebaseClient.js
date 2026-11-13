@@ -526,13 +526,17 @@ async function firstFileMatching(folder, predicate) {
 }
 
 async function filesInFolder(folder, limit = 80) {
-  try {
-    const listing = await listAll(storageRef(storage, folder))
-    const nested = await Promise.all(listing.prefixes.map((prefix) => filesInFolder(prefix.fullPath, limit)))
-    return [...listing.items, ...nested.flat()].slice(0, limit)
-  } catch {
-    return []
-  }
+  // The worker profile probes ~100 candidate Storage folders per load; memoising
+  // each listing keeps repeat visits and overlapping probes from re-listing.
+  return cachedRawRead(`folder:${folder}:${limit}`, async () => {
+    try {
+      const listing = await listAll(storageRef(storage, folder))
+      const nested = await Promise.all(listing.prefixes.map((prefix) => filesInFolder(prefix.fullPath, limit)))
+      return [...listing.items, ...nested.flat()].slice(0, limit)
+    } catch {
+      return []
+    }
+  })
 }
 
 async function rootMediaFiles() {
@@ -1471,6 +1475,31 @@ const LIST_CACHE_TTL_MS = 45000
 const listCache = new Map()
 const listInFlight = new Map()
 
+// Raw-read cache keyed by the underlying Firestore collection (not by filters).
+// The list cache keys by filters, so two filtered views of the same collection
+// each did a full-collection network read; a booking list also re-reads the
+// Bookings collection and collection-group every call. Sharing the raw reads
+// here collapses those into one network round-trip per collection, while each
+// caller still applies its own filters on the returned rows. Writes clear it via
+// invalidateListCache, so freshness matches the list cache.
+const rawReadCache = new Map()
+
+function cachedRawRead(key, loader) {
+  const hit = rawReadCache.get(key)
+  if (hit && Date.now() - hit.at < LIST_CACHE_TTL_MS) return hit.promise
+  const promise = Promise.resolve().then(loader).catch((error) => {
+    rawReadCache.delete(key) // never cache a failed read
+    throw error
+  })
+  rawReadCache.set(key, { at: Date.now(), promise })
+  return promise
+}
+
+function cachedCollectionDocs(alias) {
+  return cachedRawRead(`col:${alias}`, () =>
+    getDocs(collection(db, alias)).then((snapshot) => snapshot.docs.map(docToJson)))
+}
+
 function listCacheKey(name, filters) {
   try {
     const keys = Object.keys(filters || {}).sort()
@@ -1487,6 +1516,9 @@ function listCacheKey(name, filters) {
  * `name` omitted clears everything, which is what a write of unknown scope needs.
  */
 export function invalidateListCache(name) {
+  // Raw reads are shared across collections (bookings pull customers/workers), so
+  // any write clears them wholesale to guarantee the next read is fresh.
+  rawReadCache.clear()
   if (!name) {
     listCache.clear()
     return
@@ -1545,8 +1577,8 @@ async function loadCollection(name, filters = {}) {
   if (name === 'accountDeletions') return listAccountDeletionRequests(filters)
   if (name === 'notifications') return listNotifications(filters)
 
-  const topLevelRows = await Promise.all(aliasesFor(name).map((alias) => getDocs(collection(db, alias))))
-    .then((snapshots) => snapshots.flatMap((snapshot) => snapshot.docs.map(docToJson)))
+  const topLevelRows = await Promise.all(aliasesFor(name).map((alias) => cachedCollectionDocs(alias)))
+    .then((lists) => lists.flat())
   // Awaited one after the other, these two full-collection scans ran back to back for no
   // reason — neither depends on the other.
   const groupRows = name === 'workers'
@@ -1696,12 +1728,14 @@ async function listAccountDeletionRequests(filters = {}) {
 }
 
 async function safeCollectionGroup(name) {
-  try {
-    const snapshot = await getDocs(collectionGroup(db, name))
-    return snapshot.docs.map(docToJson)
-  } catch {
-    return []
-  }
+  return cachedRawRead(`cg:${name}`, async () => {
+    try {
+      const snapshot = await getDocs(collectionGroup(db, name))
+      return snapshot.docs.map(docToJson)
+    } catch {
+      return []
+    }
+  })
 }
 
 async function listVersionControlDocuments() {
@@ -1716,8 +1750,8 @@ async function listVersionControlDocuments() {
 
 async function listBookings(filters = {}) {
   const [topLevelBookings, lowerBookings, groupBookings, customers, workers] = await Promise.all([
-    getDocs(collection(db, 'Bookings')).then((snapshot) => snapshot.docs.map(docToJson)).catch(() => []),
-    getDocs(collection(db, 'bookings')).then((snapshot) => snapshot.docs.map(docToJson)).catch(() => []),
+    cachedCollectionDocs('Bookings').catch(() => []),
+    cachedCollectionDocs('bookings').catch(() => []),
     safeCollectionGroup('Bookings'),
     listCollection('customers'),
     listCollection('workers'),

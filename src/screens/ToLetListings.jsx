@@ -21,6 +21,10 @@ function actionButtons(listing, actions) {
     { label: 'Edit', onClick: () => actions.onEdit(listing.id), variant: 'outline', icon: 'edit', emphasis: 'secondary' },
   ]
 
+  if (actions.onViewVersions) {
+    buttons.push({ label: 'Versions', onClick: () => actions.onViewVersions(listing.id), variant: 'outline', icon: 'clock', emphasis: 'secondary' })
+  }
+
   if (listing.status === 'Pending' || listing.status === 'Correction Required') {
     buttons.push({ label: 'Approve', onClick: () => actions.onApprove(listing.id), variant: 'success', icon: 'check', emphasis: 'primary', disabled: !listing.registrationReady })
     buttons.push({ label: 'Reject', onClick: () => actions.onReject(listing.id), variant: 'danger', icon: 'close', emphasis: 'destructive' })

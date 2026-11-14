@@ -8,7 +8,7 @@ import EmptyState from '../components/EmptyState'
 import Icon from '../components/Icon'
 import { DataTable, TableRow, TD } from '../components/Table'
 import { C } from '../theme'
-import { loadCustomers } from '../utils/customerStorage'
+import { loadCustomerDirectory } from '../utils/customerStorage'
 import customersApi from '../services/customersApi'
 
 function Avatar({ name = '', photoUrl = '', size = 40 }) {
@@ -271,7 +271,9 @@ export default function CustomerList() {
     setError('')
 
     try {
-      setCustomerRecords(await loadCustomers())
+      // The list only needs customer fields visible in its rows.  Do not block
+      // it on every booking, complaint and Storage avatar in the account.
+      setCustomerRecords(await loadCustomerDirectory())
     } catch (loadError) {
       setError(loadError.message || 'Unable to load customers.')
     } finally {

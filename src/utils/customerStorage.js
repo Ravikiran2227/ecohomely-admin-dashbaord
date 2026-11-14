@@ -465,6 +465,14 @@ export async function loadCustomers(filters = {}, options = {}) {
   return Promise.all(deduped.map((record) => hydrateCustomerPhoto(record)))
 }
 
+// A To Let view only needs customer identity details to match owners and
+// enquiries.  Loading every booking, complaint and profile image here makes a
+// simple dashboard visit wait on several unrelated full-collection reads.
+export async function loadCustomerDirectory(filters = {}, options = {}) {
+  const records = await customersApi.listCustomers(filters, options)
+  return normalizeCustomerRecords(Array.isArray(records) ? records : [])
+}
+
 export async function loadCustomerProfile(customerId, options = {}) {
   const [customer, relatedResult, bookingsResult, complaintsResult] = await Promise.all([
     customersApi.getCustomer(customerId, options),

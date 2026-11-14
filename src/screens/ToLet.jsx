@@ -10,13 +10,10 @@ import EnquiryEditorModal from '../components/tolet/EnquiryEditorModal'
 import ListingEditorModal from '../components/tolet/ListingEditorModal'
 import ListingVersionsModal from '../components/tolet/ListingVersionsModal'
 import { useAuth } from '../context/authContextValue'
-import { ensureStoredCustomer, loadCustomers } from '../utils/customerStorage'
+import { ensureStoredCustomer, loadCustomerDirectory } from '../utils/customerStorage'
 import { findRegisteredCustomer } from '../utils/toLetProfiles'
 import toLetApi from '../services/toLetApi'
 import {
-  loadStoredToLetCategories,
-  loadStoredToLetEnquiries,
-  loadStoredToLetListings,
   normalizeToLetCategory,
   normalizeToLetEnquiry,
   normalizeToLetListing,
@@ -404,12 +401,20 @@ export default function ToLet() {
     setDataState({ loading: true, error: '' })
 
     try {
-      const customers = await loadCustomers()
-      const [nextListings, nextEnquiries, nextCategories] = await Promise.all([
-        loadStoredToLetListings(customers),
-        loadStoredToLetEnquiries(customers),
-        loadStoredToLetCategories(),
+      // Fetch the purpose-built dashboard payload in one request.  Previously
+      // this screen issued three To Let collection reads plus customers,
+      // bookings and complaints on every mount, although bookings and
+      // complaints are not displayed here.
+      const [customers, dashboard] = await Promise.all([
+        loadCustomerDirectory(),
+        toLetApi.getDashboard(),
       ])
+      const nextListings = (Array.isArray(dashboard?.listings) ? dashboard.listings : [])
+        .map((record) => normalizeToLetListing(record, customers))
+      const nextEnquiries = (Array.isArray(dashboard?.enquiries) ? dashboard.enquiries : [])
+        .map((record) => normalizeToLetEnquiry(record, customers))
+      const nextCategories = (Array.isArray(dashboard?.categories) ? dashboard.categories : [])
+        .map(normalizeToLetCategory)
 
       setCustomerRecords(customers)
       setListingsState(nextListings)

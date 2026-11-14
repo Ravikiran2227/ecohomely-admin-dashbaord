@@ -790,9 +790,11 @@ export default function WorkerList() {
       }))
       .catch(() => setLocationRows({ states: [], districts: [], cities: [], areas: [] }))
 
+    // Re-fetching the entire worker collection every ten seconds competes with
+    // the current view and can keep the main thread busy on large accounts.
     const intervalId = window.setInterval(() => {
-      loadWorkers({ silent: true })
-    }, 10000)
+      if (!document.hidden) loadWorkers({ silent: true })
+    }, 60000)
     const refreshOnFocus = () => {
       if (!document.hidden) loadWorkers({ silent: true })
     }

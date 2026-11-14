@@ -18,6 +18,7 @@ import { ROLE_PERMISSIONS, PERMISSIONS, ROLES, getPermissionsForRole } from '../
 import { lockWorkerAccountCreatedFields } from '../utils/workerAccountCreated'
 import { firebaseConfig } from '../config/env'
 
+import { reportSwallowed } from '../utils/listenerErrors'
 const app = initializeApp(firebaseConfig)
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
@@ -533,7 +534,9 @@ async function filesInFolder(folder, limit = 80) {
       const listing = await listAll(storageRef(storage, folder))
       const nested = await Promise.all(listing.prefixes.map((prefix) => filesInFolder(prefix.fullPath, limit)))
       return [...listing.items, ...nested.flat()].slice(0, limit)
-    } catch {
+    } catch (error) {
+      // Folder path omitted from the label on purpose - it can contain user ids.
+      reportSwallowed('firebaseClient/filesInFolder', error)
       return []
     }
   })
@@ -652,7 +655,8 @@ export async function listDocumentVersions(document = {}) {
       }
     }))
     return versions.filter((version) => version.url).sort((a, b) => b.uploadedAt - a.uploadedAt)
-  } catch {
+  } catch (error) {
+    reportSwallowed('firebaseClient/documentVersions', error)
     return []
   }
 }
@@ -1607,7 +1611,8 @@ async function listStorageImageUrls(folder) {
     const listing = await listAll(storageRef(storage, folder))
     const urls = await Promise.all(listing.items.map((item) => getDownloadURL(item).catch(() => '')))
     return urls.filter(Boolean)
-  } catch {
+  } catch (error) {
+    reportSwallowed('firebaseClient/listStorageImageUrls', error)
     return []
   }
 }
@@ -1732,7 +1737,10 @@ async function safeCollectionGroup(name) {
     try {
       const snapshot = await getDocs(collectionGroup(db, name))
       return snapshot.docs.map(docToJson)
-    } catch {
+    } catch (error) {
+      // Collection-group queries need their own rule (match /{path=**}/name/{id}).
+      // Without this report a denied query is indistinguishable from "no data".
+      reportSwallowed(`firebaseClient/safeCollectionGroup:${name}`, error)
       return []
     }
   })

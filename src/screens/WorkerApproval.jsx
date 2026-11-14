@@ -571,18 +571,6 @@ export default function WorkerApproval() {
 
       setQueue(queueWorkers)
 
-      // Persist rejoin markers so the Approval Queue chip stays visible on refresh.
-      workers.forEach((worker) => {
-        if (!worker?.id) return
-        if (worker.rejoinedAfterSuspend === true && worker.wasSuspended === true) return
-        if (!isRejoinedAfterSuspend(worker, { suspendedPhones })) return
-        workersApi.updateWorker(worker.id, {
-          wasSuspended: true,
-          rejoinedAfterSuspend: true,
-          suspendedAt: worker.suspendedAt || worker.lastSuspendedAt || worker.suspended_at || new Date().toISOString(),
-        }).catch(() => {})
-      })
-
       setRejectedCount(workers.filter((worker) => {
         const status = String(worker.approvalStatus || worker.approval_status || worker.reviewStatus || worker.status || '').toLowerCase()
         return status === 'rejected' || status.includes('reject') || worker.rejected === true

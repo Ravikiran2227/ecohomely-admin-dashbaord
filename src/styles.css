@@ -1,0 +1,169 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/tokens.css";
+
+/* Self-hosted Inter (variable, Latin subset only). Served from our own bundle; no third-party font host.
+   Licence: SIL Open Font License 1.1, text shipped in THIRD_PARTY_LICENSES.txt. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+/*
+ * Tailwind utilities generated from the tokens (`bg-brand-600`, `text-n-600`, `border-line`, ...). The names `surface`, `canvas`,
+ * `line`, `ink`, `muted`, `primary`, `danger`, `warn`, `ok` are the console's semantic roles; they point at the Direction B tokens.
+ */
+@theme inline {
+  --font-sans: var(--font-sans);
+
+  --color-brand-950: var(--brand-950);
+  --color-brand-900: var(--brand-900);
+  --color-brand-800: var(--brand-800);
+  --color-brand-700: var(--brand-700);
+  --color-brand-600: var(--brand-600);
+  --color-brand-500: var(--brand-500);
+  --color-brand-300: var(--brand-300);
+  --color-brand-100: var(--brand-100);
+  --color-brand-50: var(--brand-50);
+
+  --color-n-0: var(--n-0);
+  --color-n-25: var(--n-25);
+  --color-n-50: var(--n-50);
+  --color-n-100: var(--n-100);
+  --color-n-200: var(--n-200);
+  --color-n-400: var(--n-400);
+  --color-n-500: var(--n-500);
+  --color-n-600: var(--n-600);
+  --color-n-800: var(--n-800);
+  --color-n-900: var(--n-900);
+
+  --color-sidebar-ink: var(--sidebar-ink);
+  --color-sidebar-group: var(--sidebar-group);
+
+  --color-ok-bg: var(--st-ok-bg);
+  --color-ok-fg: var(--st-ok-fg);
+  --color-ok-bd: var(--st-ok-bd);
+  --color-warn-bg: var(--st-warn-bg);
+  --color-warn-fg: var(--st-warn-fg);
+  --color-warn-bd: var(--st-warn-bd);
+  --color-breach-bg: var(--st-breach-bg);
+  --color-breach-fg: var(--st-breach-fg);
+  --color-breach-bd: var(--st-breach-bd);
+  --color-info-bg: var(--st-info-bg);
+  --color-info-fg: var(--st-info-fg);
+  --color-info-bd: var(--st-info-bd);
+  --color-neutral-bg: var(--st-neutral-bg);
+  --color-neutral-fg: var(--st-neutral-fg);
+  --color-neutral-bd: var(--st-neutral-bd);
+  --color-critical: var(--st-critical-bg);
+
+  /* Semantic roles used across the console */
+  --color-surface: var(--n-0);
+  --color-canvas: var(--n-25);
+  --color-line: var(--n-100);
+  --color-line-strong: var(--n-200);
+  --color-ink: var(--n-900);
+  --color-muted: var(--n-600);
+  --color-primary: var(--brand-600);
+  --color-primary-hover: var(--brand-700);
+  --color-primary-ink: #ffffff;
+  --color-danger: var(--st-breach-fg);
+  --color-ok: var(--st-ok-fg);
+  --color-warn: var(--st-warn-fg);
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --shadow-float: var(--shadow-float);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--n-25);
+  color: var(--n-900);
+  font-family: var(--font-sans);
+  font-size: var(--fs-14);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+}
+/* Numbers in tables, money and timers align. */
+table,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Data tables (design system 3): header 12/500 on the light stone background, rows about 44 px, 13 px text, hover row, hairline borders.
+ * One style for every table, so a page only sets what is specific to it (alignment, width). Utilities on a page still win.
+ */
+@layer base {
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-13);
+  }
+  thead th {
+    background: var(--n-50);
+    color: var(--n-600);
+    font-size: var(--fs-12);
+    font-weight: 500;
+    text-align: left;
+    white-space: nowrap;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--n-100);
+  }
+  tbody th,
+  tbody td {
+    text-align: left;
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--n-100);
+  }
+  tbody th {
+    font-weight: 500;
+  }
+  tbody tr:hover > * {
+    background: var(--n-50);
+  }
+  tbody tr:last-child > * {
+    border-bottom: 0;
+  }
+  /* Density toggle in the table toolbar (comfortable 44 px rows, compact 36 px). */
+  table[data-density="compact"] tbody th,
+  table[data-density="compact"] tbody td {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+}
+
+/* Visible keyboard focus everywhere (design system 1: focus ring on every focusable element). */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* A list row reached with j / k shows where you are. */
+[data-record-row]:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,265 @@
+/** Reason codes required on overrides, rejections, approvals and sensitive reveals (ADM-UX-021 ®). Feed reports. */
+export type ReasonKind =
+  | "reassign" | "cancel" | "reject" | "sos_close" | "reveal"
+  | "bank" | "approval" | "refund" | "kyc" | "assessment" | "activation" | "pincode" | "staff" | "export" | "mpin" | "ticket"
+  | "arrival" | "quality" | "dispute" | "review" | "recon" | "master" | "partner_reveal"
+  | "incident" | "account" | "deletion" | "moderation" | "booking" | "tier" | "schedule" | "cashback" | "app_version" | "flag" | "scoped_reveal" | "reblock" | "partner_status";
+export type ReasonCode = { code: string; label: string };
+
+const OTHER: ReasonCode = { code: "other", label: "Other (explain in the note)" };
+
+export const REASON_CODES: Record<ReasonKind, readonly ReasonCode[]> = {
+  reassign: [
+    { code: "partner_unresponsive", label: "Partner not responding" },
+    { code: "partner_far", label: "Partner too far from the job" },
+    { code: "partner_declined", label: "Partner declined or cannot attend" },
+    { code: "customer_request", label: "Customer asked for a change" },
+    { code: "stuck_job", label: "Job stuck past the assignment target" },
+    OTHER,
+  ],
+  cancel: [
+    { code: "customer_request", label: "Customer asked to cancel" },
+    { code: "no_partner_assigned", label: "No partner assigned" },
+    { code: "partner_fault", label: "Partner fault" },
+    { code: "partner_no_show", label: "Partner did not come" },
+    { code: "platform_fault", label: "Platform fault" },
+    { code: "duplicate_request", label: "Duplicate request" },
+    { code: "out_of_area", label: "Outside the served area" },
+    { code: "safety_concern", label: "Safety concern" },
+    OTHER,
+  ],
+  reject: [
+    { code: "service_not_offered", label: "Service not offered" },
+    { code: "area_not_served", label: "Area not served or not live" },
+    { code: "invalid_request", label: "Invalid or incomplete request" },
+    { code: "duplicate_request", label: "Duplicate request" },
+    OTHER,
+  ],
+  sos_close: [
+    { code: "resolved_safe", label: "Resolved, everyone safe" },
+    { code: "false_alarm", label: "False alarm" },
+    { code: "handed_to_emergency_services", label: "Handed to emergency services" },
+    { code: "escalated_to_owner", label: "Escalated to the owner" },
+    OTHER,
+  ],
+  partner_reveal: [
+    { code: "verification_call", label: "Calling the partner about this verification" },
+    { code: "document_clarification", label: "Clarifying a document in this case" },
+    { code: "onboarding_help", label: "Helping the partner finish onboarding" },
+  ],
+  recon: [
+    { code: "gateway_delay", label: "Gateway has not settled yet" },
+    { code: "provider_adjustment", label: "Provider adjustment" },
+    { code: "duplicate_entry", label: "Duplicate entry" },
+    { code: "test_data", label: "Test or synthetic data" },
+    OTHER,
+  ],
+  master: [
+    { code: "new_area_served", label: "New area to be served" },
+    { code: "naming_correction", label: "Display name correction" },
+    { code: "zone_realignment", label: "Zone realignment" },
+    { code: "pincode_retired", label: "Pincode retired" },
+    OTHER,
+  ],
+  reveal: [
+    { code: "active_sos", label: "Active SOS: contacting the person" },
+    { code: "safety_check", label: "Safety check" },
+    { code: "job_coordination", label: "Job coordination during the SOS" },
+  ],
+  arrival: [
+    { code: "gps_unavailable", label: "Phone location not available" },
+    { code: "location_inaccurate", label: "Location reading is inaccurate" },
+    { code: "customer_confirmed_arrival", label: "Customer confirmed the partner is there" },
+    { code: "partner_on_site_verified", label: "Partner verified on site by another route" },
+    OTHER,
+  ],
+  quality: [
+    { code: "checklist_and_photos_ok", label: "Checklist done and photos show good work" },
+    { code: "incomplete_work", label: "Work incomplete" },
+    { code: "poor_finish", label: "Poor finish" },
+    { code: "damage_or_safety", label: "Damage or safety concern" },
+    { code: "customer_complaint_upheld", label: "Customer complaint upheld" },
+    OTHER,
+  ],
+  dispute: [
+    { code: "evidence_supports_customer", label: "Evidence supports the customer" },
+    { code: "evidence_supports_partner", label: "Evidence supports the partner" },
+    { code: "mixed_responsibility", label: "Responsibility is shared" },
+    { code: "insufficient_evidence", label: "Not enough evidence" },
+    OTHER,
+  ],
+  review: [
+    { code: "abusive_language", label: "Abusive or hateful language" },
+    { code: "personal_data", label: "Contains personal data" },
+    { code: "not_about_the_service", label: "Not about the service" },
+    { code: "fake_or_duplicate", label: "Fake or duplicate" },
+    OTHER,
+  ],
+  bank: [
+    { code: "payout_check", label: "Checking the payout batch" },
+    { code: "transfer_entry", label: "Entering the bank transfer" },
+    { code: "account_correction", label: "Correcting an account" },
+  ],
+  approval: [
+    { code: "verified_against_record", label: "Checked against the record" },
+    { code: "within_policy", label: "Within policy" },
+    { code: "not_within_policy", label: "Not within policy" },
+    { code: "insufficient_evidence", label: "Insufficient evidence" },
+    { code: "incorrect_amount", label: "Amount is incorrect" },
+    OTHER,
+  ],
+  refund: [
+    { code: "service_not_delivered", label: "Service not delivered" },
+    { code: "quality_issue", label: "Quality issue upheld" },
+    { code: "partner_no_show", label: "Partner did not arrive" },
+    { code: "duplicate_payment", label: "Duplicate payment" },
+    { code: "goodwill", label: "Goodwill (approved case)" },
+    { code: "cancelled_by_staff", label: "Cancelled by staff after assignment" },
+    OTHER,
+  ],
+  kyc: [
+    { code: "document_ok", label: "Document is valid and matches" },
+    { code: "unreadable", label: "Unreadable or cut off" },
+    { code: "name_mismatch", label: "Name does not match" },
+    { code: "expired", label: "Expired document" },
+    { code: "suspected_tampering", label: "Suspected tampering" },
+    OTHER,
+  ],
+  assessment: [
+    { code: "checklist_met", label: "Checklist and pass score met" },
+    { code: "below_pass_score", label: "Below the pass score" },
+    { code: "checklist_incomplete", label: "Checklist incomplete" },
+    OTHER,
+  ],
+  activation: [
+    { code: "all_gates_passed", label: "All earlier gates passed" },
+    { code: "capacity_needed", label: "Capacity needed in the zone" },
+    { code: "conduct_concern", label: "Conduct concern" },
+    { code: "partner_request", label: "Partner asked to pause" },
+    OTHER,
+  ],
+  pincode: [
+    { code: "demand", label: "Demand and waitlist" },
+    { code: "partner_coverage", label: "Enough verified partners" },
+    { code: "readiness_review", label: "Readiness review passed" },
+    { code: "incident", label: "Incident or safety concern" },
+    { code: "capacity_shortage", label: "Capacity shortage" },
+    { code: "owner_instruction", label: "Owner instruction" },
+    OTHER,
+  ],
+  staff: [
+    { code: "new_hire", label: "New staff member" },
+    { code: "role_change", label: "Change of responsibilities" },
+    { code: "left_company", label: "Left the company" },
+    { code: "security_concern", label: "Security concern" },
+    { code: "coverage", label: "Temporary cover" },
+    OTHER,
+  ],
+  export: [
+    { code: "audit_request", label: "Audit or accountant request" },
+    { code: "operations_report", label: "Operations report" },
+    { code: "customer_request", label: "Customer data request" },
+    { code: "legal_request", label: "Legal request" },
+    OTHER,
+  ],
+  mpin: [
+    { code: "identity_verified", label: "Identity verified against KYC" },
+    { code: "lost_phone", label: "Lost or changed phone" },
+    { code: "forgotten_mpin", label: "Forgotten MPIN" },
+    OTHER,
+  ],
+  ticket: [
+    { code: "resolved_with_customer", label: "Resolved with the customer" },
+    { code: "no_response", label: "No response from the customer" },
+    { code: "duplicate", label: "Duplicate ticket" },
+    { code: "referred", label: "Referred to another team" },
+    OTHER,
+  ],
+  // F1 (19 Nov 2026), NEW / RECONSTRUCTED. Codes for E-165 follow the PROPOSED list (CONTRACT_PROPOSED_R1 section 7).
+  incident: [
+    { code: "investigating", label: "Investigating" },
+    { code: "known_issue", label: "Known issue, fix under way" },
+    { code: "false_alarm", label: "False alarm" },
+    OTHER,
+  ],
+  account: [
+    { code: "fraud_suspected", label: "Fraud suspected" },
+    { code: "abuse_of_staff_or_partner", label: "Abuse of staff or a partner" },
+    { code: "customer_request", label: "The customer asked for it" },
+    { code: "data_correction", label: "Correct wrong data" },
+    { code: "issue_resolved", label: "Issue resolved (restore)" },
+    OTHER,
+  ],
+  deletion: [
+    { code: "eligible", label: "Eligible: no open booking, payment or dispute" },
+    { code: "open_obligation", label: "Not eligible: open booking, payment or dispute" },
+    { code: "identity_not_confirmed", label: "Identity not confirmed" },
+    OTHER,
+  ],
+  moderation: [
+    { code: "misleading_listing", label: "Misleading listing" },
+    { code: "prohibited_content", label: "Prohibited content" },
+    { code: "duplicate_listing", label: "Duplicate listing" },
+    { code: "owner_request", label: "The owner asked for it" },
+    { code: "issue_fixed", label: "Issue fixed (restore)" },
+    OTHER,
+  ],
+  booking: [
+    { code: "customer_request", label: "The customer asked for it" },
+    { code: "partner_unavailable", label: "Partner unavailable" },
+    { code: "weather_or_access", label: "Weather or access problem" },
+    { code: "duplicate_booking", label: "Duplicate booking" },
+    OTHER,
+  ],
+  tier: [
+    { code: "quality_record", label: "Quality record" },
+    { code: "tenure", label: "Time on the platform" },
+    { code: "profile_correction", label: "Correct the profile" },
+    OTHER,
+  ],
+  schedule: [
+    { code: "partner_leave", label: "Partner on leave" },
+    { code: "partner_sick", label: "Partner unwell" },
+    { code: "public_holiday", label: "Public holiday" },
+    OTHER,
+  ],
+  cashback: [
+    { code: "eligible_per_rules", label: "Eligible under the published rules" },
+    { code: "goodwill", label: "Goodwill (support decision)" },
+    OTHER,
+  ],
+  app_version: [
+    { code: "security_fix", label: "Security fix must be installed" },
+    { code: "breaking_api_change", label: "Older apps cannot use the server" },
+    OTHER,
+  ],
+  flag: [
+    { code: "planned_change", label: "Planned change" },
+    { code: "incident_mitigation", label: "Incident mitigation" },
+    OTHER,
+  ],
+  scoped_reveal: [
+    { code: "contact_about_job", label: "Contact about this job or booking" },
+    { code: "safety_check", label: "Safety check" },
+    { code: "verification_call", label: "Verification call" },
+    { code: "deletion_identity_check", label: "Deletion request: identity check" },
+    OTHER,
+  ],
+  reblock: [
+    { code: "owner_instruction", label: "Owner instruction" },
+    { code: "estate_access_withdrawn", label: "Estate access withdrawn" },
+    { code: "safety_concern", label: "Safety concern" },
+    OTHER,
+  ],
+  // C1 PM-11: suspending or reactivating a partner for Instant (05 accepts any short snake_case code; these feed reports).
+  partner_status: [
+    { code: "conduct_concern", label: "Conduct concern" },
+    { code: "quality_concern", label: "Quality concern" },
+    { code: "document_expired", label: "Document expired" },
+    { code: "partner_request", label: "Partner asked to pause or return" },
+    { code: "issue_resolved", label: "Issue resolved" },
+    OTHER,
+  ],
+};
+
+export const isValidReason = (kind: ReasonKind, code: string): boolean => REASON_CODES[kind].some((r) => r.code === code);
